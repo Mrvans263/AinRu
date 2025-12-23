@@ -412,7 +412,7 @@ const Dashboard = ({ user }) => {
             <div className="info-item info-item-with-icon">
               <span className="info-icon">📱</span>
               <div className="info-content">
-                <span className="info-label">Phone</span>
+                <span className="info-label">Phone </span>
                 <span className="info-value">{userProfile?.phone || 'Not provided'}</span>
               </div>
             </div>
@@ -420,7 +420,7 @@ const Dashboard = ({ user }) => {
             <div className="info-item info-item-with-icon">
               <span className="info-icon">🏫</span>
               <div className="info-content">
-                <span className="info-label">University</span>
+                <span className="info-label">University </span>
                 <span className="info-value">{userProfile?.university || 'Not provided'}</span>
               </div>
             </div>

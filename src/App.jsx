@@ -10,7 +10,6 @@ import Sidebar from './components/Layout/Sidebar';
 import Login from './components/Auth/Login';
 import Signup from './components/Auth/Signup';
 import CompleteProfile from './components/Auth/CompleteProfile';
-import AuthCallback from './components/Auth/AuthCallback'; // NEW
 
 // Page Components
 import Dashboard from './components/Pages/Dashboard';
@@ -38,23 +37,12 @@ function App() {
   const [activeTab, setActiveTab] = useState('marketplace');
   const [showDashboardAfterSignup, setShowDashboardAfterSignup] = useState(false);
   
-  // Track auth state: 'callback', 'login', 'signup', 'complete-profile', 'app'
+  // Track auth state: 'login', 'signup', 'complete-profile', 'app'
   const [authState, setAuthState] = useState('login');
   const [isNewUser, setIsNewUser] = useState(false);
   const [initialCheckDone, setInitialCheckDone] = useState(false);
 
   useEffect(() => {
-    // Check if we're on the OAuth callback URL
-    const isCallbackUrl = window.location.pathname === '/auth/callback' || 
-                         window.location.hash.includes('access_token');
-    
-    if (isCallbackUrl) {
-      console.log('Detected OAuth callback URL');
-      setAuthState('callback');
-      setLoading(false);
-      return; // Don't run normal auth check for callback
-    }
-
     const checkAuth = async () => {
       setLoading(true);
       
@@ -90,7 +78,7 @@ function App() {
             localStorage.removeItem('just_signed_up');
           }
           
-          // Verify with database in background
+          // Verify with database in background (slow, but doesn't block UI)
           setTimeout(async () => {
             try {
               const { data: userProfile } = await supabase
@@ -101,13 +89,13 @@ function App() {
               
               if (!userProfile?.firstname || !userProfile?.surname) {
                 // Database says profile is incomplete
-                console.log('Background check: Profile incomplete, updating state');
                 setAuthState('complete-profile');
                 setIsNewUser(true);
                 localStorage.removeItem(`user_${session.user.id}_profile_complete`);
               }
             } catch (error) {
               console.log('Background profile check failed:', error);
+              // If database check fails, we keep the localStorage state
             }
           }, 0);
           
@@ -128,11 +116,8 @@ function App() {
 
     checkAuth();
 
-    // Listen for auth state changes (excluding callback URL)
+    // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      // Skip if we're on callback URL
-      if (window.location.pathname === '/auth/callback') return;
-      
       console.log('Auth event:', event);
       
       if (event === 'SIGNED_OUT') {
@@ -143,7 +128,7 @@ function App() {
         setShowDashboardAfterSignup(false);
         setActiveTab('marketplace');
       } else if (event === 'SIGNED_IN' && session?.user) {
-        // User signed in (not from OAuth callback)
+        // User signed in
         setUser(session.user);
         
         // Check if user has completed profile
@@ -220,11 +205,6 @@ function App() {
       default: return <Marketplace />;
     }
   };
-
-  // Check for callback URL first
-  if (window.location.pathname === '/auth/callback' || window.location.hash.includes('access_token')) {
-    return <AuthCallback />;
-  }
 
   if (loading && !initialCheckDone) {
     return <Loading fullscreen />;
