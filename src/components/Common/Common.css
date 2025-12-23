@@ -1,0 +1,132 @@
+/* ============================================
+   COMMON COMPONENTS STYLES
+   ============================================ */
+
+/* ========== LOADING ========== */
+.loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+}
+
+.loading-fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.loading-spinner {
+  width: 60px;
+  height: 60px;
+  position: relative;
+  margin-bottom: 1.5rem;
+}
+
+.spinner-circle {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.spinner-inner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-bottom-color: white;
+  border-radius: 50%;
+  animation: spinReverse 0.8s linear infinite;
+}
+
+.loading-text {
+  color: white;
+  font-size: 1rem;
+  font-weight: 500;
+  text-align: center;
+  margin: 0;
+}
+
+/* Dark mode for non-fullscreen loading */
+.loading-container:not(.loading-fullscreen) .spinner-circle {
+  border-color: rgba(79, 70, 229, 0.3);
+  border-top-color: #4f46e5;
+}
+
+.loading-container:not(.loading-fullscreen) .spinner-inner {
+  border-color: rgba(124, 58, 237, 0.3);
+  border-bottom-color: #7c3aed;
+}
+
+.loading-container:not(.loading-fullscreen) .loading-text {
+  color: #4f46e5;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes spinReverse {
+  to { transform: translate(-50%, -50%) rotate(-360deg); }
+}
+
+/* ========== PLACEHOLDER ========== */
+.placeholder-container {
+  text-align: center;
+  padding: 4rem 2rem;
+}
+
+.placeholder-icon {
+  font-size: 4rem;
+  margin-bottom: 1.5rem;
+  opacity: 0.5;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.placeholder-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #111827;
+  margin-bottom: 0.75rem;
+}
+
+.placeholder-text {
+  color: #6b7280;
+  margin-bottom: 1.5rem;
+  max-width: 24rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.placeholder-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #4f46e5;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.placeholder-dot {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}

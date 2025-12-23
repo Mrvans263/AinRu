@@ -1,12 +1,9 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import './Auth.css';
 
-const Signup = ({ onSwitchToLogin, onSignupComplete }) => {
+const CompleteProfile = ({ user, onProfileComplete, onLogout }) => {
   const [formData, setFormData] = useState({
-    email: '',
-    password: '',
-    confirmPassword: '',
     firstname: '',
     surname: '',
     phone: '',
@@ -22,8 +19,22 @@ const Signup = ({ onSwitchToLogin, onSignupComplete }) => {
   const [profilePreview, setProfilePreview] = useState(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
-  const [googleLoading, setGoogleLoading] = useState(false);
   const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    // Pre-fill email and name from Google user data
+    if (user?.email) {
+      const fullName = user.user_metadata?.name || '';
+      const firstName = fullName.split(' ')[0] || '';
+      const surname = fullName.split(' ').slice(1).join(' ') || '';
+      
+      setFormData(prev => ({
+        ...prev,
+        firstname: firstName,
+        surname: surname
+      }));
+    }
+  }, [user]);
 
   const handleChange = (e) => {
     setFormData({
@@ -57,28 +68,12 @@ const Signup = ({ onSwitchToLogin, onSignupComplete }) => {
   };
 
   const validateForm = () => {
-    if (formData.password !== formData.confirmPassword) {
-      setMessage({ type: 'error', text: 'Passwords do not match' });
-      return false;
-    }
-    
-    if (formData.password.length < 6) {
-      setMessage({ type: 'error', text: 'Password must be at least 6 characters' });
-      return false;
-    }
-
-    const requiredFields = ['firstname', 'surname', 'email', 'education', 'is_student', 'date_of_birth'];
+    const requiredFields = ['firstname', 'surname', 'education', 'is_student', 'date_of_birth'];
     for (const field of requiredFields) {
       if (!formData[field]) {
         setMessage({ type: 'error', text: `Please fill in ${field.replace('_', ' ')}` });
         return false;
       }
-    }
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(formData.email)) {
-      setMessage({ type: 'error', text: 'Please enter a valid email address' });
-      return false;
     }
 
     if (formData.date_of_birth) {
@@ -111,11 +106,18 @@ const Signup = ({ onSwitchToLogin, onSignupComplete }) => {
     setMessage({ type: '', text: '' });
 
     try {
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: formData.email,
-        password: formData.password,
-        options: {
-          data: {
+      // Check if user already exists in users table
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('id')
+        .eq('id', user.id)
+        .single();
+
+      if (existingUser) {
+        // Update existing user in the database
+        const { error: updateError } = await supabase
+          .from('users')  // CHANGED from 'profiles' to 'users'
+          .update({
             firstname: formData.firstname,
             surname: formData.surname,
             phone: formData.phone || null,
@@ -124,20 +126,19 @@ const Signup = ({ onSwitchToLogin, onSignupComplete }) => {
             date_of_birth: formData.date_of_birth,
             university: formData.university || null,
             city: formData.city || null,
-            verification_board: formData.verification_board || null
-          }
-        }
-      });
+            verification_board: formData.verification_board || null,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', user.id);
 
-      if (authError) throw authError;
-
-      // After successful signup, insert user data into users table
-      if (authData.user) {
-        const { error: userInsertError } = await supabase
-          .from('users')
+        if (updateError) throw updateError;
+      } else {
+        // Insert new user
+        const { error: insertError } = await supabase
+          .from('users')  // CHANGED from 'profiles' to 'users'
           .insert({
-            id: authData.user.id,
-            email: formData.email,
+            id: user.id,
+            email: user.email,
             firstname: formData.firstname,
             surname: formData.surname,
             phone: formData.phone || null,
@@ -149,57 +150,54 @@ const Signup = ({ onSwitchToLogin, onSignupComplete }) => {
             verification_board: formData.verification_board || null
           });
 
-        if (userInsertError) {
-          console.error('Error inserting user data:', userInsertError);
+        if (insertError) throw insertError;
+      }
+
+      // Handle profile picture upload if provided
+      if (profilePicture) {
+        try {
+          const fileExt = profilePicture.name.split('.').pop();
+          const fileName = `${user.id}-${Date.now()}.${fileExt}`;
+          
+          const { error: uploadError } = await supabase.storage
+            .from('avatars')
+            .upload(fileName, profilePicture);
+          
+          if (!uploadError) {
+            // Update user with avatar URL
+            await supabase
+              .from('users')  // CHANGED from 'profiles' to 'users'
+              .update({
+                avatar_url: fileName
+              })
+              .eq('id', user.id);
+          }
+        } catch (uploadError) {
+          console.error('Error uploading profile picture:', uploadError);
+          // Continue even if avatar upload fails
         }
       }
 
       setMessage({ 
         type: 'success', 
-        text: 'Registration successful! Please check your email to confirm your account.' 
+        text: 'Profile completed successfully!' 
       });
 
-      if (onSignupComplete) {
-        setTimeout(() => {
-          onSignupComplete();
-        }, 3000);
-      }
+      // Call the onProfileComplete callback after a short delay
+      setTimeout(() => {
+        onProfileComplete();
+      }, 1500);
 
     } catch (error) {
       setMessage({ 
         type: 'error', 
-        text: error.message.includes('already registered') 
-          ? 'This email is already registered. Please use a different email or try logging in.'
-          : error.message || 'An error occurred during registration.'
+        text: error.message || 'An error occurred while updating your profile.' 
       });
     } finally {
       setLoading(false);
     }
   };
 
-// In Signup.jsx, update the handleGoogleSignUp function:
-const handleGoogleSignUp = async () => {
-  setGoogleLoading(true);
-  setMessage({ type: '', text: '' });
-
-  try {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}`,
-        queryParams: {
-          access_type: 'offline',
-          prompt: 'consent'
-        }
-      }
-    });
-
-    if (error) throw error;
-  } catch (error) {
-    setMessage({ type: 'error', text: error.message || 'Failed to sign up with Google' });
-    setGoogleLoading(false);
-  }
-};
   const removeProfilePicture = () => {
     setProfilePicture(null);
     setProfilePreview(null);
@@ -216,8 +214,11 @@ const handleGoogleSignUp = async () => {
             <div className="logo-icon">CC</div>
             <h1>CampusConnect</h1>
           </div>
-          <h2 className="auth-title">Join Our Community</h2>
-          <p className="auth-subtitle">Create your student account</p>
+          <h2 className="auth-title">Complete Your Profile</h2>
+          <p className="auth-subtitle">Finish setting up your account to get started</p>
+          <p className="auth-subtitle" style={{ fontSize: '0.75rem', marginTop: '0.5rem' }}>
+            Signed in as: <strong>{user?.email}</strong>
+          </p>
         </div>
 
         {message.text && (
@@ -225,27 +226,6 @@ const handleGoogleSignUp = async () => {
             {message.text}
           </div>
         )}
-
-        <div className="auth-social" style={{ marginBottom: '2rem' }}>
-          <button 
-            type="button" 
-            className="social-button"
-            onClick={handleGoogleSignUp}
-            disabled={googleLoading}
-          >
-            <svg className="social-icon" viewBox="0 0 24 24">
-              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-            </svg>
-            {googleLoading ? 'Connecting...' : 'Sign up with Google'}
-          </button>
-        </div>
-
-        <div className="auth-divider" style={{ marginTop: 0 }}>
-          <span>Or sign up with email</span>
-        </div>
 
         <form onSubmit={handleSubmit} className="auth-form">
           {/* Profile Picture Upload */}
@@ -324,53 +304,20 @@ const handleGoogleSignUp = async () => {
             </div>
           </div>
 
-          {/* Email */}
+          {/* Email (read-only, from Google) */}
           <div className="form-group">
-            <label htmlFor="email" className="form-label">Email Address *</label>
+            <label htmlFor="email" className="form-label">Email Address</label>
             <input
               type="email"
               id="email"
               name="email"
               className="form-input"
-              value={formData.email}
-              onChange={handleChange}
-              required
-              placeholder="Enter your email"
+              value={user?.email || ''}
+              readOnly
+              disabled
+              style={{ backgroundColor: '#f9fafb', cursor: 'not-allowed' }}
             />
-          </div>
-
-          {/* Password Fields */}
-          <div className="form-row">
-            <div className="form-group">
-              <label htmlFor="password" className="form-label">Password *</label>
-              <input
-                type="password"
-                id="password"
-                name="password"
-                className="form-input"
-                value={formData.password}
-                onChange={handleChange}
-                required
-                placeholder="Create password"
-                minLength="6"
-              />
-              <div className="form-hint">Minimum 6 characters</div>
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="confirmPassword" className="form-label">Confirm Password *</label>
-              <input
-                type="password"
-                id="confirmPassword"
-                name="confirmPassword"
-                className="form-input"
-                value={formData.confirmPassword}
-                onChange={handleChange}
-                required
-                placeholder="Confirm password"
-                minLength="6"
-              />
-            </div>
+            <div className="form-hint">Email from your Google account</div>
           </div>
 
           {/* Education */}
@@ -506,25 +453,35 @@ const handleGoogleSignUp = async () => {
             </label>
           </div>
 
-          <button 
-            type="submit" 
-            className="auth-button auth-button-primary"
-            disabled={loading}
-          >
-            {loading ? 'Creating Account...' : 'Create Account'}
-          </button>
+          <div style={{ display: 'flex', gap: '1rem' }}>
+            <button 
+              type="submit" 
+              className="auth-button auth-button-primary"
+              disabled={loading}
+              style={{ flex: 1 }}
+            >
+              {loading ? 'Saving Profile...' : 'Complete Profile'}
+            </button>
+            
+            <button 
+              type="button"
+              className="auth-button"
+              onClick={onLogout}
+              style={{ 
+                flex: 1,
+                background: '#f3f4f6',
+                color: '#374151',
+                border: '1px solid #d1d5db'
+              }}
+            >
+              Logout
+            </button>
+          </div>
         </form>
 
         <div className="auth-footer">
           <p className="auth-text">
-            Already have an account?{' '}
-            <button 
-              type="button"
-              className="auth-link"
-              onClick={onSwitchToLogin}
-            >
-              Sign in here
-            </button>
+            Almost done! Complete your profile to start using CampusConnect.
           </p>
         </div>
       </div>
@@ -532,4 +489,4 @@ const handleGoogleSignUp = async () => {
   );
 };
 
-export default Signup;
+export default CompleteProfile;
