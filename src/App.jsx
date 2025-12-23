@@ -43,127 +43,74 @@ function App() {
   const [initialCheckDone, setInitialCheckDone] = useState(false);
 
   useEffect(() => {
-    let isMounted = true;
-    let timeoutId;
-
     const checkAuth = async () => {
+      setLoading(true);
+      
       try {
-        // Safety timeout: if auth check takes too long, show login
-        timeoutId = setTimeout(() => {
-          if (isMounted && loading) {
-            console.log('Auth check timeout - falling back to login');
-            setAuthState('login');
-            setLoading(false);
-            setInitialCheckDone(true);
-          }
-        }, 8000); // 8 second timeout
-
         // 1. Get session from Supabase
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        const { data: { session } } = await supabase.auth.getSession();
         
-        if (sessionError) {
-          console.error('Session error:', sessionError);
-          if (isMounted) {
-            setAuthState('login');
-            setLoading(false);
-            setInitialCheckDone(true);
-          }
-          return;
-        }
-
         if (!session) {
-          // No session found - user is not logged in
-          if (isMounted) {
-            setUser(null);
-            setAuthState('login');
-            setLoading(false);
-            setInitialCheckDone(true);
-          }
-          return;
-        }
-
-        // We have a session - user is logged in
-        if (isMounted) {
-          setUser(session.user);
-        }
-
-        // 2. Check if profile exists in database (with retry logic)
-        let retryCount = 0;
-        const maxRetries = 2;
-        
-        const checkProfile = async () => {
-          try {
-            const { data: userProfile, error: profileError } = await supabase
-              .from('users')
-              .select('firstname, surname, education, is_student, date_of_birth')
-              .eq('id', session.user.id)
-              .maybeSingle(); // Use maybeSingle to avoid throwing error
-
-            if (!isMounted) return;
-
-            if (profileError) {
-              console.log('Profile check error:', profileError.message);
-              
-              // If it's a "no rows" error or network issue, retry
-              if (retryCount < maxRetries && 
-                  (profileError.code === 'PGRST116' || profileError.message.includes('fetch'))) {
-                retryCount++;
-                console.log(`Retrying profile check (${retryCount}/${maxRetries})...`);
-                setTimeout(checkProfile, 1000 * retryCount);
-                return;
-              }
-              
-              // Profile doesn't exist or can't be fetched
-              setAuthState('complete-profile');
-              setIsNewUser(true);
-            } else if (userProfile && userProfile.firstname && userProfile.surname) {
-              // Profile exists and has required fields
-              setAuthState('app');
-              setIsNewUser(false);
-              
-              // Set localStorage flag for consistency
-              localStorage.setItem(`user_${session.user.id}_profile_complete`, 'true');
-              
-              // Check if this is a new signup
-              const isNewSignup = localStorage.getItem('just_signed_up');
-              if (isNewSignup) {
-                setActiveTab('dashboard');
-                setShowDashboardAfterSignup(true);
-                localStorage.removeItem('just_signed_up');
-              }
-            } else {
-              // Profile exists but is incomplete
-              setAuthState('complete-profile');
-              setIsNewUser(true);
-            }
-            
-            setLoading(false);
-            setInitialCheckDone(true);
-            clearTimeout(timeoutId);
-            
-          } catch (error) {
-            console.error('Error in profile check:', error);
-            if (isMounted) {
-              setAuthState('complete-profile');
-              setIsNewUser(true);
-              setLoading(false);
-              setInitialCheckDone(true);
-              clearTimeout(timeoutId);
-            }
-          }
-        };
-
-        // Start profile check
-        checkProfile();
-
-      } catch (error) {
-        console.error('Auth check failed:', error);
-        if (isMounted) {
+          // No session - show login
+          setUser(null);
           setAuthState('login');
           setLoading(false);
           setInitialCheckDone(true);
-          clearTimeout(timeoutId);
+          return;
         }
+        
+        // We have a session
+        setUser(session.user);
+        
+        // 2. Check localStorage FIRST for fast loading
+        const hasCompletedProfile = localStorage.getItem(`user_${session.user.id}_profile_complete`);
+        
+        if (hasCompletedProfile === 'true') {
+          // Use localStorage for immediate load (fast)
+          setAuthState('app');
+          setIsNewUser(false);
+          
+          // Check for new signup flag
+          const isNewSignup = localStorage.getItem('just_signed_up');
+          if (isNewSignup) {
+            setActiveTab('dashboard');
+            setShowDashboardAfterSignup(true);
+            localStorage.removeItem('just_signed_up');
+          }
+          
+          // Verify with database in background (slow, but doesn't block UI)
+          setTimeout(async () => {
+            try {
+              const { data: userProfile } = await supabase
+                .from('users')
+                .select('firstname, surname')
+                .eq('id', session.user.id)
+                .maybeSingle();
+              
+              if (!userProfile?.firstname || !userProfile?.surname) {
+                // Database says profile is incomplete
+                setAuthState('complete-profile');
+                setIsNewUser(true);
+                localStorage.removeItem(`user_${session.user.id}_profile_complete`);
+              }
+            } catch (error) {
+              console.log('Background profile check failed:', error);
+              // If database check fails, we keep the localStorage state
+            }
+          }, 0);
+          
+        } else {
+          // No localStorage flag - go to complete profile
+          setAuthState('complete-profile');
+          setIsNewUser(true);
+        }
+        
+      } catch (error) {
+        console.error('Auth check failed:', error);
+        setAuthState('login');
+      } finally {
+        setLoading(false);
+        setInitialCheckDone(true);
       }
     };
 
@@ -171,10 +118,8 @@ function App() {
 
     // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('Auth state change:', event);
+      console.log('Auth event:', event);
       
-      if (!isMounted) return;
-
       if (event === 'SIGNED_OUT') {
         // User logged out
         setUser(null);
@@ -182,52 +127,29 @@ function App() {
         setIsNewUser(false);
         setShowDashboardAfterSignup(false);
         setActiveTab('marketplace');
-        
-        // Clear any leftover flags
-        localStorage.removeItem('just_signed_up');
       } else if (event === 'SIGNED_IN' && session?.user) {
         // User signed in
         setUser(session.user);
-        setLoading(true);
         
-        // Check profile after sign in
-        try {
-          const { data: userProfile } = await supabase
-            .from('users')
-            .select('firstname, surname')
-            .eq('id', session.user.id)
-            .maybeSingle();
-          
-          if (userProfile?.firstname && userProfile?.surname) {
-            // Profile is complete
-            setAuthState('app');
-            setIsNewUser(false);
-            localStorage.setItem(`user_${session.user.id}_profile_complete`, 'true');
-          } else {
-            // Profile incomplete or missing
-            setAuthState('complete-profile');
-            setIsNewUser(true);
-          }
-        } catch (error) {
-          console.error('Error checking profile after sign in:', error);
+        // Check if user has completed profile
+        const hasCompletedProfile = localStorage.getItem(`user_${session.user.id}_profile_complete`);
+        
+        if (hasCompletedProfile === 'true') {
+          setAuthState('app');
+          setIsNewUser(false);
+        } else {
           setAuthState('complete-profile');
           setIsNewUser(true);
-        } finally {
-          setLoading(false);
         }
       } else if (event === 'USER_UPDATED') {
-        // User data updated
+        // User data was updated
         if (session?.user) {
           setUser(session.user);
         }
       }
     });
 
-    return () => {
-      isMounted = false;
-      clearTimeout(timeoutId);
-      subscription.unsubscribe();
-    };
+    return () => subscription.unsubscribe();
   }, []);
 
   const handleSignupComplete = () => {
@@ -236,14 +158,14 @@ function App() {
 
   const handleProfileComplete = () => {
     if (user) {
-      // Mark profile as complete
+      // Mark profile as complete in localStorage
       localStorage.setItem(`user_${user.id}_profile_complete`, 'true');
     }
     
     setIsNewUser(false);
     setAuthState('app');
     
-    // Show dashboard for new users
+    // Show dashboard for new signups
     const isNewSignup = localStorage.getItem('just_signed_up');
     if (isNewSignup) {
       setActiveTab('dashboard');
