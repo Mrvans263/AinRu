@@ -35,48 +35,135 @@ function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('marketplace');
+  const [showDashboardAfterSignup, setShowDashboardAfterSignup] = useState(false);
   
   // Track auth state: 'login', 'signup', 'complete-profile', 'app'
   const [authState, setAuthState] = useState('login');
+  const [isNewUser, setIsNewUser] = useState(false);
+  const [initialCheckDone, setInitialCheckDone] = useState(false);
 
   useEffect(() => {
+    let isMounted = true;
+    let timeoutId;
+
     const checkAuth = async () => {
       try {
-        // 1. Check if we have a session
-        const { data: { session } } = await supabase.auth.getSession();
+        // Safety timeout: if auth check takes too long, show login
+        timeoutId = setTimeout(() => {
+          if (isMounted && loading) {
+            console.log('Auth check timeout - falling back to login');
+            setAuthState('login');
+            setLoading(false);
+            setInitialCheckDone(true);
+          }
+        }, 8000); // 8 second timeout
+
+        // 1. Get session from Supabase
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         
-        if (!session) {
-          // No session - show login
-          setAuthState('login');
-          setLoading(false);
+        if (sessionError) {
+          console.error('Session error:', sessionError);
+          if (isMounted) {
+            setAuthState('login');
+            setLoading(false);
+            setInitialCheckDone(true);
+          }
           return;
         }
-        
-        setUser(session.user);
-        
-        // 2. Check if user has a complete profile in the database
-        const { data: userProfile, error } = await supabase
-          .from('users')
-          .select('firstname, surname, education, is_student, date_of_birth')
-          .eq('id', session.user.id)
-          .maybeSingle(); // Use maybeSingle to avoid throwing error if no profile
-        
-        if (error || !userProfile) {
-          // No profile found - need to complete profile
-          setAuthState('complete-profile');
-        } else if (userProfile.firstname && userProfile.surname) {
-          // Profile exists and has required fields - go to app
-          setAuthState('app');
-        } else {
-          // Profile exists but missing required fields - complete profile
-          setAuthState('complete-profile');
+
+        if (!session) {
+          // No session found - user is not logged in
+          if (isMounted) {
+            setUser(null);
+            setAuthState('login');
+            setLoading(false);
+            setInitialCheckDone(true);
+          }
+          return;
         }
+
+        // We have a session - user is logged in
+        if (isMounted) {
+          setUser(session.user);
+        }
+
+        // 2. Check if profile exists in database (with retry logic)
+        let retryCount = 0;
+        const maxRetries = 2;
         
+        const checkProfile = async () => {
+          try {
+            const { data: userProfile, error: profileError } = await supabase
+              .from('users')
+              .select('firstname, surname, education, is_student, date_of_birth')
+              .eq('id', session.user.id)
+              .maybeSingle(); // Use maybeSingle to avoid throwing error
+
+            if (!isMounted) return;
+
+            if (profileError) {
+              console.log('Profile check error:', profileError.message);
+              
+              // If it's a "no rows" error or network issue, retry
+              if (retryCount < maxRetries && 
+                  (profileError.code === 'PGRST116' || profileError.message.includes('fetch'))) {
+                retryCount++;
+                console.log(`Retrying profile check (${retryCount}/${maxRetries})...`);
+                setTimeout(checkProfile, 1000 * retryCount);
+                return;
+              }
+              
+              // Profile doesn't exist or can't be fetched
+              setAuthState('complete-profile');
+              setIsNewUser(true);
+            } else if (userProfile && userProfile.firstname && userProfile.surname) {
+              // Profile exists and has required fields
+              setAuthState('app');
+              setIsNewUser(false);
+              
+              // Set localStorage flag for consistency
+              localStorage.setItem(`user_${session.user.id}_profile_complete`, 'true');
+              
+              // Check if this is a new signup
+              const isNewSignup = localStorage.getItem('just_signed_up');
+              if (isNewSignup) {
+                setActiveTab('dashboard');
+                setShowDashboardAfterSignup(true);
+                localStorage.removeItem('just_signed_up');
+              }
+            } else {
+              // Profile exists but is incomplete
+              setAuthState('complete-profile');
+              setIsNewUser(true);
+            }
+            
+            setLoading(false);
+            setInitialCheckDone(true);
+            clearTimeout(timeoutId);
+            
+          } catch (error) {
+            console.error('Error in profile check:', error);
+            if (isMounted) {
+              setAuthState('complete-profile');
+              setIsNewUser(true);
+              setLoading(false);
+              setInitialCheckDone(true);
+              clearTimeout(timeoutId);
+            }
+          }
+        };
+
+        // Start profile check
+        checkProfile();
+
       } catch (error) {
-        console.error('Auth check error:', error);
-        setAuthState('login');
-      } finally {
-        setLoading(false);
+        console.error('Auth check failed:', error);
+        if (isMounted) {
+          setAuthState('login');
+          setLoading(false);
+          setInitialCheckDone(true);
+          clearTimeout(timeoutId);
+        }
       }
     };
 
@@ -84,63 +171,93 @@ function App() {
 
     // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('Auth event:', event);
+      console.log('Auth state change:', event);
       
+      if (!isMounted) return;
+
       if (event === 'SIGNED_OUT') {
+        // User logged out
         setUser(null);
         setAuthState('login');
+        setIsNewUser(false);
+        setShowDashboardAfterSignup(false);
         setActiveTab('marketplace');
+        
+        // Clear any leftover flags
+        localStorage.removeItem('just_signed_up');
       } else if (event === 'SIGNED_IN' && session?.user) {
+        // User signed in
         setUser(session.user);
+        setLoading(true);
         
-        // After sign in, check profile
-        const { data: userProfile } = await supabase
-          .from('users')
-          .select('firstname, surname')
-          .eq('id', session.user.id)
-          .maybeSingle();
-        
-        if (userProfile?.firstname && userProfile?.surname) {
-          setAuthState('app');
-        } else {
+        // Check profile after sign in
+        try {
+          const { data: userProfile } = await supabase
+            .from('users')
+            .select('firstname, surname')
+            .eq('id', session.user.id)
+            .maybeSingle();
+          
+          if (userProfile?.firstname && userProfile?.surname) {
+            // Profile is complete
+            setAuthState('app');
+            setIsNewUser(false);
+            localStorage.setItem(`user_${session.user.id}_profile_complete`, 'true');
+          } else {
+            // Profile incomplete or missing
+            setAuthState('complete-profile');
+            setIsNewUser(true);
+          }
+        } catch (error) {
+          console.error('Error checking profile after sign in:', error);
           setAuthState('complete-profile');
+          setIsNewUser(true);
+        } finally {
+          setLoading(false);
+        }
+      } else if (event === 'USER_UPDATED') {
+        // User data updated
+        if (session?.user) {
+          setUser(session.user);
         }
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      isMounted = false;
+      clearTimeout(timeoutId);
+      subscription.unsubscribe();
+    };
   }, []);
 
   const handleSignupComplete = () => {
-    // This just switches to login after signup
-    // The actual signup flow will handle the rest
-    setAuthState('login');
+    localStorage.setItem('just_signed_up', 'true');
   };
 
   const handleProfileComplete = () => {
-    // After completing profile, refresh the auth check
-    const refreshAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        const { data: userProfile } = await supabase
-          .from('users')
-          .select('firstname, surname')
-          .eq('id', session.user.id)
-          .maybeSingle();
-        
-        if (userProfile?.firstname && userProfile?.surname) {
-          setAuthState('app');
-        }
-      }
-    };
-    refreshAuth();
+    if (user) {
+      // Mark profile as complete
+      localStorage.setItem(`user_${user.id}_profile_complete`, 'true');
+    }
+    
+    setIsNewUser(false);
+    setAuthState('app');
+    
+    // Show dashboard for new users
+    const isNewSignup = localStorage.getItem('just_signed_up');
+    if (isNewSignup) {
+      setActiveTab('dashboard');
+      setShowDashboardAfterSignup(true);
+      localStorage.removeItem('just_signed_up');
+    }
   };
 
   const handleLogout = async () => {
     try {
       await supabase.auth.signOut();
-      setAuthState('login');
+      setShowDashboardAfterSignup(false);
       setActiveTab('marketplace');
+      setAuthState('login');
     } catch (error) {
       console.error('Error signing out:', error);
     }
@@ -167,7 +284,7 @@ function App() {
     }
   };
 
-  if (loading) {
+  if (loading && !initialCheckDone) {
     return <Loading fullscreen />;
   }
 
@@ -185,6 +302,7 @@ function App() {
       );
     
     case 'complete-profile':
+      // Show loading while user data is being fetched
       if (!user) {
         return <Loading fullscreen />;
       }
@@ -198,6 +316,7 @@ function App() {
       );
     
     case 'app':
+      // Show loading while user data is being fetched
       if (!user) {
         return <Loading fullscreen />;
       }
