@@ -1,3 +1,4 @@
+// components/Auth/Login.jsx
 import React, { useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import './Auth.css';
@@ -32,35 +33,42 @@ const Login = ({ onSwitchToSignup }) => {
       if (error) throw error;
 
     } catch (error) {
-      setMessage({ type: 'error', text: error.message });
+      setMessage({ 
+        type: 'error', 
+        text: error.message.includes('Invalid login credentials')
+          ? 'Invalid email or password. Please try again.'
+          : error.message
+      });
     } finally {
       setLoading(false);
     }
   };
 
-// In Login.jsx, update the handleGoogleSignIn function:
-const handleGoogleSignIn = async () => {
-  setGoogleLoading(true);
-  setMessage({ type: '', text: '' });
+  const handleGoogleSignIn = async () => {
+    setGoogleLoading(true);
+    setMessage({ type: '', text: '' });
 
-  try {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}`,
-        queryParams: {
-          access_type: 'offline',
-          prompt: 'consent'
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent'
+          }
         }
-      }
-    });
+      });
 
-    if (error) throw error;
-  } catch (error) {
-    setMessage({ type: 'error', text: error.message || 'Failed to sign in with Google' });
-    setGoogleLoading(false);
-  }
-};
+      if (error) throw error;
+    } catch (error) {
+      setMessage({ 
+        type: 'error', 
+        text: error.message || 'Failed to sign in with Google. Please try again.' 
+      });
+      setGoogleLoading(false);
+    }
+  };
 
   return (
     <div className="auth-container">

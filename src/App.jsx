@@ -1,3 +1,4 @@
+// App.jsx
 import React, { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
 
@@ -10,6 +11,8 @@ import Sidebar from './components/Layout/Sidebar';
 import Login from './components/Auth/Login';
 import Signup from './components/Auth/Signup';
 import CompleteProfile from './components/Auth/CompleteProfile';
+import AuthCallback from './components/Auth/AuthCallback';
+
 
 // Page Components
 import Dashboard from './components/Pages/Dashboard';
@@ -37,38 +40,64 @@ function App() {
   const [activeTab, setActiveTab] = useState('marketplace');
   const [showDashboardAfterSignup, setShowDashboardAfterSignup] = useState(false);
   
-  // Track auth state: 'login', 'signup', 'complete-profile', 'app'
+  // Track auth state: 'login', 'signup', 'complete-profile', 'app', 'callback'
   const [authState, setAuthState] = useState('login');
   const [isNewUser, setIsNewUser] = useState(false);
   const [initialCheckDone, setInitialCheckDone] = useState(false);
 
   useEffect(() => {
     const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setUser(session?.user ?? null);
-      
-      if (session?.user) {
-        // Check if profile is complete using localStorage
-        const hasCompletedProfile = localStorage.getItem(`user_${session.user.id}_profile_complete`);
+      try {
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         
-        if (hasCompletedProfile === 'true') {
-          // Profile is complete - go to app
-          setIsNewUser(false);
-          setAuthState('app');
+        if (sessionError) {
+          console.error('Session error:', sessionError);
+          setAuthState('login');
+          setLoading(false);
+          return;
+        }
+        
+        console.log('Session found:', session);
+        setUser(session?.user ?? null);
+        
+        if (session?.user) {
+          console.log('User found:', session.user.id);
           
-          const isNewSignup = localStorage.getItem('just_signed_up');
-          if (isNewSignup) {
-            setActiveTab('dashboard');
-            setShowDashboardAfterSignup(true);
-            localStorage.removeItem('just_signed_up');
+          // Check if user exists in users table
+          const { data: userData, error: profileError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', session.user.id)
+            .single();
+
+          if (profileError) {
+            console.log('Profile not found, user needs to complete profile');
+            // New user or profile incomplete
+            setIsNewUser(true);
+            setAuthState('complete-profile');
+          } else if (userData?.firstname && userData?.surname) {
+            // Profile is complete
+            localStorage.setItem(`user_${session.user.id}_profile_complete`, 'true');
+            setIsNewUser(false);
+            setAuthState('app');
+            
+            const isNewSignup = localStorage.getItem('just_signed_up');
+            if (isNewSignup) {
+              setActiveTab('dashboard');
+              setShowDashboardAfterSignup(true);
+              localStorage.removeItem('just_signed_up');
+            }
+          } else {
+            // Profile exists but incomplete
+            setIsNewUser(true);
+            setAuthState('complete-profile');
           }
         } else {
-          // Profile is NOT complete - go to complete-profile
-          setIsNewUser(true);
-          setAuthState('complete-profile');
+          // No user - show login
+          setAuthState('login');
         }
-      } else {
-        // No user - show login
+      } catch (error) {
+        console.error('Auth check error:', error);
         setAuthState('login');
       }
       
@@ -78,19 +107,27 @@ function App() {
 
     checkAuth();
 
+    // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      console.log('Auth state changed:', _event, session?.user?.id);
+      
       setUser(session?.user ?? null);
       
       if (session?.user) {
-        // Check if profile is complete using localStorage
-        const hasCompletedProfile = localStorage.getItem(`user_${session.user.id}_profile_complete`);
-        
-        if (hasCompletedProfile === 'true') {
-          // Profile is complete - go to app
+        // Check if user exists in database
+        const { data: userData } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', session.user.id)
+          .single();
+
+        if (userData?.firstname && userData?.surname) {
+          // Profile is complete
+          localStorage.setItem(`user_${session.user.id}_profile_complete`, 'true');
           setIsNewUser(false);
           setAuthState('app');
         } else {
-          // Profile is NOT complete - go to complete-profile
+          // Profile incomplete
           setIsNewUser(true);
           setAuthState('complete-profile');
         }
@@ -100,6 +137,9 @@ function App() {
         setIsNewUser(false);
         setShowDashboardAfterSignup(false);
         setActiveTab('marketplace');
+        
+        // Clear localStorage flags
+        localStorage.removeItem('just_signed_up');
       }
       
       setLoading(false);
@@ -110,7 +150,6 @@ function App() {
 
   const handleSignupComplete = () => {
     localStorage.setItem('just_signed_up', 'true');
-    // The onAuthStateChange will handle redirecting to complete-profile
   };
 
   const handleProfileComplete = () => {
@@ -119,7 +158,6 @@ function App() {
       localStorage.setItem(`user_${user.id}_profile_complete`, 'true');
     }
     
-    localStorage.setItem('just_signed_up', 'true');
     setIsNewUser(false);
     setAuthState('app');
   };
@@ -162,6 +200,9 @@ function App() {
 
   // Render based on authState
   switch (authState) {
+    case 'callback':
+      return <AuthCallback onComplete={() => setAuthState('app')} />;
+    
     case 'login':
       return <Login onSwitchToSignup={() => setAuthState('signup')} />;
     
