@@ -94,110 +94,101 @@ const CompleteProfile = ({ user, onProfileComplete, onLogout }) => {
 
     return true;
   };
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  
+  if (!validateForm()) {
+    return;
+  }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    
-    if (!validateForm()) {
-      return;
-    }
+  setLoading(true);
+  setMessage({ type: '', text: '' });
 
-    setLoading(true);
-    setMessage({ type: '', text: '' });
-
-    try {
-      // Check if user already exists in users table
-      const { data: existingUser } = await supabase
-        .from('users')
-        .select('id')
-        .eq('id', user.id)
-        .single();
-
-      if (existingUser) {
-        // Update existing user in the database
-        const { error: updateError } = await supabase
-          .from('users')  // CHANGED from 'profiles' to 'users'
-          .update({
-            firstname: formData.firstname,
-            surname: formData.surname,
-            phone: formData.phone || null,
-            education: formData.education,
-            is_student: formData.is_student,
-            date_of_birth: formData.date_of_birth,
-            university: formData.university || null,
-            city: formData.city || null,
-            verification_board: formData.verification_board || null,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', user.id);
-
-        if (updateError) throw updateError;
-      } else {
-        // Insert new user
-        const { error: insertError } = await supabase
-          .from('users')  // CHANGED from 'profiles' to 'users'
-          .insert({
-            id: user.id,
-            email: user.email,
-            firstname: formData.firstname,
-            surname: formData.surname,
-            phone: formData.phone || null,
-            education: formData.education,
-            is_student: formData.is_student,
-            date_of_birth: formData.date_of_birth,
-            university: formData.university || null,
-            city: formData.city || null,
-            verification_board: formData.verification_board || null
-          });
-
-        if (insertError) throw insertError;
+  try {
+    // 1. Update auth user metadata
+    const { error: authUpdateError } = await supabase.auth.updateUser({
+      data: {
+        firstname: formData.firstname,
+        surname: formData.surname,
+        phone: formData.phone || null,
+        education: formData.education,
+        is_student: formData.is_student,
+        date_of_birth: formData.date_of_birth,
+        university: formData.university || null,
+        city: formData.city || null,
+        verification_board: formData.verification_board || null
       }
+    });
 
-      // Handle profile picture upload if provided
-      if (profilePicture) {
-        try {
-          const fileExt = profilePicture.name.split('.').pop();
-          const fileName = `${user.id}-${Date.now()}.${fileExt}`;
-          
-          const { error: uploadError } = await supabase.storage
+    if (authUpdateError) throw authUpdateError;
+
+    // 2. Upsert user profile in database
+    const { error: profileError } = await supabase
+      .from('users')
+      .upsert({
+        id: user.id,
+        email: user.email,
+        firstname: formData.firstname,
+        surname: formData.surname,
+        phone: formData.phone || null,
+        education: formData.education,
+        is_student: formData.is_student,
+        date_of_birth: formData.date_of_birth,
+        university: formData.university || null,
+        city: formData.city || null,
+        verification_board: formData.verification_board || null,
+        updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'id'
+      });
+
+    if (profileError) throw profileError;
+
+    // 3. Handle profile picture if provided
+    if (profilePicture) {
+      try {
+        const fileExt = profilePicture.name.split('.').pop();
+        const fileName = `${user.id}-${Date.now()}.${fileExt}`;
+        
+        const { error: uploadError } = await supabase.storage
+          .from('avatars')
+          .upload(fileName, profilePicture);
+        
+        if (!uploadError) {
+          const { data: { publicUrl } } = supabase.storage
             .from('avatars')
-            .upload(fileName, profilePicture);
+            .getPublicUrl(fileName);
           
-          if (!uploadError) {
-            // Update user with avatar URL
-            await supabase
-              .from('users')  // CHANGED from 'profiles' to 'users'
-              .update({
-                avatar_url: fileName
-              })
-              .eq('id', user.id);
-          }
-        } catch (uploadError) {
-          console.error('Error uploading profile picture:', uploadError);
-          // Continue even if avatar upload fails
+          await supabase
+            .from('users')
+            .update({ avatar_url: publicUrl })
+            .eq('id', user.id);
         }
+      } catch (uploadError) {
+        console.error('Error uploading profile picture:', uploadError);
+        // Non-critical error, continue
       }
-
-      setMessage({ 
-        type: 'success', 
-        text: 'Profile completed successfully!' 
-      });
-
-      // Call the onProfileComplete callback after a short delay
-      setTimeout(() => {
-        onProfileComplete();
-      }, 1500);
-
-    } catch (error) {
-      setMessage({ 
-        type: 'error', 
-        text: error.message || 'An error occurred while updating your profile.' 
-      });
-    } finally {
-      setLoading(false);
     }
-  };
 
+    setMessage({ 
+      type: 'success', 
+      text: 'Profile completed successfully! Redirecting...' 
+    });
+
+    // 4. Short delay then notify parent component
+    setTimeout(() => {
+      onProfileComplete();
+    }, 1000);
+
+  } catch (error) {
+    console.error('Profile completion error:', error);
+    setMessage({ 
+      type: 'error', 
+      text: error.message || 'An error occurred while updating your profile.' 
+    });
+    setLoading(false);
+  }
+};
   const removeProfilePicture = () => {
     setProfilePicture(null);
     setProfilePreview(null);

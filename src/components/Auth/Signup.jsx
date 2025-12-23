@@ -100,221 +100,90 @@ const Signup = ({ onSwitchToLogin, onSignupComplete }) => {
     return true;
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    
-    if (!validateForm()) {
-      return;
-    }
+ const handleSubmit = async (e) => {
+  e.preventDefault();
+  
+  if (!validateForm()) {
+    return;
+  }
 
-    setLoading(true);
-    setMessage({ type: '', text: '' });
+  setLoading(true);
+  setMessage({ type: '', text: '' });
 
-    try {
-      // 1. Sign up the user with Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: formData.email,
-        password: formData.password,
-        options: {
-          data: {
-            firstname: formData.firstname,
-            surname: formData.surname,
-            phone: formData.phone || null,
-            education: formData.education,
-            is_student: formData.is_student,
-            date_of_birth: formData.date_of_birth,
-            university: formData.university || null,
-            city: formData.city || null,
-            verification_board: formData.verification_board || null
-          }
+  try {
+    // 1. Sign up with auth (user gets created in auth.users table)
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+      email: formData.email,
+      password: formData.password,
+      options: {
+        data: {
+          firstname: formData.firstname,
+          surname: formData.surname,
+          phone: formData.phone || null,
+          education: formData.education,
+          is_student: formData.is_student,
+          date_of_birth: formData.date_of_birth,
+          university: formData.university || null,
+          city: formData.city || null,
+          verification_board: formData.verification_board || null
         }
-      });
-
-      if (authError) throw authError;
-
-      if (authData.user) {
-        console.log('User created in auth.users with ID:', authData.user.id);
-        
-        // 2. Use a database function or direct insert with a small delay
-        // First, let's check if the user exists in auth.users
-        const { data: { user: verifiedUser }, error: verifyError } = await supabase.auth.getUser();
-        
-        if (verifyError) {
-          console.log('User not yet verified, will create profile after email confirmation');
-          
-          setMessage({ 
-            type: 'success', 
-            text: 'Registration successful! Please check your email to confirm your account. After confirming, you can log in and complete your profile.' 
-          });
-          
-          if (onSignupComplete) {
-            setTimeout(() => {
-              onSignupComplete();
-            }, 3000);
-          }
-          return;
-        }
-
-        // 3. If user is verified/created, create the profile
-        try {
-          const { error: userInsertError } = await supabase
-            .from('users')
-            .insert({
-              id: authData.user.id,
-              email: formData.email,
-              firstname: formData.firstname,
-              surname: formData.surname,
-              phone: formData.phone || null,
-              education: formData.education,
-              is_student: formData.is_student,
-              date_of_birth: formData.date_of_birth,
-              university: formData.university || null,
-              city: formData.city || null,
-              verification_board: formData.verification_board || null,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            });
-
-          if (userInsertError) {
-            console.error('Error creating user profile:', userInsertError);
-            
-            // If the error is foreign key constraint, the user doesn't exist in auth.users yet
-            if (userInsertError.code === '23503') {
-              setMessage({ 
-                type: 'info', 
-                text: 'Account created! Please check your email to confirm your account. After confirming, you can log in and complete your profile setup.' 
-              });
-              
-              if (onSignupComplete) {
-                setTimeout(() => {
-                  onSignupComplete();
-                }, 3000);
-              }
-              return;
-            }
-            
-            // For other errors, check if user already exists
-            if (userInsertError.code === '23505') {
-              // User already exists, try to update
-              const { error: updateError } = await supabase
-                .from('users')
-                .update({
-                  firstname: formData.firstname,
-                  surname: formData.surname,
-                  phone: formData.phone || null,
-                  education: formData.education,
-                  is_student: formData.is_student,
-                  date_of_birth: formData.date_of_birth,
-                  university: formData.university || null,
-                  city: formData.city || null,
-                  verification_board: formData.verification_board || null,
-                  updated_at: new Date().toISOString()
-                })
-                .eq('id', authData.user.id);
-
-              if (updateError) throw updateError;
-            } else {
-              throw userInsertError;
-            }
-          }
-
-          // 4. Handle profile picture upload if provided
-          if (profilePicture) {
-            try {
-              const fileExt = profilePicture.name.split('.').pop();
-              const fileName = `${authData.user.id}-${Date.now()}.${fileExt}`;
-              
-              const { error: uploadError } = await supabase.storage
-                .from('avatars')
-                .upload(fileName, profilePicture);
-              
-              if (!uploadError) {
-                // Get public URL
-                const { data: { publicUrl } } = supabase.storage
-                  .from('avatars')
-                  .getPublicUrl(fileName);
-
-                // Update user with avatar URL
-                await supabase
-                  .from('users')
-                  .update({
-                    avatar_url: publicUrl
-                  })
-                  .eq('id', authData.user.id);
-              }
-            } catch (uploadError) {
-              console.error('Error uploading profile picture:', uploadError);
-              // Continue even if avatar upload fails
-            }
-          }
-
-          setMessage({ 
-            type: 'success', 
-            text: 'Registration successful! Your profile has been created.' 
-          });
-
-          // 5. Auto-login after successful signup
-          if (onSignupComplete) {
-            try {
-              const { error: signInError } = await supabase.auth.signInWithPassword({
-                email: formData.email,
-                password: formData.password
-              });
-
-              if (!signInError) {
-                setTimeout(() => {
-                  onSignupComplete();
-                }, 1000);
-              } else {
-                // If auto-login fails, show message
-                setMessage({ 
-                  type: 'info', 
-                  text: 'Registration successful! Please sign in with your credentials.' 
-                });
-              }
-            } catch (signInError) {
-              console.error('Auto-login failed:', signInError);
-              setMessage({ 
-                type: 'info', 
-                text: 'Registration successful! Please sign in with your credentials.' 
-              });
-            }
-          }
-
-        } catch (profileError) {
-          console.error('Profile creation error:', profileError);
-          // Even if profile creation fails, auth account is created
-          setMessage({ 
-            type: 'info', 
-            text: 'Account created! Please sign in to complete your profile setup.' 
-          });
-          
-          if (onSignupComplete) {
-            setTimeout(() => {
-              onSignupComplete();
-            }, 3000);
-          }
-        }
-
-      } else {
-        throw new Error('User creation failed');
       }
+    });
 
-    } catch (error) {
-      console.error('Signup error:', error);
-      setMessage({ 
-        type: 'error', 
-        text: error.message.includes('already registered') 
-          ? 'This email is already registered. Please use a different email or try logging in.'
-          : error.message.includes('User already registered')
-          ? 'This email is already registered. Please try logging in.'
-          : error.message || 'An error occurred during registration.'
-      });
-    } finally {
-      setLoading(false);
+    if (authError) throw authError;
+
+    // 2. IMPORTANT: Wait a moment for the user to be fully created in auth.users
+    // This prevents the foreign key constraint error
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // 3. Now create the user profile
+    if (authData.user) {
+      const { error: profileError } = await supabase
+        .from('users')
+        .insert({
+          id: authData.user.id,
+          email: formData.email,
+          firstname: formData.firstname,
+          surname: formData.surname,
+          phone: formData.phone || null,
+          education: formData.education,
+          is_student: formData.is_student,
+          date_of_birth: formData.date_of_birth,
+          university: formData.university || null,
+          city: formData.city || null,
+          verification_board: formData.verification_board || null,
+          created_at: new Date().toISOString()
+        });
+
+      if (profileError) {
+        console.error('Profile creation error (non-critical):', profileError);
+        // User can complete profile on first login
+      }
     }
-  };
 
+    setMessage({ 
+      type: 'success', 
+      text: 'Registration successful! You can now log in.' 
+    });
+
+    if (onSignupComplete) {
+      setTimeout(() => {
+        onSignupComplete();
+      }, 2000);
+    }
+
+  } catch (error) {
+    console.error('Signup error:', error);
+    setMessage({ 
+      type: 'error', 
+      text: error.message.includes('already registered') 
+        ? 'This email is already registered. Please log in.'
+        : error.message || 'An error occurred during registration.'
+    });
+  } finally {
+    setLoading(false);
+  }
+};
   const handleGoogleSignUp = async () => {
     setGoogleLoading(true);
     setMessage({ type: '', text: '' });

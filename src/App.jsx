@@ -33,197 +33,114 @@ import Loading from './components/Common/Loading';
 
 function App() {
   const [user, setUser] = useState(null);
-  const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('marketplace');
-  const [showDashboardAfterSignup, setShowDashboardAfterSignup] = useState(false);
   
   // Track auth state: 'login', 'signup', 'complete-profile', 'app'
   const [authState, setAuthState] = useState('login');
-  const [isNewUser, setIsNewUser] = useState(false);
-  const [initialCheckDone, setInitialCheckDone] = useState(false);
-
-  const checkUserProfile = async (userId) => {
-    try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', userId)
-        .single();
-
-      if (error) {
-        console.log('Profile not found for user:', userId);
-        return null;
-      }
-
-      return data;
-    } catch (error) {
-      console.error('Error checking user profile:', error);
-      return null;
-    }
-  };
-
-  const determineAuthState = (session, profile) => {
-    if (!session) {
-      return 'login';
-    }
-
-    if (!profile) {
-      return 'complete-profile';
-    }
-
-    // Check if profile is complete
-    if (profile.firstname && profile.surname && profile.education && profile.is_student && profile.date_of_birth) {
-      return 'app';
-    }
-
-    return 'complete-profile';
-  };
 
   useEffect(() => {
-    let mounted = true;
-
-    const initializeAuth = async () => {
+    const checkAuth = async () => {
       try {
-        console.log('Initializing auth...');
+        // 1. Check if we have a session
+        const { data: { session } } = await supabase.auth.getSession();
         
-        // First, get the session
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-        
-        if (sessionError) {
-          console.error('Session error:', sessionError);
-          if (mounted) {
-            setAuthState('login');
-            setLoading(false);
-          }
-          return;
-        }
-
-        console.log('Session found:', session ? 'Yes' : 'No');
-
         if (!session) {
-          if (mounted) {
-            setUser(null);
-            setUserProfile(null);
-            setAuthState('login');
-            setLoading(false);
-            setInitialCheckDone(true);
-          }
-          return;
-        }
-
-        if (mounted) {
-          setUser(session.user);
-        }
-
-        // Check user profile
-        const profile = await checkUserProfile(session.user.id);
-        
-        if (mounted) {
-          setUserProfile(profile);
-          
-          const newAuthState = determineAuthState(session, profile);
-          setAuthState(newAuthState);
-          
-          if (newAuthState === 'app') {
-            setIsNewUser(false);
-          } else if (newAuthState === 'complete-profile') {
-            setIsNewUser(true);
-          }
-
-          const isNewSignup = localStorage.getItem('just_signed_up');
-          if (isNewSignup && newAuthState === 'app') {
-            setActiveTab('dashboard');
-            setShowDashboardAfterSignup(true);
-            localStorage.removeItem('just_signed_up');
-          }
-
-          setLoading(false);
-          setInitialCheckDone(true);
-        }
-
-      } catch (error) {
-        console.error('Auth initialization error:', error);
-        if (mounted) {
+          // No session - show login
           setAuthState('login');
           setLoading(false);
-          setInitialCheckDone(true);
+          return;
         }
+        
+        setUser(session.user);
+        
+        // 2. Check if user has a complete profile in the database
+        const { data: userProfile, error } = await supabase
+          .from('users')
+          .select('firstname, surname, education, is_student, date_of_birth')
+          .eq('id', session.user.id)
+          .maybeSingle(); // Use maybeSingle to avoid throwing error if no profile
+        
+        if (error || !userProfile) {
+          // No profile found - need to complete profile
+          setAuthState('complete-profile');
+        } else if (userProfile.firstname && userProfile.surname) {
+          // Profile exists and has required fields - go to app
+          setAuthState('app');
+        } else {
+          // Profile exists but missing required fields - complete profile
+          setAuthState('complete-profile');
+        }
+        
+      } catch (error) {
+        console.error('Auth check error:', error);
+        setAuthState('login');
+      } finally {
+        setLoading(false);
       }
     };
 
-    initializeAuth();
+    checkAuth();
 
     // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('Auth state changed:', event, session?.user?.id);
+      console.log('Auth event:', event);
       
-      if (!mounted) return;
-
-      setUser(session?.user ?? null);
-
-      if (!session) {
-        setUserProfile(null);
+      if (event === 'SIGNED_OUT') {
+        setUser(null);
         setAuthState('login');
-        setIsNewUser(false);
-        setShowDashboardAfterSignup(false);
         setActiveTab('marketplace');
-        localStorage.removeItem('just_signed_up');
-        return;
-      }
-
-      // For SIGNED_IN event, check profile
-      if (event === 'SIGNED_IN') {
-        const profile = await checkUserProfile(session.user.id);
-        setUserProfile(profile);
+      } else if (event === 'SIGNED_IN' && session?.user) {
+        setUser(session.user);
         
-        const newAuthState = determineAuthState(session, profile);
-        setAuthState(newAuthState);
+        // After sign in, check profile
+        const { data: userProfile } = await supabase
+          .from('users')
+          .select('firstname, surname')
+          .eq('id', session.user.id)
+          .maybeSingle();
         
-        if (newAuthState === 'app') {
-          setIsNewUser(false);
-        } else if (newAuthState === 'complete-profile') {
-          setIsNewUser(true);
+        if (userProfile?.firstname && userProfile?.surname) {
+          setAuthState('app');
+        } else {
+          setAuthState('complete-profile');
         }
       }
-      
-      // For other events, maintain current state
-      setLoading(false);
     });
 
-    return () => {
-      mounted = false;
-      subscription.unsubscribe();
-    };
+    return () => subscription.unsubscribe();
   }, []);
 
   const handleSignupComplete = () => {
-    localStorage.setItem('just_signed_up', 'true');
+    // This just switches to login after signup
+    // The actual signup flow will handle the rest
+    setAuthState('login');
   };
 
-  const handleProfileComplete = async () => {
-    try {
-      if (user) {
-        // Refresh the profile
-        const profile = await checkUserProfile(user.id);
-        setUserProfile(profile);
+  const handleProfileComplete = () => {
+    // After completing profile, refresh the auth check
+    const refreshAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const { data: userProfile } = await supabase
+          .from('users')
+          .select('firstname, surname')
+          .eq('id', session.user.id)
+          .maybeSingle();
         
-        if (profile?.firstname && profile?.surname) {
-          setIsNewUser(false);
+        if (userProfile?.firstname && userProfile?.surname) {
           setAuthState('app');
         }
       }
-    } catch (error) {
-      console.error('Error in handleProfileComplete:', error);
-    }
+    };
+    refreshAuth();
   };
 
   const handleLogout = async () => {
     try {
       await supabase.auth.signOut();
-      setShowDashboardAfterSignup(false);
-      setActiveTab('marketplace');
       setAuthState('login');
+      setActiveTab('marketplace');
     } catch (error) {
       console.error('Error signing out:', error);
     }
@@ -231,7 +148,7 @@ function App() {
 
   const renderContent = () => {
     switch (activeTab) {
-      case 'dashboard': return <Dashboard user={user} profile={userProfile} />;
+      case 'dashboard': return <Dashboard user={user} />;
       case 'marketplace': return <Marketplace />;
       case 'feed': return <Feed />;
       case 'travel': return <TravelDeals />;
@@ -245,12 +162,12 @@ function App() {
       case 'study-groups': return <StudyGroups />;
       case 'housing': return <Housing />;
       case 'campus-eats': return <CampusEats />;
-      case 'settings': return <Settings user={user} profile={userProfile} />;
+      case 'settings': return <Settings />;
       default: return <Marketplace />;
     }
   };
 
-  if (loading && !initialCheckDone) {
+  if (loading) {
     return <Loading fullscreen />;
   }
 
@@ -281,7 +198,7 @@ function App() {
       );
     
     case 'app':
-      if (!user || !userProfile) {
+      if (!user) {
         return <Loading fullscreen />;
       }
       
@@ -290,7 +207,6 @@ function App() {
           {/* Desktop Navigation */}
           <Navbar 
             user={user}
-            profile={userProfile}
             onLogout={handleLogout}
             activeTab={activeTab}
             setActiveTab={setActiveTab}
@@ -299,7 +215,6 @@ function App() {
           {/* Mobile Navigation */}
           <MobileNav 
             user={user}
-            profile={userProfile}
             onLogout={handleLogout}
             activeTab={activeTab}
             setActiveTab={setActiveTab}
