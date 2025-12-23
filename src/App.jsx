@@ -10,6 +10,7 @@ import Sidebar from './components/Layout/Sidebar';
 import Login from './components/Auth/Login';
 import Signup from './components/Auth/Signup';
 import CompleteProfile from './components/Auth/CompleteProfile';
+import AuthCallback from './components/Auth/AuthCallback'; // ADDED
 
 // Page Components
 import Dashboard from './components/Pages/Dashboard';
@@ -32,6 +33,12 @@ import Settings from './components/Pages/Settings';
 import Loading from './components/Common/Loading';
 
 function App() {
+  // ADD THESE 2 LINES - handles Google OAuth callback
+  if (window.location.pathname === '/auth/callback' || window.location.hash.includes('access_token')) {
+    return <AuthCallback />;
+  }
+  
+  // EVERYTHING BELOW STAYS EXACTLY THE SAME
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('marketplace');
