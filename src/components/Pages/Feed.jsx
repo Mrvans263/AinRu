@@ -155,7 +155,7 @@ const Feed = () => {
 
   const handleLikePost = async (postId, currentlyLiked) => {
     if (!user) {
-      alert('Please login to like posts');
+      alert('Please login to love posts');
       return;
     }
 
@@ -225,8 +225,8 @@ const Feed = () => {
       }));
 
     } catch (error) {
-      console.error('Error updating like:', error);
-      alert('Like failed: ' + error.message);
+      console.error('Error updating love:', error);
+      alert('Love action failed: ' + error.message);
     }
   };
 
@@ -456,7 +456,7 @@ const Feed = () => {
               key={post.id}
               post={post}
               currentUser={user}
-              onLike={handleLikePost}
+              onLove={handleLikePost}
               onComment={handleAddComment}
               formatTimeAgo={formatTimeAgo}
               getInitials={getInitials}
@@ -468,16 +468,16 @@ const Feed = () => {
   );
 };
 
-const PostCard = ({ post, currentUser, onLike, onComment, formatTimeAgo, getInitials }) => {
+const PostCard = ({ post, currentUser, onLove, onComment, formatTimeAgo, getInitials }) => {
   const [commentText, setCommentText] = useState('');
   const [showComments, setShowComments] = useState(false);
-  const [isLiking, setIsLiking] = useState(false);
+  const [isLoving, setIsLoving] = useState(false);
 
-  const handleLike = async () => {
-    if (isLiking) return;
-    setIsLiking(true);
-    await onLike(post.id, post.userHasLiked);
-    setIsLiking(false);
+  const handleLove = async () => {
+    if (isLoving) return;
+    setIsLoving(true);
+    await onLove(post.id, post.userHasLiked);
+    setIsLoving(false);
   };
 
   const handleSubmitComment = async (e) => {
@@ -534,7 +534,7 @@ const PostCard = ({ post, currentUser, onLike, onComment, formatTimeAgo, getInit
 
       <div className="post-stats">
         <div className="stat-item">
-          <span className="stat-icon">👍</span>
+          <span className="stat-icon">❤️</span>
           <span className="stat-count">{post.like_count || 0}</span>
         </div>
         <div className="stat-item">
@@ -547,25 +547,25 @@ const PostCard = ({ post, currentUser, onLike, onComment, formatTimeAgo, getInit
         </div>
       </div>
 
-      <div className="post-actions">
+      <div className="post-actions-bar">
         <button 
-          className={`action-btn ${post.userHasLiked ? 'liked' : ''}`}
-          onClick={handleLike}
-          disabled={isLiking}
+          className={`post-action-btn ${post.userHasLiked ? 'loved' : ''}`}
+          onClick={handleLove}
+          disabled={isLoving}
         >
-          <span className="action-icon">👍</span>
-          <span className="action-text">{post.userHasLiked ? 'Liked' : 'Like'}</span>
+          <span className="action-icon">❤️</span>
+          <span className="action-text">{post.userHasLiked ? 'Loved' : 'Love'}</span>
         </button>
         
         <button 
-          className="action-btn"
+          className="post-action-btn"
           onClick={() => setShowComments(!showComments)}
         >
           <span className="action-icon">💬</span>
           <span className="action-text">Comment</span>
         </button>
         
-        <button className="action-btn">
+        <button className="post-action-btn">
           <span className="action-icon">↪️</span>
           <span className="action-text">Share</span>
         </button>
