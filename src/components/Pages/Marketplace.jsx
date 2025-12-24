@@ -138,7 +138,7 @@ const Marketplace = () => {
               category: categoriesMap[listing.category_id] || null,
               images: [],
               user: {
-                firstname: 'User',
+                firstname: 'Seller',
                 surname: '',
                 email: '',
                 phone: ''
@@ -520,10 +520,10 @@ const ListingCard = ({ listing, currentUser, onContactSeller, onMarkAsSold, onDe
               📍 {listing.location}
             </div>
           )}
-          <div className="item-seller">
-           <span className="seller-info">
-  👤 {listing.user?.firstname || 'Seller'} {listing.user?.surname || ''}
-</span>
+          <div className="seller-details">
+            <span className="seller-info">
+              {isOwnListing ? '👤 Your Item' : `👤 ${listing.user?.firstname || 'Seller'} ${listing.user?.surname || ''}`}
+            </span>
             <span className="item-date">{formatDate(listing.created_at)}</span>
           </div>
         </div>
