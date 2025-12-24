@@ -814,6 +814,13 @@
   position: relative;
   opacity: 0.9;
 }
+/* Marketplace.css - Add these styles at the end */
+
+/* Sold item styling */
+.sold-item {
+  position: relative;
+  opacity: 0.9;
+}
 
 .sold-overlay {
   position: absolute;
@@ -858,16 +865,46 @@
   font-weight: bold;
 }
 
-.disabled-btn {
+/* Only disable contact buttons for sold items, NOT delete buttons */
+.sold-item .contact-btn.disabled-btn {
   opacity: 0.6;
   cursor: not-allowed !important;
   background-color: #ccc !important;
 }
 
-/* Ensure sold overlay doesn't interfere with hover effects */
+/* Ensure delete buttons still work for sold items */
+.sold-item .delete-btn {
+  opacity: 1;
+  cursor: pointer !important;
+  background-color: #fee2e2 !important;
+  color: #dc2626 !important;
+}
+
+.sold-item .delete-btn:hover {
+  background-color: #fecaca !important;
+}
+
+/* Ensure owner buttons still work for sold items */
+.sold-item .owner-btn {
+  opacity: 1;
+  cursor: default !important;
+}
+
+/* Ensure mark as sold button is hidden for sold items */
+.sold-item .sold-btn {
+  display: none;
+}
+
+/* Ensure sold overlay doesn't interfere with hover effects on working buttons */
 .sold-item:hover {
   transform: none;
   box-shadow: none;
+}
+
+/* But still allow hover on delete button */
+.sold-item .delete-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 6px -1px rgba(220, 38, 38, 0.3);
 }
 
 /* Status filter styling */
@@ -875,3 +912,5 @@
   color: #4CAF50;
   font-weight: bold;
 }
+
+/* Keep the rest of your existing CSS as is... */
