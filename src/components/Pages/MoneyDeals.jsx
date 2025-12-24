@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
 import './MoneyDeals.css';
 
@@ -15,15 +15,25 @@ const MoneyDeals = () => {
     minAmount: '',
     maxAmount: ''
   });
+  const [filterChanged, setFilterChanged] = useState(false);
 
+  // Check user on mount
   useEffect(() => {
     checkUser();
-    fetchDeals();
+  }, []);
+
+  // Fetch deals only when filters change, not on initial render
+  useEffect(() => {
+    if (filterChanged) {
+      fetchDeals();
+    }
   }, [filters]);
 
   const checkUser = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     setUser(session?.user || null);
+    // Fetch deals after user check
+    fetchDeals();
   };
 
   const fetchDeals = async () => {
@@ -52,10 +62,10 @@ const MoneyDeals = () => {
         query = query.ilike('want_country', `%${filters.wantCountry}%`);
       }
       if (filters.minAmount) {
-        query = query.gte('have_amount', filters.minAmount);
+        query = query.gte('have_amount', parseFloat(filters.minAmount));
       }
       if (filters.maxAmount) {
-        query = query.lte('have_amount', filters.maxAmount);
+        query = query.lte('have_amount', parseFloat(filters.maxAmount));
       }
 
       const { data, error } = await query;
@@ -72,26 +82,132 @@ const MoneyDeals = () => {
       setDeals(dealsWithMatches);
     } catch (error) {
       console.error('Error fetching deals:', error);
+      setDeals([]);
     } finally {
       setLoading(false);
+      setFilterChanged(false);
     }
   };
 
   const findMatches = async (deal) => {
-    // Find complementary deals: someone who has what this deal wants, and wants what this deal has
-    const { data, error } = await supabase
-      .from('money_deals')
-      .select('*')
-      .eq('status', 'active')
-      .eq('have_currency', deal.want_currency)
-      .eq('want_currency', deal.have_currency)
-      .eq('have_country', deal.want_country)
-      .eq('want_country', deal.have_country)
-      .neq('user_id', deal.user_id) // Not the same user
-      .limit(5);
+    try {
+      // Find complementary deals
+      const { data, error } = await supabase
+        .from('money_deals')
+        .select('*, user:users(firstname, surname)')
+        .eq('status', 'active')
+        .eq('have_currency', deal.want_currency)
+        .eq('want_currency', deal.have_currency)
+        .neq('user_id', deal.user_id)
+        .limit(5);
 
-    if (error) return [];
-    return data || [];
+      if (error) return [];
+      return data || [];
+    } catch (error) {
+      console.error('Error finding matches:', error);
+      return [];
+    }
+  };
+
+  const handleFilterChange = (key, value) => {
+    setFilters(prev => ({ ...prev, [key]: value }));
+    setFilterChanged(true);
+  };
+
+  const handleCreateDeal = async (dealData) => {
+    try {
+      const { data, error } = await supabase
+        .from('money_deals')
+        .insert([{
+          ...dealData,
+          user_id: user.id,
+          status: 'active'
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+      
+      // Refresh deals
+      await fetchDeals();
+      return data;
+    } catch (error) {
+      console.error('Error creating deal:', error);
+      throw error;
+    }
+  };
+
+  const handleContact = (deal) => {
+    if (!deal.contact_info) {
+      alert('No contact information available');
+      return;
+    }
+
+    const sellerName = `${deal.user?.firstname || 'Seller'} ${deal.user?.surname || ''}`;
+    const message = `Hi ${sellerName}, I'm interested in your money exchange deal: ${deal.title}`;
+    
+    switch (deal.contact_method) {
+      case 'whatsapp':
+        const phone = deal.contact_info.replace(/\D/g, '');
+        window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
+        break;
+      case 'telegram':
+        const tgPhone = deal.contact_info.replace(/\D/g, '');
+        window.open(`https://t.me/+${tgPhone}`, '_blank');
+        break;
+      case 'email':
+        window.location.href = `mailto:${deal.contact_info}?subject=Money Exchange: ${deal.title}&body=${encodeURIComponent(message)}`;
+        break;
+      case 'phone':
+        if (window.confirm(`Call ${sellerName} at ${deal.contact_info}?`)) {
+          window.location.href = `tel:${deal.contact_info}`;
+        }
+        break;
+      default:
+        alert(`Contact ${sellerName} at: ${deal.contact_info}`);
+    }
+  };
+
+  const handleCompleteDeal = async (dealId) => {
+    if (!window.confirm('Mark this deal as completed?')) return;
+    
+    try {
+      const { error } = await supabase
+        .from('money_deals')
+        .update({ status: 'completed' })
+        .eq('id', dealId)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+      
+      // Refresh deals
+      await fetchDeals();
+      alert('Deal marked as completed!');
+    } catch (error) {
+      console.error('Error completing deal:', error);
+      alert('Failed to complete deal');
+    }
+  };
+
+  const handleDeleteDeal = async (dealId) => {
+    if (!window.confirm('Are you sure you want to delete this deal?')) return;
+    
+    try {
+      const { error } = await supabase
+        .from('money_deals')
+        .update({ status: 'cancelled' })
+        .eq('id', dealId)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+      
+      // Refresh deals
+      await fetchDeals();
+      alert('Deal deleted!');
+    } catch (error) {
+      console.error('Error deleting deal:', error);
+      alert('Failed to delete deal');
+    }
   };
 
   const formatAmount = (amount, currency) => {
@@ -99,7 +215,12 @@ const MoneyDeals = () => {
       'RUB': '₽', 'USD': '$', 'ZWL': 'Z$', 'ZAR': 'R',
       'EUR': '€', 'GBP': '£'
     };
-    return `${symbols[currency] || currency} ${parseFloat(amount).toLocaleString()}`;
+    const symbol = symbols[currency] || currency;
+    const formattedAmount = parseFloat(amount).toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+    return `${symbol} ${formattedAmount}`;
   };
 
   const getMethodIcon = (method) => {
@@ -115,7 +236,7 @@ const MoneyDeals = () => {
       'paypal': '🔵',
       'wise': '🟢'
     };
-    return icons[method.toLowerCase()] || '💳';
+    return icons[method?.toLowerCase()] || '💳';
   };
 
   const getCountryFlag = (country) => {
@@ -127,10 +248,10 @@ const MoneyDeals = () => {
       'uk': '🇬🇧',
       'germany': '🇩🇪'
     };
-    return flags[country.toLowerCase()] || '🌍';
+    return flags[country?.toLowerCase()] || '🌍';
   };
 
-  if (loading) {
+  if (loading && deals.length === 0) {
     return (
       <div className="money-deals-container">
         <div className="loading">Loading money deals...</div>
@@ -159,7 +280,10 @@ const MoneyDeals = () => {
         <div className="filters-grid">
           <div className="filter-group">
             <label>I Have Currency</label>
-            <select value={filters.haveCurrency} onChange={(e) => setFilters({...filters, haveCurrency: e.target.value})}>
+            <select 
+              value={filters.haveCurrency} 
+              onChange={(e) => handleFilterChange('haveCurrency', e.target.value)}
+            >
               <option value="">Any Currency</option>
               <option value="RUB">🇷🇺 Russian Ruble (RUB)</option>
               <option value="USD">🇺🇸 US Dollar (USD)</option>
@@ -170,7 +294,10 @@ const MoneyDeals = () => {
 
           <div className="filter-group">
             <label>I Want Currency</label>
-            <select value={filters.wantCurrency} onChange={(e) => setFilters({...filters, wantCurrency: e.target.value})}>
+            <select 
+              value={filters.wantCurrency} 
+              onChange={(e) => handleFilterChange('wantCurrency', e.target.value)}
+            >
               <option value="">Any Currency</option>
               <option value="RUB">🇷🇺 Russian Ruble (RUB)</option>
               <option value="USD">🇺🇸 US Dollar (USD)</option>
@@ -185,7 +312,7 @@ const MoneyDeals = () => {
               type="text"
               placeholder="e.g., Russia"
               value={filters.haveCountry}
-              onChange={(e) => setFilters({...filters, haveCountry: e.target.value})}
+              onChange={(e) => handleFilterChange('haveCountry', e.target.value)}
             />
           </div>
 
@@ -195,10 +322,60 @@ const MoneyDeals = () => {
               type="text"
               placeholder="e.g., Zimbabwe"
               value={filters.wantCountry}
-              onChange={(e) => setFilters({...filters, wantCountry: e.target.value})}
+              onChange={(e) => handleFilterChange('wantCountry', e.target.value)}
+            />
+          </div>
+
+          <div className="filter-group">
+            <label>Min Amount</label>
+            <input
+              type="number"
+              placeholder="Minimum"
+              value={filters.minAmount}
+              onChange={(e) => handleFilterChange('minAmount', e.target.value)}
+            />
+          </div>
+
+          <div className="filter-group">
+            <label>Max Amount</label>
+            <input
+              type="number"
+              placeholder="Maximum"
+              value={filters.maxAmount}
+              onChange={(e) => handleFilterChange('maxAmount', e.target.value)}
             />
           </div>
         </div>
+
+        <div className="filter-actions">
+          <button 
+            className="clear-filters-btn"
+            onClick={() => {
+              setFilters({
+                haveCurrency: '',
+                wantCurrency: '',
+                haveCountry: '',
+                wantCountry: '',
+                minAmount: '',
+                maxAmount: ''
+              });
+              setFilterChanged(true);
+            }}
+          >
+            Clear Filters
+          </button>
+          <button 
+            className="apply-filters-btn"
+            onClick={fetchDeals}
+          >
+            Apply Filters
+          </button>
+        </div>
+      </div>
+
+      {/* Results Count */}
+      <div className="results-count">
+        Found {deals.length} deal{deals.length !== 1 ? 's' : ''}
       </div>
 
       {/* Deals Grid */}
@@ -215,6 +392,11 @@ const MoneyDeals = () => {
               deal={deal} 
               currentUser={user}
               onContact={() => handleContact(deal)}
+              onComplete={() => handleCompleteDeal(deal.id)}
+              onDelete={() => handleDeleteDeal(deal.id)}
+              formatAmount={formatAmount}
+              getMethodIcon={getMethodIcon}
+              getCountryFlag={getCountryFlag}
             />
           ))
         )}
@@ -233,17 +415,18 @@ const MoneyDeals = () => {
 };
 
 // Deal Card Component
-const DealCard = ({ deal, currentUser, onContact }) => {
+const DealCard = ({ deal, currentUser, onContact, onComplete, onDelete, formatAmount, getMethodIcon, getCountryFlag }) => {
   const isOwnDeal = deal.user_id === currentUser?.id;
 
   return (
     <div className="deal-card">
       {/* Deal Header */}
       <div className="deal-header">
-        <h3>{deal.title}</h3>
+        <h3>{deal.title || 'Exchange Deal'}</h3>
         <div className="deal-status">
           {deal.status === 'active' && <span className="status-active">Active</span>}
           {deal.status === 'matched' && <span className="status-matched">Matched</span>}
+          {deal.status === 'completed' && <span className="status-completed">Completed</span>}
         </div>
       </div>
 
@@ -289,9 +472,9 @@ const DealCard = ({ deal, currentUser, onContact }) => {
         <div className="rate-section">
           <span className="rate-label">Rate:</span>
           <span className="rate-value">
-            1 {deal.have_currency} = {deal.exchange_rate} {deal.want_currency}
+            1 {deal.have_currency} = {parseFloat(deal.exchange_rate).toFixed(4)} {deal.want_currency}
           </span>
-          <span className="rate-source">({deal.rate_source})</span>
+          <span className="rate-source">({deal.rate_source || 'custom'})</span>
         </div>
       )}
 
@@ -305,19 +488,19 @@ const DealCard = ({ deal, currentUser, onContact }) => {
         </span>
       </div>
 
+      {/* Description */}
+      {deal.description && (
+        <div className="deal-description">
+          {deal.description}
+        </div>
+      )}
+
       {/* Matches Found */}
       {deal.matches && deal.matches.length > 0 && (
         <div className="matches-section">
           <div className="matches-count">
             🔄 {deal.matches.length} potential match{deal.matches.length !== 1 ? 'es' : ''} found
           </div>
-          {deal.matches.slice(0, 2).map(match => (
-            <div key={match.id} className="match-preview">
-              <span>{match.user?.firstname || 'User'}</span>
-              <span>{formatAmount(match.have_amount, match.have_currency)}</span>
-              <span>via {match.have_method}</span>
-            </div>
-          ))}
         </div>
       )}
 
@@ -329,13 +512,19 @@ const DealCard = ({ deal, currentUser, onContact }) => {
           </button>
         ) : (
           <div className="owner-actions">
-            <button className="view-matches-btn">
-              🔄 View Matches ({deal.matches?.length || 0})
-            </button>
-            <button className="complete-btn">
-              ✅ Mark as Completed
-            </button>
-            <button className="delete-btn">
+            {deal.status === 'active' && (
+              <>
+                {deal.matches?.length > 0 && (
+                  <button className="view-matches-btn">
+                    🔄 View Matches ({deal.matches.length})
+                  </button>
+                )}
+                <button className="complete-btn" onClick={onComplete}>
+                  ✅ Mark as Completed
+                </button>
+              </>
+            )}
+            <button className="delete-btn" onClick={onDelete}>
               🗑️ Delete
             </button>
           </div>
@@ -347,6 +536,7 @@ const DealCard = ({ deal, currentUser, onContact }) => {
 
 // Create Deal Modal Component
 const CreateDealModal = ({ user, onClose, onCreate }) => {
+  const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
     title: '',
     
@@ -373,37 +563,77 @@ const CreateDealModal = ({ user, onClose, onCreate }) => {
     // Contact
     contact_method: 'whatsapp',
     contact_info: user?.email || '',
+    
+    // Description
+    description: '',
   });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setLoading(true);
     
-    // Calculate want_amount if exchange_rate is provided
-    let wantAmount = form.want_amount;
-    if (form.exchange_rate && form.have_amount) {
-      wantAmount = (parseFloat(form.have_amount) * parseFloat(form.exchange_rate)).toFixed(2);
-    }
-    
-    const dealData = {
-      ...form,
-      have_amount: parseFloat(form.have_amount),
-      want_amount: parseFloat(wantAmount),
-      exchange_rate: form.exchange_rate ? parseFloat(form.exchange_rate) : null,
-    };
-    
-    // Call API to create deal
-    const { data, error } = await supabase
-      .from('money_deals')
-      .insert([{
-        ...dealData,
-        user_id: user.id,
-        status: 'active'
-      }]);
-    
-    if (!error) {
-      onCreate();
+    try {
+      // Calculate want_amount if exchange_rate is provided
+      let wantAmount = form.want_amount;
+      if (form.exchange_rate && form.have_amount) {
+        wantAmount = (parseFloat(form.have_amount) * parseFloat(form.exchange_rate)).toFixed(2);
+      } else if (!form.want_amount) {
+        alert('Please enter the amount you want to receive');
+        setLoading(false);
+        return;
+      }
+      
+      const dealData = {
+        title: form.title || `Exchange ${form.have_amount} ${form.have_currency} to ${wantAmount} ${form.want_currency}`,
+        have_amount: parseFloat(form.have_amount),
+        have_currency: form.have_currency,
+        have_country: form.have_country,
+        have_city: form.have_city,
+        have_method: form.have_method,
+        have_details: form.have_details,
+        want_amount: parseFloat(wantAmount),
+        want_currency: form.want_currency,
+        want_country: form.want_country,
+        want_city: form.want_city,
+        want_method: form.want_method,
+        want_details: form.want_details,
+        exchange_rate: form.exchange_rate ? parseFloat(form.exchange_rate) : null,
+        rate_source: form.rate_source,
+        contact_method: form.contact_method,
+        contact_info: form.contact_info,
+        description: form.description,
+      };
+      
+      await onCreate(dealData);
       onClose();
+    } catch (error) {
+      alert('Failed to create deal. Please try again.');
+      console.error('Create deal error:', error);
+    } finally {
+      setLoading(false);
     }
+  };
+
+  const handleHaveAmountChange = (value) => {
+    setForm(prev => {
+      const newForm = { ...prev, have_amount: value };
+      // Auto-calculate want amount if rate is set
+      if (prev.exchange_rate && value) {
+        newForm.want_amount = (parseFloat(value) * parseFloat(prev.exchange_rate)).toFixed(2);
+      }
+      return newForm;
+    });
+  };
+
+  const handleExchangeRateChange = (value) => {
+    setForm(prev => {
+      const newForm = { ...prev, exchange_rate: value };
+      // Auto-calculate want amount if have amount is set
+      if (prev.have_amount && value) {
+        newForm.want_amount = (parseFloat(prev.have_amount) * parseFloat(value)).toFixed(2);
+      }
+      return newForm;
+    });
   };
 
   return (
@@ -434,13 +664,13 @@ const CreateDealModal = ({ user, onClose, onCreate }) => {
               <h3>💰 What I Have</h3>
               
               <div className="form-group">
-                <label>Amount*</label>
+                <label>Amount I Have*</label>
                 <input
                   type="number"
                   step="0.01"
                   placeholder="1000"
                   value={form.have_amount}
-                  onChange={(e) => setForm({...form, have_amount: e.target.value})}
+                  onChange={(e) => handleHaveAmountChange(e.target.value)}
                   required
                 />
               </div>
@@ -452,6 +682,7 @@ const CreateDealModal = ({ user, onClose, onCreate }) => {
                   <option value="USD">🇺🇸 US Dollar (USD)</option>
                   <option value="EUR">🇪🇺 Euro (EUR)</option>
                   <option value="ZWL">🇿🇼 Zimbabwe Dollar (ZWL)</option>
+                  <option value="ZAR">🇿🇦 South African Rand (ZAR)</option>
                 </select>
               </div>
               
@@ -484,6 +715,7 @@ const CreateDealModal = ({ user, onClose, onCreate }) => {
                   <option value="tinkoff">🏛️ Tinkoff</option>
                   <option value="alfa-bank">🏢 Alfa-Bank</option>
                   <option value="paypal">🔵 PayPal</option>
+                  <option value="wise">🟢 Wise</option>
                 </select>
               </div>
               
@@ -493,6 +725,7 @@ const CreateDealModal = ({ user, onClose, onCreate }) => {
                   placeholder="Account number, meeting place, etc."
                   value={form.have_details}
                   onChange={(e) => setForm({...form, have_details: e.target.value})}
+                  rows="3"
                 />
               </div>
             </div>
@@ -502,11 +735,11 @@ const CreateDealModal = ({ user, onClose, onCreate }) => {
               <h3>🎯 What I Want</h3>
               
               <div className="form-group">
-                <label>Amount*</label>
+                <label>Amount I Want*</label>
                 <input
                   type="number"
                   step="0.01"
-                  placeholder="Amount you want to receive"
+                  placeholder="Amount to receive"
                   value={form.want_amount}
                   onChange={(e) => setForm({...form, want_amount: e.target.value})}
                   required
@@ -520,6 +753,7 @@ const CreateDealModal = ({ user, onClose, onCreate }) => {
                   <option value="ZWL">🇿🇼 Zimbabwe Dollar (ZWL)</option>
                   <option value="ZAR">🇿🇦 South African Rand (ZAR)</option>
                   <option value="RUB">🇷🇺 Russian Ruble (RUB)</option>
+                  <option value="EUR">🇪🇺 Euro (EUR)</option>
                 </select>
               </div>
               
@@ -562,6 +796,7 @@ const CreateDealModal = ({ user, onClose, onCreate }) => {
                   value={form.want_details}
                   onChange={(e) => setForm({...form, want_details: e.target.value})}
                   required
+                  rows="3"
                 />
               </div>
             </div>
@@ -577,7 +812,8 @@ const CreateDealModal = ({ user, onClose, onCreate }) => {
                 step="0.0001"
                 placeholder="Rate"
                 value={form.exchange_rate}
-                onChange={(e) => setForm({...form, exchange_rate: e.target.value})}
+                onChange={(e) => handleExchangeRateChange(e.target.value)}
+                className="rate-input"
               />
               <span className="rate-label">{form.want_currency}</span>
               <select 
@@ -590,6 +826,20 @@ const CreateDealModal = ({ user, onClose, onCreate }) => {
                 <option value="xe">XE.com</option>
               </select>
             </div>
+            <small className="form-hint">
+              If you enter a rate, the "Amount I Want" will be calculated automatically
+            </small>
+          </div>
+          
+          {/* Description */}
+          <div className="form-group">
+            <label>Description (optional)</label>
+            <textarea
+              placeholder="Any additional information about the deal..."
+              value={form.description}
+              onChange={(e) => setForm({...form, description: e.target.value})}
+              rows="3"
+            />
           </div>
           
           {/* Contact Info */}
@@ -612,14 +862,17 @@ const CreateDealModal = ({ user, onClose, onCreate }) => {
               onChange={(e) => setForm({...form, contact_info: e.target.value})}
               required
             />
+            <small className="form-hint">
+              Buyers will contact you using this information
+            </small>
           </div>
           
           <div className="form-actions">
-            <button type="button" className="btn-secondary" onClick={onClose}>
+            <button type="button" className="btn-secondary" onClick={onClose} disabled={loading}>
               Cancel
             </button>
-            <button type="submit" className="btn-primary">
-              Create Exchange Deal
+            <button type="submit" className="btn-primary" disabled={loading}>
+              {loading ? 'Creating...' : 'Create Exchange Deal'}
             </button>
           </div>
         </form>
