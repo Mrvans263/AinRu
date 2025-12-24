@@ -8,9 +8,7 @@ import {
   getConditionClass,
   handleContactSeller,
   getContactButtonText,
-  fetchUserDetails,
-  fetchListingImages,
-  getPrimaryImageUrl
+  fetchMarketplaceData
 } from './MarketplaceHelpers';
 
 const Marketplace = () => {
@@ -32,102 +30,56 @@ const Marketplace = () => {
     sortBy: 'newest'
   });
 
-  // Fetch user and data
+  // Fetch user and categories
   useEffect(() => {
-    fetchUserAndData();
+    const fetchInitialData = async () => {
+      try {
+        // Get current user
+        const { data: { session } } = await supabase.auth.getSession();
+        setUser(session?.user || null);
+        
+        // Fetch categories
+        const { data: categoriesData } = await supabase
+          .from('marketplace_categories')
+          .select('*')
+          .order('name');
+        setCategories(categoriesData || []);
+        
+        // Fetch initial listings
+        await fetchListings();
+      } catch (error) {
+        console.error('Error fetching initial data:', error);
+        setMessage({ type: 'error', text: 'Failed to load marketplace' });
+      }
+    };
+    
+    fetchInitialData();
   }, []);
 
   // Fetch listings when filters change
   useEffect(() => {
-    fetchListings();
+    if (categories.length > 0) {
+      fetchListings();
+    }
   }, [filters]);
 
-  const fetchUserAndData = async () => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      setUser(session?.user || null);
-      
-      // Fetch categories
-      const { data: categoriesData } = await supabase
-        .from('marketplace_categories')
-        .select('*')
-        .order('name');
-      setCategories(categoriesData || []);
-    } catch (error) {
-      console.error('Error fetching initial data:', error);
-    }
-  };
-
   const fetchListings = useCallback(async () => {
-  setLoading(true);
-  try {
-    let query = supabase
-      .from('marketplace_listings')
-      .select('*')
-      .eq('status', 'active')
-      .order('created_at', { ascending: false });
-
-    // Apply filters... (keep your existing filter code)
-
-    const { data: listingsData, error } = await query;
-    if (error) throw error;
-
-    // Get categories for display
-    const categoriesMap = {};
-    categories.forEach(cat => {
-      categoriesMap[cat.id] = cat;
-    });
-    
-    // Fetch all related data in parallel
-    const enrichedListings = await Promise.all(
-      (listingsData || []).map(async (listing) => {
-        try {
-          // CORRECTED: Await both promises
-          const [userDetails, images] = await Promise.all([
-            fetchUserDetails(listing.user_id),
-            fetchListingImages(listing.id)
-          ]);
-          
-          return {
-            ...listing,
-            category: categoriesMap[listing.category_id] || null,
-            images: images || [],
-            user: userDetails || {
-              firstname: 'User',
-              surname: '',
-              email: '',
-              phone: ''
-            }
-          };
-        } catch (error) {
-          console.error('Error enriching listing:', listing.id, error);
-          return {
-            ...listing,
-            category: categoriesMap[listing.category_id] || null,
-            images: [],
-            user: {
-              firstname: 'User',
-              surname: '',
-              email: '',
-              phone: ''
-            }
-          };
-        }
-      })
-    );
-
-    setListings(enrichedListings);
-  } catch (error) {
-    console.error('Error fetching listings:', error);
-    setMessage({ type: 'error', text: 'Failed to load listings' });
-  } finally {
-    setLoading(false);
-  }
-}, [filters, categories]);
+    setLoading(true);
+    try {
+      const data = await fetchMarketplaceData(filters);
+      setListings(data);
+    } catch (error) {
+      console.error('Error fetching listings:', error);
+      setMessage({ type: 'error', text: 'Failed to load listings' });
+      setListings([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [filters]);
 
   const handleCreateListing = async (listingData) => {
     try {
-      // 1. Create the main listing
+      // Create the main listing
       const { data: listing, error } = await supabase
         .from('marketplace_listings')
         .insert([{
@@ -149,7 +101,7 @@ const Marketplace = () => {
 
       if (error) throw error;
 
-      // 2. Handle image uploads if there are images
+      // Handle image uploads
       if (listingData.images && listingData.images.length > 0) {
         try {
           const imageRecords = listingData.images.map((img, index) => ({
@@ -164,13 +116,12 @@ const Marketplace = () => {
             .insert(imageRecords);
         } catch (imageError) {
           console.warn('Could not save images:', imageError);
-          // Don't fail the whole creation if images fail
         }
       }
 
       setShowCreateModal(false);
       setMessage({ type: 'success', text: 'Listing created successfully!' });
-      fetchListings();
+      await fetchListings();
       
     } catch (error) {
       console.error('Error creating listing:', error);
@@ -265,148 +216,21 @@ const Marketplace = () => {
       )}
 
       {/* Filters */}
-      <div className="filters-section">
-        <div className="filters-grid">
-          {/* Search */}
-          <div className="filter-group">
-            <label className="filter-label">Search</label>
-            <input
-              type="text"
-              className="search-input"
-              placeholder="Search listings..."
-              value={filters.search}
-              onChange={(e) => setFilters({...filters, search: e.target.value})}
-            />
-          </div>
-
-          {/* Category */}
-          <div className="filter-group">
-            <label className="filter-label">Category</label>
-            <select
-              className="filter-select"
-              value={filters.category}
-              onChange={(e) => setFilters({...filters, category: e.target.value})}
-            >
-              <option value="">All Categories</option>
-              {categories.map(category => (
-                <option key={category.id} value={category.id}>
-                  {category.icon} {category.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Currency Filter - RUB first */}
-          <div className="filter-group">
-            <label className="filter-label">Currency</label>
-            <select
-              className="filter-select"
-              value={filters.currency}
-              onChange={(e) => setFilters({...filters, currency: e.target.value})}
-            >
-              <option value="">All Currencies</option>
-              <option value="RUB">🇷🇺 Russian Ruble (RUB)</option>
-              <option value="USD">🇺🇸 US Dollar (USD)</option>
-              <option value="ZAR">🇿🇦 South African Rand (ZAR)</option>
-            </select>
-          </div>
-
-          {/* Price Range - Fixed Input Size */}
-          <div className="filter-group">
-            <label className="filter-label">Price Range</label>
-            <div className="price-slider">
-              <input
-                type="number"
-                className="search-input price-input"
-                placeholder="Min"
-                value={filters.minPrice}
-                onChange={(e) => setFilters({...filters, minPrice: e.target.value})}
-                style={{ fontSize: '14px', padding: '8px', width: '100px' }}
-              />
-              <span>to</span>
-              <input
-                type="number"
-                className="search-input price-input"
-                placeholder="Max"
-                value={filters.maxPrice}
-                onChange={(e) => setFilters({...filters, maxPrice: e.target.value})}
-                style={{ fontSize: '14px', padding: '8px', width: '100px' }}
-              />
-            </div>
-          </div>
-
-          {/* Condition */}
-          <div className="filter-group">
-            <label className="filter-label">Condition</label>
-            <select
-              className="filter-select"
-              value={filters.condition}
-              onChange={(e) => setFilters({...filters, condition: e.target.value})}
-            >
-              <option value="">Any Condition</option>
-              <option value="new">New</option>
-              <option value="like_new">Like New</option>
-              <option value="good">Good</option>
-              <option value="fair">Fair</option>
-              <option value="poor">Poor</option>
-            </select>
-          </div>
-
-          {/* Negotiable */}
-          <div className="filter-group">
-            <label className="filter-label">Price Negotiable</label>
-            <select
-              className="filter-select"
-              value={filters.negotiable}
-              onChange={(e) => setFilters({...filters, negotiable: e.target.value})}
-            >
-              <option value="">All</option>
-              <option value="true">Negotiable Only</option>
-              <option value="false">Fixed Price Only</option>
-            </select>
-          </div>
-
-          {/* Sort */}
-          <div className="filter-group">
-            <label className="filter-label">Sort By</label>
-            <select
-              className="filter-select"
-              value={filters.sortBy}
-              onChange={(e) => setFilters({...filters, sortBy: e.target.value})}
-            >
-              <option value="newest">Newest First</option>
-              <option value="price_low">Price: Low to High</option>
-              <option value="price_high">Price: High to Low</option>
-              <option value="views">Most Viewed</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="results-count">
-          {listings.length} {listings.length === 1 ? 'listing' : 'listings'} found
-        </div>
-      </div>
+      <FiltersSection 
+        filters={filters}
+        setFilters={setFilters}
+        categories={categories}
+        listingsCount={listings.length}
+      />
 
       {/* Listings Grid */}
-      <div className="items-grid">
-        {listings.length === 0 ? (
-          <div className="no-items">
-            <h3>No listings found</h3>
-            <p>Try adjusting your filters or create the first listing!</p>
-          </div>
-        ) : (
-          listings.map(listing => (
-            <ListingCard
-              key={listing.id}
-              listing={listing}
-              currentUser={user}
-              onContactSeller={() => handleContactSeller(listing, user)}
-              onMarkAsSold={handleMarkAsSold}
-              onDelete={handleDeleteListing}
-            />
-          ))
-        )}
-      </div>
+      <ListingsGrid 
+        listings={listings}
+        currentUser={user}
+        onContactSeller={handleContactSeller}
+        onMarkAsSold={handleMarkAsSold}
+        onDelete={handleDeleteListing}
+      />
 
       {/* Create Listing Modal */}
       {showCreateModal && (
@@ -421,9 +245,160 @@ const Marketplace = () => {
   );
 };
 
-// Separate Listing Card Component
+// ==================== SEPARATE COMPONENTS ====================
+
+// Filters Section Component
+const FiltersSection = ({ filters, setFilters, categories, listingsCount }) => (
+  <div className="filters-section">
+    <div className="filters-grid">
+      {/* Search */}
+      <div className="filter-group">
+        <label className="filter-label">Search</label>
+        <input
+          type="text"
+          className="search-input"
+          placeholder="Search listings..."
+          value={filters.search}
+          onChange={(e) => setFilters({...filters, search: e.target.value})}
+        />
+      </div>
+
+      {/* Category */}
+      <div className="filter-group">
+        <label className="filter-label">Category</label>
+        <select
+          className="filter-select"
+          value={filters.category}
+          onChange={(e) => setFilters({...filters, category: e.target.value})}
+        >
+          <option value="">All Categories</option>
+          {categories.map(category => (
+            <option key={category.id} value={category.id}>
+              {category.icon} {category.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Currency Filter */}
+      <div className="filter-group">
+        <label className="filter-label">Currency</label>
+        <select
+          className="filter-select"
+          value={filters.currency}
+          onChange={(e) => setFilters({...filters, currency: e.target.value})}
+        >
+          <option value="">All Currencies</option>
+          <option value="RUB">🇷🇺 Russian Ruble (RUB)</option>
+          <option value="USD">🇺🇸 US Dollar (USD)</option>
+          <option value="ZAR">🇿🇦 South African Rand (ZAR)</option>
+        </select>
+      </div>
+
+      {/* Price Range */}
+      <div className="filter-group">
+        <label className="filter-label">Price Range</label>
+        <div className="price-slider">
+          <input
+            type="number"
+            className="search-input price-input"
+            placeholder="Min"
+            value={filters.minPrice}
+            onChange={(e) => setFilters({...filters, minPrice: e.target.value})}
+            style={{ fontSize: '14px', padding: '8px', width: '100px' }}
+          />
+          <span>to</span>
+          <input
+            type="number"
+            className="search-input price-input"
+            placeholder="Max"
+            value={filters.maxPrice}
+            onChange={(e) => setFilters({...filters, maxPrice: e.target.value})}
+            style={{ fontSize: '14px', padding: '8px', width: '100px' }}
+          />
+        </div>
+      </div>
+
+      {/* Condition */}
+      <div className="filter-group">
+        <label className="filter-label">Condition</label>
+        <select
+          className="filter-select"
+          value={filters.condition}
+          onChange={(e) => setFilters({...filters, condition: e.target.value})}
+        >
+          <option value="">Any Condition</option>
+          <option value="new">New</option>
+          <option value="like_new">Like New</option>
+          <option value="good">Good</option>
+          <option value="fair">Fair</option>
+          <option value="poor">Poor</option>
+        </select>
+      </div>
+
+      {/* Negotiable */}
+      <div className="filter-group">
+        <label className="filter-label">Price Negotiable</label>
+        <select
+          className="filter-select"
+          value={filters.negotiable}
+          onChange={(e) => setFilters({...filters, negotiable: e.target.value})}
+        >
+          <option value="">All</option>
+          <option value="true">Negotiable Only</option>
+          <option value="false">Fixed Price Only</option>
+        </select>
+      </div>
+
+      {/* Sort */}
+      <div className="filter-group">
+        <label className="filter-label">Sort By</label>
+        <select
+          className="filter-select"
+          value={filters.sortBy}
+          onChange={(e) => setFilters({...filters, sortBy: e.target.value})}
+        >
+          <option value="newest">Newest First</option>
+          <option value="price_low">Price: Low to High</option>
+          <option value="price_high">Price: High to Low</option>
+          <option value="views">Most Viewed</option>
+        </select>
+      </div>
+    </div>
+
+    <div className="results-count">
+      {listingsCount} {listingsCount === 1 ? 'listing' : 'listings'} found
+    </div>
+  </div>
+);
+
+// Listings Grid Component
+const ListingsGrid = ({ listings, currentUser, onContactSeller, onMarkAsSold, onDelete }) => (
+  <div className="items-grid">
+    {listings.length === 0 ? (
+      <div className="no-items">
+        <h3>No listings found</h3>
+        <p>Try adjusting your filters or create the first listing!</p>
+      </div>
+    ) : (
+      listings.map(listing => (
+        <ListingCard
+          key={listing.id}
+          listing={listing}
+          currentUser={currentUser}
+          onContactSeller={() => onContactSeller(listing, currentUser)}
+          onMarkAsSold={onMarkAsSold}
+          onDelete={onDelete}
+        />
+      ))
+    )}
+  </div>
+);
+
+// Listing Card Component
 const ListingCard = ({ listing, currentUser, onContactSeller, onMarkAsSold, onDelete }) => {
-  const primaryImageUrl = getPrimaryImageUrl(listing.images);
+  const primaryImageUrl = listing.images?.find(img => img.is_primary)?.image_url || 
+                         listing.images?.[0]?.image_url || null;
   const isOwnListing = listing.user_id === currentUser?.id;
 
   return (
@@ -441,6 +416,10 @@ const ListingCard = ({ listing, currentUser, onContactSeller, onMarkAsSold, onDe
               src={primaryImageUrl} 
               alt={listing.title}
               className="item-image"
+              onError={(e) => {
+                e.target.onerror = null;
+                e.target.src = '/placeholder-image.png';
+              }}
             />
             {listing.images.length > 1 && (
               <div className="image-count">+{listing.images.length - 1}</div>
@@ -490,7 +469,7 @@ const ListingCard = ({ listing, currentUser, onContactSeller, onMarkAsSold, onDe
           )}
           <div className="seller-details">
             <span className="seller-info">
-              {isOwnListing ? '👤 Your Item' : `👤 ${listing.user?.firstname || 'Seller'} ${listing.user?.surname || ''}`}
+              {isOwnListing ? '👤 Your Item' : `👤 ${listing.user?.firstname || 'Seller'} ${listing.user?.surname || ''}`.trim()}
             </span>
             <span className="item-date">{formatDate(listing.created_at)}</span>
           </div>
@@ -498,7 +477,6 @@ const ListingCard = ({ listing, currentUser, onContactSeller, onMarkAsSold, onDe
 
         {/* Actions */}
         <div className="item-actions">
-          {/* Contact Options for non-owners */}
           {!isOwnListing ? (
             <button 
               className="contact-btn"
@@ -509,7 +487,6 @@ const ListingCard = ({ listing, currentUser, onContactSeller, onMarkAsSold, onDe
             </button>
           ) : (
             <>
-              {/* Owner actions */}
               <button 
                 className="owner-btn"
                 disabled
@@ -539,7 +516,7 @@ const ListingCard = ({ listing, currentUser, onContactSeller, onMarkAsSold, onDe
   );
 };
 
-// Create Listing Modal
+// Create Listing Modal Component
 const CreateListingModal = ({ user, categories, onClose, onSubmit }) => {
   const [formData, setFormData] = useState({
     title: '',
@@ -626,7 +603,6 @@ const CreateListingModal = ({ user, categories, onClose, onSubmit }) => {
       return;
     }
 
-    // Validate contact info based on method
     if (formData.contact_method !== 'in_app' && !formData.contact_info.trim()) {
       alert(`Please provide ${formData.contact_method} contact information`);
       return;
@@ -690,7 +666,7 @@ const CreateListingModal = ({ user, categories, onClose, onSubmit }) => {
               </select>
             </div>
 
-            {/* Price with Currency - Fixed Large Input */}
+            {/* Price with Currency */}
             <div className="form-group">
               <label className="form-label">Price *</label>
               <div className="price-input-group">
@@ -780,7 +756,7 @@ const CreateListingModal = ({ user, categories, onClose, onSubmit }) => {
               </select>
             </div>
 
-            {/* Contact Info - Dynamic placeholder */}
+            {/* Contact Info */}
             {formData.contact_method !== 'in_app' && (
               <div className="form-group">
                 <label className="form-label">Contact Information *</label>
