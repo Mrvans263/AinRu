@@ -50,13 +50,12 @@ const Marketplace = () => {
 
   const fetchListings = async () => {
     setLoading(true);
-    
     try {
-      // Step 1: Get basic listings with filters
       let query = supabase
         .from('marketplace_listings')
         .select('*')
-        .eq('status', 'active');
+        .eq('status', 'active')
+        .order('created_at', { ascending: false });
 
       // Apply filters
       if (filters.search) {
@@ -98,60 +97,45 @@ const Marketplace = () => {
           query = query.order('created_at', { ascending: false });
       }
 
-      const { data: listings, error } = await query;
-      
-      if (error) {
-        console.error('Error fetching listings:', error);
-        throw error;
-      }
+      const { data, error } = await query;
 
-      console.log(`Found ${listings?.length || 0} listings`);
-      
-      if (!listings || listings.length === 0) {
-        setListings([]);
-        return;
-      }
+      if (error) throw error;
 
-      // Step 2: Fetch all related data in parallel
+      // Get categories for display
+      const categoriesMap = {};
+      categories.forEach(cat => {
+        categoriesMap[cat.id] = cat;
+      });
+      
+      // Get user data for each listing
       const listingsWithDetails = await Promise.all(
-        listings.map(async (listing) => {
+        data.map(async (listing) => {
           try {
-            // Fetch category
-            const categoryPromise = listing.category_id ? 
-              supabase
-                .from('marketplace_categories')
-                .select('*')
-                .eq('id', listing.category_id)
-                .single() : 
-              Promise.resolve({ data: null, error: null });
-
-            // Fetch images
-            const imagesPromise = supabase
-              .from('listing_images')
-              .select('*')
-              .eq('listing_id', listing.id)
-              .order('is_primary', { ascending: false })
-              .order('order_index');
-
-            // Fetch user
-            const userPromise = supabase
+            // Get user info
+            const { data: user } = await supabase
               .from('users')
               .select('firstname, surname, email, phone, avatar_url')
               .eq('id', listing.user_id)
               .single();
-
-            // Execute all promises in parallel
-            const [categoryResult, imagesResult, userResult] = await Promise.all([
-              categoryPromise,
-              imagesPromise,
-              userPromise
-            ]);
-
+            
+            // Try to get images
+            let images = [];
+            try {
+              const { data: listingImages } = await supabase
+                .from('listing_images')
+                .select('*')
+                .eq('listing_id', listing.id)
+                .order('order_index');
+              images = listingImages || [];
+            } catch (imgError) {
+              // Images table might not exist yet
+            }
+            
             return {
               ...listing,
-              category: categoryResult.data || null,
-              images: imagesResult.data || [],
-              user: userResult.data || {
+              category: categoriesMap[listing.category_id] || null,
+              images: images,
+              user: user || {
                 firstname: 'Unknown',
                 surname: 'User',
                 email: '',
@@ -159,12 +143,10 @@ const Marketplace = () => {
                 avatar_url: ''
               }
             };
-            
-          } catch (detailError) {
-            console.error(`Error fetching details for listing ${listing.id}:`, detailError);
+          } catch (error) {
             return {
               ...listing,
-              category: null,
+              category: categoriesMap[listing.category_id] || null,
               images: [],
               user: {
                 firstname: 'Unknown',
@@ -179,13 +161,9 @@ const Marketplace = () => {
       );
 
       setListings(listingsWithDetails);
-      
     } catch (error) {
-      console.error('Error in fetchListings:', error);
-      setMessage({ 
-        type: 'error', 
-        text: `Failed to load listings: ${error.message}` 
-      });
+      console.error('Error fetching listings:', error);
+      setMessage({ type: 'error', text: 'Failed to load listings' });
     } finally {
       setLoading(false);
     }
@@ -193,33 +171,45 @@ const Marketplace = () => {
 
   const handleCreateListing = async (listingData) => {
     try {
+      // 1. Create the main listing
       const { data: listing, error } = await supabase
         .from('marketplace_listings')
         .insert([{
-          ...listingData,
+          title: listingData.title,
+          description: listingData.description,
+          category_id: listingData.category_id,
+          price: parseFloat(listingData.price),
+          currency: listingData.currency || 'RUB',
+          price_negotiable: listingData.price_negotiable,
+          condition: listingData.condition,
+          location: listingData.location,
+          contact_method: listingData.contact_method,
+          contact_info: listingData.contact_info,
           user_id: user.id,
-          status: 'active',
-          currency: listingData.currency || 'RUB' // Default to RUB
+          status: 'active'
         }])
         .select()
         .single();
 
       if (error) throw error;
 
-      // Handle image uploads
+      // 2. Handle image uploads if there are images
       if (listingData.images && listingData.images.length > 0) {
-        const imageRecords = listingData.images.map((img, index) => ({
-          listing_id: listing.id,
-          image_url: img,
-          is_primary: index === 0,
-          order_index: index
-        }));
+        try {
+          const imageRecords = listingData.images.map((img, index) => ({
+            listing_id: listing.id,
+            image_url: img,
+            is_primary: index === 0,
+            order_index: index
+          }));
 
-        const { error: imageError } = await supabase
-          .from('listing_images')
-          .insert(imageRecords);
-
-        if (imageError) throw imageError;
+          await supabase
+            .from('listing_images')
+            .insert(imageRecords);
+        } catch (imageError) {
+          console.warn('Could not save images:', imageError);
+          // Don't fail the whole creation if images fail
+        }
       }
 
       setShowCreateModal(false);
@@ -731,7 +721,7 @@ const Marketplace = () => {
   );
 };
 
-// Create Listing Modal Component (Keep as is - it's already working)
+// Create Listing Modal Component (Keep as is - it works)
 const CreateListingModal = ({ user, categories, onClose, onSubmit }) => {
   const [formData, setFormData] = useState({
     title: '',
