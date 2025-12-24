@@ -808,3 +808,70 @@
 .filter-select option {
   padding: 0.5rem;
 }
+
+/* Sold item styling */
+.sold-item {
+  position: relative;
+  opacity: 0.9;
+}
+
+.sold-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 10;
+  border-radius: 8px;
+}
+
+.sold-badge-large {
+  background: #4CAF50;
+  color: white;
+  padding: 10px 24px;
+  border-radius: 24px;
+  font-weight: bold;
+  font-size: 20px;
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.sold-message {
+  color: white;
+  font-size: 14px;
+  opacity: 0.9;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 6px 12px;
+  border-radius: 4px;
+}
+
+.sold-price-indicator {
+  color: #4CAF50;
+  font-size: 14px;
+  margin-left: 8px;
+  font-weight: bold;
+}
+
+.disabled-btn {
+  opacity: 0.6;
+  cursor: not-allowed !important;
+  background-color: #ccc !important;
+}
+
+/* Ensure sold overlay doesn't interfere with hover effects */
+.sold-item:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+/* Status filter styling */
+.filter-group select option[value="sold"] {
+  color: #4CAF50;
+  font-weight: bold;
+}
