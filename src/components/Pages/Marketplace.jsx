@@ -27,6 +27,7 @@ const Marketplace = () => {
     maxPrice: '',
     condition: '',
     negotiable: '',
+    status: 'active',
     sortBy: 'newest'
   });
 
@@ -64,33 +65,18 @@ const Marketplace = () => {
   }, [filters]);
 
   const fetchListings = useCallback(async () => {
-  setLoading(true);
-  try {
-    const data = await fetchMarketplaceData(filters);
-    
-    // TEMPORARY DEBUG LOGGING
-    console.log('=== DEBUG: Checking user data ===');
-    console.log('Total listings:', data.length);
-    
-    data.forEach((listing, index) => {
-      console.log(`[${index}] ${listing.title}`, {
-        userId: listing.user_id,
-        userData: listing.user,
-        hasFirstName: !!listing.user?.firstname,
-        firstName: listing.user?.firstname
-      });
-    });
-    console.log('=== END DEBUG ===');
-    
-    setListings(data);
-  } catch (error) {
-    console.error('Error fetching listings:', error);
-    setMessage({ type: 'error', text: 'Failed to load listings' });
-    setListings([]);
-  } finally {
-    setLoading(false);
-  }
-}, [filters]);
+    setLoading(true);
+    try {
+      const data = await fetchMarketplaceData(filters);
+      setListings(data);
+    } catch (error) {
+      console.error('Error fetching listings:', error);
+      setMessage({ type: 'error', text: 'Failed to load listings' });
+      setListings([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [filters]);
 
   const handleCreateListing = async (listingData) => {
     try {
@@ -295,6 +281,20 @@ const FiltersSection = ({ filters, setFilters, categories, listingsCount }) => (
         </select>
       </div>
 
+      {/* Status Filter */}
+      <div className="filter-group">
+        <label className="filter-label">Status</label>
+        <select
+          className="filter-select"
+          value={filters.status}
+          onChange={(e) => setFilters({...filters, status: e.target.value})}
+        >
+          <option value="active">Active Listings</option>
+          <option value="sold">Sold Items</option>
+          <option value="all">All Listings</option>
+        </select>
+      </div>
+
       {/* Currency Filter */}
       <div className="filter-group">
         <label className="filter-label">Currency</label>
@@ -376,7 +376,6 @@ const FiltersSection = ({ filters, setFilters, categories, listingsCount }) => (
           <option value="newest">Newest First</option>
           <option value="price_low">Price: Low to High</option>
           <option value="price_high">Price: High to Low</option>
-          <option value="views">Most Viewed</option>
         </select>
       </div>
     </div>
@@ -415,12 +414,16 @@ const ListingCard = ({ listing, currentUser, onContactSeller, onMarkAsSold, onDe
   const primaryImageUrl = listing.images?.find(img => img.is_primary)?.image_url || 
                          listing.images?.[0]?.image_url || null;
   const isOwnListing = listing.user_id === currentUser?.id;
+  const isSold = listing.status === 'sold';
 
   return (
-    <div className={`item-card ${listing.status === 'sold' ? 'sold' : ''}`}>
-      {/* Sold Badge */}
-      {listing.status === 'sold' && (
-        <div className="sold-badge">SOLD</div>
+    <div className={`item-card ${isSold ? 'sold-item' : ''}`}>
+      {/* Sold Overlay - Only show if sold */}
+      {isSold && (
+        <div className="sold-overlay">
+          <div className="sold-badge-large">SOLD</div>
+          <div className="sold-message">This item has been sold</div>
+        </div>
       )}
 
       {/* Images */}
@@ -455,13 +458,14 @@ const ListingCard = ({ listing, currentUser, onContactSeller, onMarkAsSold, onDe
           <div className="item-price">
             <span className="currency-flag">{getCurrencyFlag(listing.currency || 'RUB')}</span>
             {formatPrice(listing.price, listing.currency || 'RUB')}
+            {isSold && <span className="sold-price-indicator"> (Sold)</span>}
           </div>
         </div>
 
         {/* Meta info */}
         <div className="item-meta">
           <span className="item-category">{listing.category?.name}</span>
-          {listing.price_negotiable && (
+          {listing.price_negotiable && !isSold && (
             <span className="negotiable-badge">Negotiable</span>
           )}
           <span className={`condition-badge ${getConditionClass(listing.condition)}`}>
@@ -494,11 +498,12 @@ const ListingCard = ({ listing, currentUser, onContactSeller, onMarkAsSold, onDe
         <div className="item-actions">
           {!isOwnListing ? (
             <button 
-              className="contact-btn"
-              onClick={onContactSeller}
-              title={`Contact via ${listing.contact_method || 'email'}`}
+              className={`contact-btn ${isSold ? 'disabled-btn' : ''}`}
+              onClick={isSold ? undefined : onContactSeller}
+              title={isSold ? 'Item has been sold' : `Contact via ${listing.contact_method || 'email'}`}
+              disabled={isSold}
             >
-              {getContactButtonText(listing.contact_method || 'email')}
+              {isSold ? '❌ Sold' : getContactButtonText(listing.contact_method || 'email')}
             </button>
           ) : (
             <>
@@ -613,8 +618,23 @@ const CreateListingModal = ({ user, categories, onClose, onSubmit }) => {
     e.preventDefault();
     
     // Validation
-    if (!formData.title.trim() || !formData.description.trim() || !formData.price || !formData.category_id) {
-      alert('Please fill in all required fields');
+    if (!formData.title.trim()) {
+      alert('Please enter a title for your listing');
+      return;
+    }
+    
+    if (!formData.description.trim()) {
+      alert('Please enter a description for your listing');
+      return;
+    }
+    
+    if (!formData.price) {
+      alert('Please enter a price for your listing');
+      return;
+    }
+    
+    if (!formData.category_id) {
+      alert('Please select a category for your listing');
       return;
     }
 
@@ -631,7 +651,7 @@ const CreateListingModal = ({ user, categories, onClose, onSubmit }) => {
         images: images
       });
     } catch (error) {
-      alert('Failed to create listing');
+      alert('Failed to create listing. Please try again.');
     } finally {
       setLoading(false);
     }
