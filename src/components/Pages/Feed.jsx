@@ -135,12 +135,14 @@ const Feed = () => {
       if (error) throw error;
 
       setPosts(prev => [{
-        ...data,
-        userHasLiked: false,
-        likes: [],
-        comments: [],
-        showAllComments: false
-      }, ...prev]);
+  ...data,
+  userHasLiked: false,
+  likes: [],
+  comments: [],
+  showAllComments: false,
+  isNewPost: true // Add this flag
+}, ...prev]);
+
 
       setNewPost('');
       setImagePreview(null);
@@ -490,7 +492,7 @@ const PostCard = ({ post, currentUser, onLove, onComment, formatTimeAgo, getInit
   };
 
   return (
-    <div className="post-card">
+    <div className={`post-card ${post.isNewPost ? 'new-post' : ''}`}>
       <div className="post-header">
         <div className="post-author">
           <div className="author-avatar">
