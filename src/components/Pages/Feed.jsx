@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import './Feed.css';
 
@@ -12,34 +12,22 @@ const Feed = () => {
   const [visibility, setVisibility] = useState('public');
   const [activeTab, setActiveTab] = useState('all');
 
-  // DEBUG: Log everything
-  useEffect(() => {
-    console.log('=== FEED DEBUG ===');
-    console.log('User:', user?.id);
-    console.log('Posts count:', posts.length);
-    console.log('Loading:', loading);
-  }, [user, posts, loading]);
-
   useEffect(() => {
     checkUser();
   }, []);
 
   useEffect(() => {
     if (user) {
-      console.log('Fetching posts for user:', user.id);
       fetchPosts();
     }
   }, [user, activeTab]);
 
   const checkUser = async () => {
-    console.log('Checking user session...');
-    const { data: { session }, error } = await supabase.auth.getSession();
-    console.log('Session:', session?.user?.id, 'Error:', error);
+    const { data: { session } } = await supabase.auth.getSession();
     setUser(session?.user || null);
   };
 
   const fetchPosts = async () => {
-    console.log('=== FETCHING POSTS ===');
     setLoading(true);
     try {
       let query = supabase
@@ -57,50 +45,44 @@ const Feed = () => {
         `)
         .order('created_at', { ascending: false });
 
-      // TEMPORARILY REMOVE FOLLOWING LOGIC
       if (activeTab === 'my' && user) {
-        console.log('Filtering to my posts');
         query = query.eq('user_id', user.id);
+      } else if (activeTab === 'following' && user) {
+        const { data: following } = await supabase
+          .from('user_follows')
+          .select('following_id')
+          .eq('follower_id', user.id);
+
+        if (following && following.length > 0) {
+          const followingIds = following.map(f => f.following_id);
+          query = query.in('user_id', followingIds);
+        } else {
+          setPosts([]);
+          setLoading(false);
+          return;
+        }
       }
 
-      // Apply privacy - SIMPLIFY FOR NOW
       if (user) {
-        // Show public posts OR user's own posts
         query = query.or(`visibility.eq.public,user_id.eq.${user.id}`);
       } else {
         query = query.eq('visibility', 'public');
       }
 
-      console.log('Executing query...');
-      const { data, error, count } = await query.limit(20);
+      const { data, error } = await query.limit(50);
       
-      if (error) {
-        console.error('Query error:', error);
-        throw error;
-      }
+      if (error) throw error;
       
-      console.log('Fetched data:', data?.length, 'posts');
-      console.log('Sample post:', data?.[0]);
-      
-      // Process posts
-      const processedPosts = (data || []).map(post => {
-        const processed = {
-          ...post,
-          userHasLiked: post.likes?.some(like => like.user_id === user?.id) || false,
-          comments: post.comments?.slice(0, 3) || [],
-          showAllComments: false,
-          like_count: post.like_count || 0,
-          comment_count: post.comment_count || 0,
-          share_count: post.share_count || 0
-        };
-        console.log('Processed post:', processed.id, 'likes:', processed.like_count);
-        return processed;
-      });
+      const processedPosts = (data || []).map(post => ({
+        ...post,
+        userHasLiked: post.likes?.some(like => like.user_id === user?.id) || false,
+        comments: post.comments?.slice(0, 3) || [],
+        showAllComments: false
+      }));
       
       setPosts(processedPosts);
     } catch (error) {
       console.error('Error fetching posts:', error);
-      alert(`Failed to load posts: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -108,10 +90,7 @@ const Feed = () => {
 
   const handleCreatePost = async (e) => {
     e.preventDefault();
-    console.log('=== CREATING POST ===');
-    
     if (!newPost.trim() && !imageFile) {
-      console.log('Empty post');
       alert('Please write something or add an image');
       return;
     }
@@ -119,29 +98,29 @@ const Feed = () => {
     try {
       let imageUrl = null;
       
-      // Upload image if exists - SKIP FOR NOW TO DEBUG
       if (imageFile) {
-        console.log('Image upload skipped for debugging');
-        // Temporarily skip image upload
+        const fileExt = imageFile.name.split('.').pop();
+        const fileName = `${user.id}-${Date.now()}.${fileExt}`;
+        
+        const { error: uploadError } = await supabase.storage
+          .from('feed-images')
+          .upload(fileName, imageFile);
+
+        if (uploadError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('feed-images')
+          .getPublicUrl(fileName);
+
+        imageUrl = publicUrl;
       }
 
-      console.log('Inserting post with:', {
-        user_id: user.id,
-        content: newPost.trim(),
-        image_url: imageUrl,
-        visibility: visibility,
-        like_count: 0,
-        comment_count: 0,
-        share_count: 0
-      });
-
-      // Create post WITHOUT image for now
       const { data, error } = await supabase
         .from('feed_posts')
         .insert([{
           user_id: user.id,
           content: newPost.trim(),
-          image_url: null, // No image for debugging
+          image_url: imageUrl,
           visibility: visibility,
           like_count: 0,
           comment_count: 0,
@@ -153,26 +132,16 @@ const Feed = () => {
         `)
         .single();
 
-      if (error) {
-        console.error('Insert error:', error);
-        throw error;
-      }
+      if (error) throw error;
 
-      console.log('Post created successfully:', data);
-
-      // Add to posts list
-      const newPostObj = {
+      setPosts(prev => [{
         ...data,
         userHasLiked: false,
         likes: [],
         comments: [],
         showAllComments: false
-      };
-      
-      setPosts(prev => [newPostObj, ...prev]);
-      console.log('Updated posts list');
+      }, ...prev]);
 
-      // Reset form
       setNewPost('');
       setImagePreview(null);
       setImageFile(null);
@@ -180,13 +149,11 @@ const Feed = () => {
 
     } catch (error) {
       console.error('Error creating post:', error);
-      alert(`Failed to create post: ${error.message}`);
+      alert('Failed to create post: ' + error.message);
     }
   };
 
   const handleLikePost = async (postId, currentlyLiked) => {
-    console.log('=== LIKING POST ===', { postId, currentlyLiked });
-    
     if (!user) {
       alert('Please login to like posts');
       return;
@@ -194,8 +161,6 @@ const Feed = () => {
 
     try {
       if (currentlyLiked) {
-        // Unlike
-        console.log('Removing like...');
         const { error } = await supabase
           .from('post_likes')
           .delete()
@@ -204,15 +169,20 @@ const Feed = () => {
 
         if (error) throw error;
 
-        // Update like count
+        const { data: currentPost } = await supabase
+          .from('feed_posts')
+          .select('like_count')
+          .eq('id', postId)
+          .single();
+
+        const newLikeCount = Math.max(0, (currentPost?.like_count || 0) - 1);
+        
         await supabase
           .from('feed_posts')
-          .update({ like_count: supabase.raw('like_count - 1') })
+          .update({ like_count: newLikeCount })
           .eq('id', postId);
 
       } else {
-        // Like
-        console.log('Adding like...');
         const { error } = await supabase
           .from('post_likes')
           .insert([{
@@ -222,18 +192,26 @@ const Feed = () => {
 
         if (error) throw error;
 
-        // Update like count
+        const { data: currentPost } = await supabase
+          .from('feed_posts')
+          .select('like_count')
+          .eq('id', postId)
+          .single();
+
+        const newLikeCount = (currentPost?.like_count || 0) + 1;
+        
         await supabase
           .from('feed_posts')
-          .update({ like_count: supabase.raw('like_count + 1') })
+          .update({ like_count: newLikeCount })
           .eq('id', postId);
       }
 
-      // Update local state
       setPosts(prev => prev.map(post => {
         if (post.id === postId) {
-          const newLikeCount = currentlyLiked ? post.like_count - 1 : post.like_count + 1;
-          console.log('Updating post', postId, 'new like count:', newLikeCount);
+          const newLikeCount = currentlyLiked ? 
+            Math.max(0, post.like_count - 1) : 
+            post.like_count + 1;
+          
           return {
             ...post,
             like_count: newLikeCount,
@@ -248,13 +226,11 @@ const Feed = () => {
 
     } catch (error) {
       console.error('Error updating like:', error);
-      alert(`Like failed: ${error.message}`);
+      alert('Like failed: ' + error.message);
     }
   };
 
   const handleAddComment = async (postId, content) => {
-    console.log('=== ADDING COMMENT ===', { postId, content });
-    
     if (!user) {
       alert('Please login to comment');
       return;
@@ -281,21 +257,24 @@ const Feed = () => {
 
       if (error) throw error;
 
-      console.log('Comment created:', data);
+      const { data: currentPost } = await supabase
+        .from('feed_posts')
+        .select('comment_count')
+        .eq('id', postId)
+        .single();
 
-      // Update comment count
+      const newCommentCount = (currentPost?.comment_count || 0) + 1;
+      
       await supabase
         .from('feed_posts')
-        .update({ comment_count: supabase.raw('comment_count + 1') })
+        .update({ comment_count: newCommentCount })
         .eq('id', postId);
 
-      // Update local state
       setPosts(prev => prev.map(post => {
         if (post.id === postId) {
-          console.log('Updating post', postId, 'comment count:', post.comment_count + 1);
           return {
             ...post,
-            comment_count: post.comment_count + 1,
+            comment_count: newCommentCount,
             comments: [data, ...(post.comments || [])]
           };
         }
@@ -304,50 +283,365 @@ const Feed = () => {
 
     } catch (error) {
       console.error('Error adding comment:', error);
-      alert(`Failed to add comment: ${error.message}`);
+      alert('Failed to add comment: ' + error.message);
     }
   };
 
-  // ... keep the rest of your code (handleImageUpload, formatTimeAgo, etc.)
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
 
-  // TEMPORARY: Add test buttons for debugging
-  const testOperations = async () => {
-    console.clear();
-    console.log('=== MANUAL TESTS ===');
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Image size should be less than 5MB');
+      return;
+    }
+
+    setImageFile(file);
     
-    // Test 1: Check if we can fetch users
-    const { data: users } = await supabase
-      .from('users')
-      .select('id, firstname, surname')
-      .limit(1);
-    console.log('Users test:', users);
-    
-    // Test 2: Try to create a post directly
-    const testPost = {
-      user_id: user.id,
-      content: 'MANUAL TEST POST',
-      visibility: 'public',
-      like_count: 0,
-      comment_count: 0
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setImagePreview(reader.result);
     };
-    
-    const { data: post, error } = await supabase
-      .from('feed_posts')
-      .insert([testPost])
-      .select()
-      .single();
-      
-    console.log('Manual insert:', error ? `FAIL: ${error.message}` : `SUCCESS: ${post.id}`);
-    
-    if (post) {
-      // Clean up
-      await supabase.from('feed_posts').delete().eq('id', post.id);
-    }
+    reader.readAsDataURL(file);
   };
 
-  // In your JSX, add this button temporarily:
-  // <button onClick={testOperations} style={{background: 'blue', color: 'white', padding: '10px', margin: '10px'}}>
-  //   TEST OPERATIONS
-  // </button>
+  const formatTimeAgo = (dateString) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHour = Math.floor(diffMin / 60);
+    const diffDay = Math.floor(diffHour / 24);
 
-  // ... rest of your JSX remains the same
+    if (diffSec < 60) return 'just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    if (diffHour < 24) return `${diffHour}h ago`;
+    if (diffDay < 7) return `${diffDay}d ago`;
+    return date.toLocaleDateString('en-ZA', { month: 'short', day: 'numeric' });
+  };
+
+  const getInitials = (firstname, surname) => {
+    return `${firstname?.[0] || ''}${surname?.[0] || ''}`.toUpperCase();
+  };
+
+  if (loading && posts.length === 0) {
+    return (
+      <div className="feed-container">
+        <div className="loading">Loading feed...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="feed-container">
+      <div className="feed-header">
+        <h1>📰 Campus Feed</h1>
+        <p>Share updates, connect with students</p>
+      </div>
+
+      {user && (
+        <div className="create-post-card">
+          <div className="post-form-header">
+            <div className="user-avatar">
+              {user?.user_metadata?.avatar_url ? (
+                <img src={user.user_metadata.avatar_url} alt="Profile" />
+              ) : (
+                <div className="avatar-fallback">
+                  {getInitials(user?.user_metadata?.firstname, user?.user_metadata?.surname)}
+                </div>
+              )}
+            </div>
+            <div className="user-info">
+              <div className="user-name">
+                {user?.user_metadata?.firstname || 'User'} {user?.user_metadata?.surname || ''}
+              </div>
+              <select 
+                className="visibility-select"
+                value={visibility}
+                onChange={(e) => setVisibility(e.target.value)}
+              >
+                <option value="public">🌍 Public</option>
+                <option value="friends">👥 Friends Only</option>
+                <option value="private">🔒 Only Me</option>
+              </select>
+            </div>
+          </div>
+
+          <form onSubmit={handleCreatePost}>
+            <textarea
+              className="post-input"
+              placeholder="What's on your mind?"
+              value={newPost}
+              onChange={(e) => setNewPost(e.target.value)}
+              rows="3"
+            />
+
+            {imagePreview && (
+              <div className="image-preview">
+                <img src={imagePreview} alt="Preview" />
+                <button 
+                  type="button" 
+                  className="remove-image"
+                  onClick={() => {
+                    setImagePreview(null);
+                    setImageFile(null);
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            )}
+
+            <div className="post-actions">
+              <div className="action-buttons">
+                <label className="upload-btn">
+                  📷 Photo
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageUpload}
+                    hidden
+                  />
+                </label>
+                <button type="button" className="emoji-btn">😊 Feeling</button>
+                <button type="button" className="location-btn">📍 Location</button>
+              </div>
+              <button 
+                type="submit" 
+                className="post-btn"
+                disabled={!newPost.trim() && !imageFile}
+              >
+                Post
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      <div className="feed-tabs">
+        <button 
+          className={`tab-btn ${activeTab === 'all' ? 'active' : ''}`}
+          onClick={() => setActiveTab('all')}
+        >
+          🌐 All Posts
+        </button>
+        {user && (
+          <>
+            <button 
+              className={`tab-btn ${activeTab === 'following' ? 'active' : ''}`}
+              onClick={() => setActiveTab('following')}
+            >
+              👥 Following
+            </button>
+            <button 
+              className={`tab-btn ${activeTab === 'my' ? 'active' : ''}`}
+              onClick={() => setActiveTab('my')}
+            >
+              📝 My Posts
+            </button>
+          </>
+        )}
+      </div>
+
+      <div className="posts-feed">
+        {posts.length === 0 ? (
+          <div className="no-posts">
+            <h3>No posts yet</h3>
+            <p>Be the first to share something!</p>
+          </div>
+        ) : (
+          posts.map(post => (
+            <PostCard
+              key={post.id}
+              post={post}
+              currentUser={user}
+              onLike={handleLikePost}
+              onComment={handleAddComment}
+              formatTimeAgo={formatTimeAgo}
+              getInitials={getInitials}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+};
+
+const PostCard = ({ post, currentUser, onLike, onComment, formatTimeAgo, getInitials }) => {
+  const [commentText, setCommentText] = useState('');
+  const [showComments, setShowComments] = useState(false);
+  const [isLiking, setIsLiking] = useState(false);
+
+  const handleLike = async () => {
+    if (isLiking) return;
+    setIsLiking(true);
+    await onLike(post.id, post.userHasLiked);
+    setIsLiking(false);
+  };
+
+  const handleSubmitComment = async (e) => {
+    e.preventDefault();
+    if (!commentText.trim()) return;
+    
+    await onComment(post.id, commentText);
+    setCommentText('');
+    setShowComments(true);
+  };
+
+  return (
+    <div className="post-card">
+      <div className="post-header">
+        <div className="post-author">
+          <div className="author-avatar">
+            {post.user?.profile_picture_url ? (
+              <img src={post.user.profile_picture_url} alt={post.user.firstname} />
+            ) : (
+              <div className="avatar-fallback">
+                {getInitials(post.user?.firstname, post.user?.surname)}
+              </div>
+            )}
+          </div>
+          <div className="author-info">
+            <div className="author-name">
+              {post.user?.firstname || 'User'} {post.user?.surname || ''}
+            </div>
+            <div className="post-meta">
+              <span className="post-time">{formatTimeAgo(post.created_at)}</span>
+              <span className="post-visibility">
+                {post.visibility === 'public' && '🌍'}
+                {post.visibility === 'friends' && '👥'}
+                {post.visibility === 'private' && '🔒'}
+              </span>
+            </div>
+          </div>
+        </div>
+        
+        {post.user_id === currentUser?.id && (
+          <button className="post-menu">⋯</button>
+        )}
+      </div>
+
+      <div className="post-content">
+        <p>{post.content}</p>
+        
+        {post.image_url && (
+          <div className="post-image">
+            <img src={post.image_url} alt="Post" />
+          </div>
+        )}
+      </div>
+
+      <div className="post-stats">
+        <div className="stat-item">
+          <span className="stat-icon">👍</span>
+          <span className="stat-count">{post.like_count || 0}</span>
+        </div>
+        <div className="stat-item">
+          <span className="stat-icon">💬</span>
+          <span className="stat-count">{post.comment_count || 0}</span>
+        </div>
+        <div className="stat-item">
+          <span className="stat-icon">↪️</span>
+          <span className="stat-count">{post.share_count || 0}</span>
+        </div>
+      </div>
+
+      <div className="post-actions">
+        <button 
+          className={`action-btn ${post.userHasLiked ? 'liked' : ''}`}
+          onClick={handleLike}
+          disabled={isLiking}
+        >
+          <span className="action-icon">👍</span>
+          <span className="action-text">{post.userHasLiked ? 'Liked' : 'Like'}</span>
+        </button>
+        
+        <button 
+          className="action-btn"
+          onClick={() => setShowComments(!showComments)}
+        >
+          <span className="action-icon">💬</span>
+          <span className="action-text">Comment</span>
+        </button>
+        
+        <button className="action-btn">
+          <span className="action-icon">↪️</span>
+          <span className="action-text">Share</span>
+        </button>
+      </div>
+
+      <div className="comments-section">
+        {currentUser && (
+          <form className="add-comment-form" onSubmit={handleSubmitComment}>
+            <div className="comment-avatar">
+              {currentUser?.user_metadata?.avatar_url ? (
+                <img src={currentUser.user_metadata.avatar_url} alt="You" />
+              ) : (
+                <div className="avatar-fallback small">
+                  {getInitials(
+                    currentUser?.user_metadata?.firstname,
+                    currentUser?.user_metadata?.surname
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="comment-input-group">
+              <input
+                type="text"
+                className="comment-input"
+                placeholder="Write a comment..."
+                value={commentText}
+                onChange={(e) => setCommentText(e.target.value)}
+              />
+              <button type="submit" className="comment-submit" disabled={!commentText.trim()}>
+                Post
+              </button>
+            </div>
+          </form>
+        )}
+
+        {showComments && post.comments && post.comments.length > 0 && (
+          <div className="comments-list">
+            {post.comments.map(comment => (
+              <div key={comment.id} className="comment-item">
+                <div className="comment-avatar small">
+                  {comment.user?.profile_picture_url ? (
+                    <img src={comment.user.profile_picture_url} alt={comment.user.firstname} />
+                  ) : (
+                    <div className="avatar-fallback small">
+                      {getInitials(comment.user?.firstname, comment.user?.surname)}
+                    </div>
+                  )}
+                </div>
+                <div className="comment-content">
+                  <div className="comment-header">
+                    <span className="comment-author">
+                      {comment.user?.firstname || 'User'} {comment.user?.surname || ''}
+                    </span>
+                    <span className="comment-time">
+                      {formatTimeAgo(comment.created_at)}
+                    </span>
+                  </div>
+                  <p className="comment-text">{comment.content}</p>
+                  <div className="comment-actions">
+                    <button className="comment-like">Like</button>
+                    <button className="comment-reply">Reply</button>
+                  </div>
+                </div>
+              </div>
+            ))}
+            
+            {post.comment_count > post.comments.length && (
+              <button className="view-more-comments">
+                View all {post.comment_count} comments
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default Feed;
