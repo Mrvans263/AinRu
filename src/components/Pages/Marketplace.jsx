@@ -48,105 +48,211 @@ const Marketplace = () => {
     }
   };
 
- const fetchListings = async () => {
-  setLoading(true);
-  
-  try {
-    console.log('🔍 [DEBUG] Step 1: Testing basic users query...');
+  const fetchListings = async () => {
+    setLoading(true);
     
-    // Test if we can query users directly
-    const { data: testUsers, error: usersError } = await supabase
-      .from('users')
-      .select('id, firstname, surname, email, phone, avatar_url')
-      .limit(2);
-    
-    console.log('Users direct query:', usersError ? `❌ ${usersError.message}` : `✅ ${testUsers?.length} users found`);
-    
-    // Test a simple join
-    console.log('🔍 [DEBUG] Step 2: Testing simple join...');
-    const simpleJoin = await supabase
-      .from('marketplace_listings')
-      .select(`
-        *,
-        users!inner(id, firstname, surname)
-      `)
-      .eq('status', 'active')
-      .limit(2);
-    
-    console.log('Simple join result:', simpleJoin);
-    
-    if (simpleJoin.error) {
-      console.log('❌ Simple join failed, trying different syntax...');
-      
-      // Try alternative syntax
-      const altJoin = await supabase
+    try {
+      // Step 1: Get basic listings with filters
+      let query = supabase
         .from('marketplace_listings')
-        .select(`
-          *,
-          user:users(id, firstname, surname)
-        `)
-        .eq('status', 'active')
-        .limit(2);
-      
-      console.log('Alternative join:', altJoin);
-      
-      if (altJoin.error) {
-        throw altJoin.error;
+        .select('*')
+        .eq('status', 'active');
+
+      // Apply filters
+      if (filters.search) {
+        query = query.or(`title.ilike.%${filters.search}%,description.ilike.%${filters.search}%`);
       }
+      if (filters.category) {
+        query = query.eq('category_id', filters.category);
+      }
+      if (filters.currency) {
+        query = query.eq('currency', filters.currency);
+      }
+      if (filters.minPrice) {
+        query = query.gte('price', parseFloat(filters.minPrice));
+      }
+      if (filters.maxPrice) {
+        query = query.lte('price', parseFloat(filters.maxPrice));
+      }
+      if (filters.condition) {
+        query = query.eq('condition', filters.condition);
+      }
+      if (filters.negotiable === 'true') {
+        query = query.eq('price_negotiable', true);
+      } else if (filters.negotiable === 'false') {
+        query = query.eq('price_negotiable', false);
+      }
+
+      // Apply sorting
+      switch (filters.sortBy) {
+        case 'price_low':
+          query = query.order('price', { ascending: true });
+          break;
+        case 'price_high':
+          query = query.order('price', { ascending: false });
+          break;
+        case 'views':
+          query = query.order('views_count', { ascending: false });
+          break;
+        default:
+          query = query.order('created_at', { ascending: false });
+      }
+
+      const { data: listings, error } = await query;
       
-      console.log('✅ Alternative join worked! Using this syntax.');
+      if (error) {
+        console.error('Error fetching listings:', error);
+        throw error;
+      }
+
+      console.log(`Found ${listings?.length || 0} listings`);
       
-      // Now build the full query with working syntax
-      let query = supabase
-        .from('marketplace_listings')
-        .select(`
-          *,
-          category:marketplace_categories(name, icon),
-          images:listing_images(image_url, is_primary),
-          user:users(id, firstname, surname, email, phone, avatar_url),
-          saves:listing_saves(count)
-        `)
-        .eq('status', 'active')
-        .order('created_at', { ascending: false });
-        
-      // ... apply your filters ...
+      if (!listings || listings.length === 0) {
+        setListings([]);
+        return;
+      }
+
+      // Step 2: Fetch all related data in parallel
+      const listingsWithDetails = await Promise.all(
+        listings.map(async (listing) => {
+          try {
+            // Fetch category
+            const categoryPromise = listing.category_id ? 
+              supabase
+                .from('marketplace_categories')
+                .select('*')
+                .eq('id', listing.category_id)
+                .single() : 
+              Promise.resolve({ data: null, error: null });
+
+            // Fetch images
+            const imagesPromise = supabase
+              .from('listing_images')
+              .select('*')
+              .eq('listing_id', listing.id)
+              .order('is_primary', { ascending: false })
+              .order('order_index');
+
+            // Fetch user
+            const userPromise = supabase
+              .from('users')
+              .select('firstname, surname, email, phone, avatar_url')
+              .eq('id', listing.user_id)
+              .single();
+
+            // Execute all promises in parallel
+            const [categoryResult, imagesResult, userResult] = await Promise.all([
+              categoryPromise,
+              imagesPromise,
+              userPromise
+            ]);
+
+            return {
+              ...listing,
+              category: categoryResult.data || null,
+              images: imagesResult.data || [],
+              user: userResult.data || {
+                firstname: 'Unknown',
+                surname: 'User',
+                email: '',
+                phone: '',
+                avatar_url: ''
+              }
+            };
+            
+          } catch (detailError) {
+            console.error(`Error fetching details for listing ${listing.id}:`, detailError);
+            return {
+              ...listing,
+              category: null,
+              images: [],
+              user: {
+                firstname: 'Unknown',
+                surname: 'User',
+                email: '',
+                phone: '',
+                avatar_url: ''
+              }
+            };
+          }
+        })
+      );
+
+      setListings(listingsWithDetails);
       
-      const { data, error } = await query;
-      
-      if (error) throw error;
-      setListings(data);
-      
-    } else {
-      // The original syntax works
-      console.log('✅ Original syntax works, building full query...');
-      
-      let query = supabase
-        .from('marketplace_listings')
-        .select(`
-          *,
-          category:marketplace_categories(*),
-          images:listing_images(*),
-          users!inner(*),
-          saves:listing_saves(count)
-        `)
-        .eq('status', 'active')
-        .order('created_at', { ascending: false });
-        
-      // ... apply your filters ...
-      
-      const { data, error } = await query;
-      
-      if (error) throw error;
-      setListings(data);
+    } catch (error) {
+      console.error('Error in fetchListings:', error);
+      setMessage({ 
+        type: 'error', 
+        text: `Failed to load listings: ${error.message}` 
+      });
+    } finally {
+      setLoading(false);
     }
-    
-  } catch (error) {
-    console.error('❌ Final error:', error);
-    setMessage({ type: 'error', text: `Failed to load listings: ${error.message}` });
-  } finally {
-    setLoading(false);
-  }
-};
+  };
+
+  const handleCreateListing = async (listingData) => {
+    try {
+      const { data: listing, error } = await supabase
+        .from('marketplace_listings')
+        .insert([{
+          ...listingData,
+          user_id: user.id,
+          status: 'active',
+          currency: listingData.currency || 'RUB' // Default to RUB
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Handle image uploads
+      if (listingData.images && listingData.images.length > 0) {
+        const imageRecords = listingData.images.map((img, index) => ({
+          listing_id: listing.id,
+          image_url: img,
+          is_primary: index === 0,
+          order_index: index
+        }));
+
+        const { error: imageError } = await supabase
+          .from('listing_images')
+          .insert(imageRecords);
+
+        if (imageError) throw imageError;
+      }
+
+      setShowCreateModal(false);
+      setMessage({ type: 'success', text: 'Listing created successfully!' });
+      fetchListings();
+      
+    } catch (error) {
+      console.error('Error creating listing:', error);
+      setMessage({ type: 'error', text: 'Failed to create listing' });
+      throw error;
+    }
+  };
+
+  const handleDeleteListing = async (listingId) => {
+    if (!window.confirm('Are you sure you want to delete this listing?')) return;
+
+    try {
+      const { error } = await supabase
+        .from('marketplace_listings')
+        .update({ status: 'deleted' })
+        .eq('id', listingId)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+
+      setListings(listings.filter(listing => listing.id !== listingId));
+      setMessage({ type: 'success', text: 'Listing deleted successfully!' });
+      
+    } catch (error) {
+      console.error('Error deleting listing:', error);
+      setMessage({ type: 'error', text: 'Failed to delete listing' });
+    }
+  };
 
   const handleMarkAsSold = async (listingId) => {
     try {
@@ -625,7 +731,7 @@ const Marketplace = () => {
   );
 };
 
-// Create Listing Modal Component
+// Create Listing Modal Component (Keep as is - it's already working)
 const CreateListingModal = ({ user, categories, onClose, onSubmit }) => {
   const [formData, setFormData] = useState({
     title: '',
