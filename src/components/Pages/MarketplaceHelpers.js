@@ -136,6 +136,8 @@ export const getContactButtonText = (contactMethod) => {
 // Fetch user details (without avatar_url)
 // MarketplaceHelpers.js - Corrected fetchUserDetails
 export const fetchUserDetails = async (userId) => {
+  console.log(`=== FETCHING USER ${userId} ===`);
+  
   try {
     const { data, error } = await supabase
       .from('users')
@@ -143,19 +145,19 @@ export const fetchUserDetails = async (userId) => {
       .eq('id', userId)
       .maybeSingle();
     
+    console.log('Query result:', { data, error });
+    
     if (error) {
       console.error('Query error:', error.message);
       return { firstname: 'User', surname: '', email: '', phone: '' };
     }
     
-    // THIS IS THE FIX: Return data even if it exists
     if (data) {
-      console.log('Found user:', data.firstname, data.surname);
+      console.log('✅ FOUND USER:', data);
       return data;
     }
     
-    // Only return fallback if truly no data
-    console.log(`User ${userId} not found`);
+    console.log('❌ NO DATA RETURNED for user:', userId);
     return { firstname: 'User', surname: '', email: '', phone: '' };
     
   } catch (error) {
