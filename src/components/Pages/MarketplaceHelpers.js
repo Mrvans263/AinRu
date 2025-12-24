@@ -54,7 +54,7 @@ export const getConditionClass = (condition) => {
   }
 };
 
-// Handle contact seller
+// Handle contact seller based on their preferred method
 export const handleContactSeller = (listing, currentUser) => {
   if (listing.user_id === currentUser?.id) {
     alert("This is your own listing!");
@@ -120,7 +120,7 @@ export const handleContactSeller = (listing, currentUser) => {
   }
 };
 
-// Get contact button text
+// Get contact button text based on method
 export const getContactButtonText = (contactMethod) => {
   const texts = {
     'email': '📧 Email Seller',
@@ -132,7 +132,7 @@ export const getContactButtonText = (contactMethod) => {
   return texts[contactMethod] || '📧 Contact Seller';
 };
 
-// Fetch user details from database (NO HARDCODING)
+// Fetch user details (NO HARDCODING - FROM DATABASE)
 export const fetchUserDetails = async (userId) => {
   if (!userId) {
     return { firstname: 'User', surname: '', email: '', phone: '' };
@@ -184,21 +184,16 @@ export const getPrimaryImageUrl = (images) => {
   return images.find(img => img.is_primary)?.image_url || images[0].image_url;
 };
 
-// Fetch ALL data in one optimized query
+// Fetch ALL data - FIXED VERSION FOR USER DISPLAY
 export const fetchMarketplaceData = async (filters = {}) => {
   try {
-    // Build base query
+    // 1. First fetch listings
     let query = supabase
       .from('marketplace_listings')
-      .select(`
-        *,
-        user:users(firstname, surname, email, phone),
-        category:marketplace_categories(*),
-        images:listing_images(*)
-      `)
+      .select('*')
       .eq('status', 'active');
     
-    // Apply filters
+    // Apply filters (keep your existing filter code)
     if (filters.search) {
       query = query.or(`title.ilike.%${filters.search}%,description.ilike.%${filters.search}%`);
     }
@@ -235,27 +230,74 @@ export const fetchMarketplaceData = async (filters = {}) => {
       case 'price_high':
         query = query.order('price', { ascending: false });
         break;
-      case 'views':
-        query = query.order('created_at', { ascending: false }); // Fallback if no views column
-        break;
       default:
         query = query.order('created_at', { ascending: false });
     }
     
-    const { data, error } = await query;
+    const { data: listingsData, error } = await query;
     
     if (error) throw error;
+    if (!listingsData || listingsData.length === 0) return [];
     
-    // Transform the data structure
-    return (data || []).map(listing => ({
-      ...listing,
-      user: listing.user || { firstname: 'User', surname: '', email: '', phone: '' },
-      category: listing.category || null,
-      images: listing.images || []
-    }));
+    // 2. Get ALL unique user IDs from the listings
+    const userIds = [...new Set(listingsData.map(listing => listing.user_id))];
+    
+    // 3. Fetch ALL users in ONE query
+    const { data: usersData } = await supabase
+      .from('users')
+      .select('id, firstname, surname, email, phone')
+      .in('id', userIds);
+    
+    // Create a map for quick user lookup
+    const usersMap = {};
+    (usersData || []).forEach(user => {
+      usersMap[user.id] = {
+        firstname: user.firstname || 'User',
+        surname: user.surname || '',
+        email: user.email || '',
+        phone: user.phone || ''
+      };
+    });
+    
+    // 4. Fetch categories
+    const { data: categoriesData } = await supabase
+      .from('marketplace_categories')
+      .select('*');
+    
+    const categoriesMap = {};
+    (categoriesData || []).forEach(cat => {
+      categoriesMap[cat.id] = cat;
+    });
+    
+    // 5. Combine everything
+    const enrichedListings = await Promise.all(
+      listingsData.map(async (listing) => {
+        // Get images for this listing
+        const { data: images } = await supabase
+          .from('listing_images')
+          .select('*')
+          .eq('listing_id', listing.id)
+          .order('is_primary', { ascending: false })
+          .order('order_index');
+        
+        return {
+          ...listing,
+          user: usersMap[listing.user_id] || { 
+            firstname: 'User', 
+            surname: '', 
+            email: '', 
+            phone: '' 
+          },
+          category: categoriesMap[listing.category_id] || null,
+          images: images || []
+        };
+      })
+    );
+    
+    return enrichedListings;
     
   } catch (error) {
-    console.error('Error fetching marketplace data:', error);
+    console.error('Error in fetchMarketplaceData:', error);
     throw error;
   }
 };

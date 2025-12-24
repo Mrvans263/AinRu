@@ -64,18 +64,33 @@ const Marketplace = () => {
   }, [filters]);
 
   const fetchListings = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await fetchMarketplaceData(filters);
-      setListings(data);
-    } catch (error) {
-      console.error('Error fetching listings:', error);
-      setMessage({ type: 'error', text: 'Failed to load listings' });
-      setListings([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [filters]);
+  setLoading(true);
+  try {
+    const data = await fetchMarketplaceData(filters);
+    
+    // TEMPORARY DEBUG LOGGING
+    console.log('=== DEBUG: Checking user data ===');
+    console.log('Total listings:', data.length);
+    
+    data.forEach((listing, index) => {
+      console.log(`[${index}] ${listing.title}`, {
+        userId: listing.user_id,
+        userData: listing.user,
+        hasFirstName: !!listing.user?.firstname,
+        firstName: listing.user?.firstname
+      });
+    });
+    console.log('=== END DEBUG ===');
+    
+    setListings(data);
+  } catch (error) {
+    console.error('Error fetching listings:', error);
+    setMessage({ type: 'error', text: 'Failed to load listings' });
+    setListings([]);
+  } finally {
+    setLoading(false);
+  }
+}, [filters]);
 
   const handleCreateListing = async (listingData) => {
     try {
