@@ -124,7 +124,7 @@ const Marketplace = () => {
               fetchUserDetails(listing.user_id),
               fetchListingImages(listing.id)
             ]);
-            
+            console.log('User details fetched:', userDetails);
             return {
               ...listing,
               category: categoriesMap[listing.category_id] || null,
@@ -155,6 +155,10 @@ const Marketplace = () => {
     } finally {
       setLoading(false);
     }
+    
+
+
+
   }, [filters, categories]);
 
   const handleCreateListing = async (listingData) => {
