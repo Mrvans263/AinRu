@@ -1,4 +1,3 @@
-// MarketplaceHelpers.js
 import { supabase } from '../../lib/supabase';
 
 // Format price with currency
@@ -55,7 +54,7 @@ export const getConditionClass = (condition) => {
   }
 };
 
-// Handle contact seller based on their preferred method
+// Handle contact seller
 export const handleContactSeller = (listing, currentUser) => {
   if (listing.user_id === currentUser?.id) {
     alert("This is your own listing!");
@@ -121,7 +120,7 @@ export const handleContactSeller = (listing, currentUser) => {
   }
 };
 
-// Get contact button text based on method
+// Get contact button text
 export const getContactButtonText = (contactMethod) => {
   const texts = {
     'email': '📧 Email Seller',
@@ -133,46 +132,31 @@ export const getContactButtonText = (contactMethod) => {
   return texts[contactMethod] || '📧 Contact Seller';
 };
 
-// Fetch user details (without avatar_url)
-// MarketplaceHelpers.js - Corrected fetchUserDetails
+// Fetch user details from database (NO HARDCODING)
 export const fetchUserDetails = async (userId) => {
-  // Known users database
-  const knownUsers = {
-    '57c4b8f2-b5d0-43c6-911b-7b1d29f52d71': {
-      firstname: 'Evans',
-      surname: 'chauke',
-      email: 'www.evanschauke@gmail.com',
-      phone: '+79999901162'
-    },
-    '86ec1320-059f-4cb7-a891-cd843da98fb7': {
-      firstname: 'Snave',
-      surname: 'Chauke',
-      email: 'snavechauke@gmail.com',
-      phone: '+79999901162'
-    },
-    'dc32925c-d5e8-4855-b4ed-5d59f7c7dccf': {
-      firstname: 'Benaiah',
-      surname: 'Marufu',
-      email: 'benaiahmarufu@yandex.ru',
-      phone: ''
-    }
-  };
-  
-  // Return known user or query for unknown
-  if (knownUsers[userId]) {
-    console.log('Returning known user:', knownUsers[userId].firstname);
-    return knownUsers[userId];
+  if (!userId) {
+    return { firstname: 'User', surname: '', email: '', phone: '' };
   }
   
-  // For unknown users, try query (though it seems broken)
-  const { data, error } = await supabase
-    .from('users')
-    .select('firstname, surname, email, phone')
-    .eq('id', userId)
-    .maybeSingle();
-  
-  return data || { firstname: 'User', surname: '', email: '', phone: '' };
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('firstname, surname, email, phone')
+      .eq('id', userId)
+      .single();
+    
+    if (error) {
+      console.warn('Error fetching user:', error.message);
+      return { firstname: 'User', surname: '', email: '', phone: '' };
+    }
+    
+    return data || { firstname: 'User', surname: '', email: '', phone: '' };
+  } catch (error) {
+    console.error('Error in fetchUserDetails:', error);
+    return { firstname: 'User', surname: '', email: '', phone: '' };
+  }
 };
+
 // Fetch listing images
 export const fetchListingImages = async (listingId) => {
   try {
@@ -198,4 +182,81 @@ export const fetchListingImages = async (listingId) => {
 export const getPrimaryImageUrl = (images) => {
   if (!images || images.length === 0) return null;
   return images.find(img => img.is_primary)?.image_url || images[0].image_url;
+};
+
+// NEW: Fetch ALL data in one optimized query
+export const fetchMarketplaceData = async (filters = {}) => {
+  try {
+    // Build base query
+    let query = supabase
+      .from('marketplace_listings')
+      .select(`
+        *,
+        user:users(firstname, surname, email, phone),
+        category:marketplace_categories(*),
+        images:listing_images(*)
+      `)
+      .eq('status', 'active');
+    
+    // Apply filters
+    if (filters.search) {
+      query = query.or(`title.ilike.%${filters.search}%,description.ilike.%${filters.search}%`);
+    }
+    
+    if (filters.category) {
+      query = query.eq('category_id', filters.category);
+    }
+    
+    if (filters.currency) {
+      query = query.eq('currency', filters.currency);
+    }
+    
+    if (filters.minPrice) {
+      query = query.gte('price', parseFloat(filters.minPrice));
+    }
+    
+    if (filters.maxPrice) {
+      query = query.lte('price', parseFloat(filters.maxPrice));
+    }
+    
+    if (filters.condition) {
+      query = query.eq('condition', filters.condition);
+    }
+    
+    if (filters.negotiable !== '') {
+      query = query.eq('price_negotiable', filters.negotiable === 'true');
+    }
+    
+    // Apply sorting
+    switch (filters.sortBy) {
+      case 'price_low':
+        query = query.order('price', { ascending: true });
+        break;
+      case 'price_high':
+        query = query.order('price', { ascending: false });
+        break;
+      case 'views':
+        // Assuming you have a views column
+        query = query.order('views', { ascending: false });
+        break;
+      default:
+        query = query.order('created_at', { ascending: false });
+    }
+    
+    const { data, error } = await query;
+    
+    if (error) throw error;
+    
+    // Transform the data structure
+    return (data || []).map(listing => ({
+      ...listing,
+      user: listing.user || { firstname: 'User', surname: '', email: '', phone: '' },
+      category: listing.category || null,
+      images: listing.images || []
+    }));
+    
+  } catch (error) {
+    console.error('Error fetching marketplace data:', error);
+    throw error;
+  }
 };
