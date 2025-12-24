@@ -186,32 +186,43 @@ export const getPrimaryImageUrl = (images) => {
 
 // Fetch ALL data - FIXED VERSION FOR USER DISPLAY
 // Fetch ALL data - ULTRA SIMPLE GUARANTEED VERSION
+// Fetch ALL data - CORRECT JOIN SYNTAX
 export const fetchMarketplaceData = async (filters = {}) => {
   try {
-    // 1. Fetch listings with all data using a single JOIN query
-    // This is the BEST solution - one query gets everything
+    // Use the CORRECT foreign key relationship names
+    // Check your Supabase dashboard for the actual relationship names
     const { data, error } = await supabase
       .from('marketplace_listings')
       .select(`
         *,
-        user:users(id, firstname, surname, email, phone),
-        category:marketplace_categories(id, name, icon),
-        images:listing_images(id, image_url, is_primary, order_index)
+        users!marketplace_listings_user_id_fkey (
+          id, firstname, surname, email, phone
+        ),
+        marketplace_categories!marketplace_listings_category_id_fkey (
+          id, name, icon
+        ),
+        listing_images!listing_images_listing_id_fkey (
+          id, image_url, is_primary, order_index
+        )
       `)
       .eq('status', 'active');
     
-    if (error) throw error;
+    if (error) {
+      console.error('Supabase query error:', error);
+      throw error;
+    }
+    
     if (!data || data.length === 0) return [];
     
-    // 2. Transform the data
+    // Transform the data - NOTE: users is an array
     const enrichedListings = data.map(listing => ({
       ...listing,
-      user: listing.user || { firstname: 'User', surname: '', email: '', phone: '' },
-      category: listing.category || null,
-      images: listing.images || []
+      user: listing.users?.[0] || { firstname: 'User', surname: '', email: '', phone: '' },
+      category: listing.marketplace_categories?.[0] || null,
+      images: listing.listing_images || []
     }));
     
-    // 3. Apply client-side filtering (for consistency)
+    // Apply client-side filtering...
     let filtered = enrichedListings;
     
     if (filters.search) {
@@ -258,6 +269,15 @@ export const fetchMarketplaceData = async (filters = {}) => {
           return new Date(b.created_at) - new Date(a.created_at);
       }
     });
+    
+    // DEBUG: Check what we're returning
+    console.log('Final listings with user data:', filtered.map(l => ({
+      id: l.id,
+      title: l.title,
+      userId: l.user_id,
+      userName: l.user.firstname,
+      userFull: l.user
+    })));
     
     return filtered;
     
