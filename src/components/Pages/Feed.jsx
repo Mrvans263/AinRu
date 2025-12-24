@@ -307,22 +307,38 @@ const Feed = () => {
     reader.readAsDataURL(file);
   };
 
-  const formatTimeAgo = (dateString) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now - date;
-    const diffSec = Math.floor(diffMs / 1000);
-    const diffMin = Math.floor(diffSec / 60);
-    const diffHour = Math.floor(diffMin / 60);
-    const diffDay = Math.floor(diffHour / 24);
-
-    if (diffSec < 60) return 'just now';
-    if (diffMin < 60) return `${diffMin}m ago`;
-    if (diffHour < 24) return `${diffHour}h ago`;
-    if (diffDay < 7) return `${diffDay}d ago`;
-    return date.toLocaleDateString('en-ZA', { month: 'short', day: 'numeric' });
-  };
-
+ const formatTimeAgo = (dateString) => {
+  // Parse as UTC (Supabase stores in UTC)
+  const postDate = new Date(dateString + 'Z'); // Add 'Z' to force UTC
+  
+  const now = new Date();
+  const diffMs = now - postDate;
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHour = Math.floor(diffMin / 60);
+  const diffDay = Math.floor(diffHour / 24);
+  
+  // For debugging
+  console.log('Time calculation:', {
+    input: dateString,
+    parsed: postDate.toISOString(),
+    now: now.toISOString(),
+    diffHours: diffHour,
+    diffMinutes: diffMin
+  });
+  
+  if (diffSec < 60) return 'just now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffHour < 24) return `${diffHour}h ago`;
+  if (diffDay < 7) return `${diffDay}d ago`;
+  
+  // For older posts, show local date
+  return postDate.toLocaleDateString('en-US', { 
+    month: 'short', 
+    day: 'numeric',
+    year: diffDay > 365 ? 'numeric' : undefined
+  });
+};
   const getInitials = (firstname, surname) => {
     return `${firstname?.[0] || ''}${surname?.[0] || ''}`.toUpperCase();
   };
