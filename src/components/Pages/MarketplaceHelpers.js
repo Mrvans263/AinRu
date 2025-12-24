@@ -137,52 +137,23 @@ export const getContactButtonText = (contactMethod) => {
 // MarketplaceHelpers.js - Corrected fetchUserDetails
 export const fetchUserDetails = async (userId) => {
   try {
-    if (!userId) {
-      return {
-        firstname: 'Seller',
-        surname: '',
-        email: '',
-        phone: ''
-      };
-    }
-    
-    // SIMPLE: Just get the user data, don't overcomplicate
     const { data, error } = await supabase
       .from('users')
       .select('firstname, surname, email, phone')
       .eq('id', userId)
-      .maybeSingle(); // This returns null if no user found
+      .maybeSingle();
     
-    if (error) {
-      console.log('User fetch error:', error.message);
+    if (error || !data) {
+      console.log(`User ${userId} not found in users table`);
+      // This shouldn't happen with foreign key constraint
+      return null;
     }
     
-    // If user exists, return their data
-    if (data) {
-      return {
-        firstname: data.firstname || 'Seller',
-        surname: data.surname || '',
-        email: data.email || '',
-        phone: data.phone || ''
-      };
-    }
-    
-    // If user doesn't exist, return "Seller"
-    return {
-      firstname: 'Seller',
-      surname: '',
-      email: '',
-      phone: ''
-    };
+    return data;
     
   } catch (error) {
     console.error('Error:', error);
-    return {
-      firstname: 'Seller',
-      surname: '',
-      email: '',
-      phone: ''
-    };
+    return null;
   }
 };
 // Fetch listing images
