@@ -143,17 +143,24 @@ export const fetchUserDetails = async (userId) => {
       .eq('id', userId)
       .maybeSingle();
     
-    if (error || !data) {
-      console.log(`User ${userId} not found in users table`);
-      // This shouldn't happen with foreign key constraint
-      return null;
+    if (error) {
+      console.error('Query error:', error.message);
+      return { firstname: 'User', surname: '', email: '', phone: '' };
     }
     
-    return data;
+    // THIS IS THE FIX: Return data even if it exists
+    if (data) {
+      console.log('Found user:', data.firstname, data.surname);
+      return data;
+    }
+    
+    // Only return fallback if truly no data
+    console.log(`User ${userId} not found`);
+    return { firstname: 'User', surname: '', email: '', phone: '' };
     
   } catch (error) {
-    console.error('Error:', error);
-    return null;
+    console.error('Error in fetchUserDetails:', error);
+    return { firstname: 'User', surname: '', email: '', phone: '' };
   }
 };
 // Fetch listing images
