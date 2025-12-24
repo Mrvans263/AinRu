@@ -185,116 +185,81 @@ export const getPrimaryImageUrl = (images) => {
 };
 
 // Fetch ALL data - FIXED VERSION FOR USER DISPLAY
+// Fetch ALL data - ULTRA SIMPLE GUARANTEED VERSION
 export const fetchMarketplaceData = async (filters = {}) => {
   try {
-    // 1. First fetch listings
-    let query = supabase
+    // 1. Fetch listings with all data using a single JOIN query
+    // This is the BEST solution - one query gets everything
+    const { data, error } = await supabase
       .from('marketplace_listings')
-      .select('*')
+      .select(`
+        *,
+        user:users(id, firstname, surname, email, phone),
+        category:marketplace_categories(id, name, icon),
+        images:listing_images(id, image_url, is_primary, order_index)
+      `)
       .eq('status', 'active');
     
-    // Apply filters (keep your existing filter code)
+    if (error) throw error;
+    if (!data || data.length === 0) return [];
+    
+    // 2. Transform the data
+    const enrichedListings = data.map(listing => ({
+      ...listing,
+      user: listing.user || { firstname: 'User', surname: '', email: '', phone: '' },
+      category: listing.category || null,
+      images: listing.images || []
+    }));
+    
+    // 3. Apply client-side filtering (for consistency)
+    let filtered = enrichedListings;
+    
     if (filters.search) {
-      query = query.or(`title.ilike.%${filters.search}%,description.ilike.%${filters.search}%`);
+      filtered = filtered.filter(item => 
+        item.title.toLowerCase().includes(filters.search.toLowerCase()) ||
+        item.description.toLowerCase().includes(filters.search.toLowerCase())
+      );
     }
     
     if (filters.category) {
-      query = query.eq('category_id', filters.category);
+      filtered = filtered.filter(item => item.category_id === filters.category);
     }
     
     if (filters.currency) {
-      query = query.eq('currency', filters.currency);
+      filtered = filtered.filter(item => item.currency === filters.currency);
     }
     
     if (filters.minPrice) {
-      query = query.gte('price', parseFloat(filters.minPrice));
+      filtered = filtered.filter(item => item.price >= parseFloat(filters.minPrice));
     }
     
     if (filters.maxPrice) {
-      query = query.lte('price', parseFloat(filters.maxPrice));
+      filtered = filtered.filter(item => item.price <= parseFloat(filters.maxPrice));
     }
     
     if (filters.condition) {
-      query = query.eq('condition', filters.condition);
+      filtered = filtered.filter(item => item.condition === filters.condition);
     }
     
     if (filters.negotiable !== '') {
-      query = query.eq('price_negotiable', filters.negotiable === 'true');
+      filtered = filtered.filter(item => 
+        item.price_negotiable === (filters.negotiable === 'true')
+      );
     }
     
     // Apply sorting
-    switch (filters.sortBy) {
-      case 'price_low':
-        query = query.order('price', { ascending: true });
-        break;
-      case 'price_high':
-        query = query.order('price', { ascending: false });
-        break;
-      default:
-        query = query.order('created_at', { ascending: false });
-    }
-    
-    const { data: listingsData, error } = await query;
-    
-    if (error) throw error;
-    if (!listingsData || listingsData.length === 0) return [];
-    
-    // 2. Get ALL unique user IDs from the listings
-    const userIds = [...new Set(listingsData.map(listing => listing.user_id))];
-    
-    // 3. Fetch ALL users in ONE query
-    const { data: usersData } = await supabase
-      .from('users')
-      .select('id, firstname, surname, email, phone')
-      .in('id', userIds);
-    
-    // Create a map for quick user lookup
-    const usersMap = {};
-    (usersData || []).forEach(user => {
-      usersMap[user.id] = {
-        firstname: user.firstname || 'User',
-        surname: user.surname || '',
-        email: user.email || '',
-        phone: user.phone || ''
-      };
+    filtered.sort((a, b) => {
+      switch (filters.sortBy) {
+        case 'price_low':
+          return a.price - b.price;
+        case 'price_high':
+          return b.price - a.price;
+        default:
+          return new Date(b.created_at) - new Date(a.created_at);
+      }
     });
     
-    // 4. Fetch categories
-    const { data: categoriesData } = await supabase
-      .from('marketplace_categories')
-      .select('*');
-    
-    const categoriesMap = {};
-    (categoriesData || []).forEach(cat => {
-      categoriesMap[cat.id] = cat;
-    });
-    
-    // 5. Combine everything
-    const enrichedListings = await Promise.all(
-      listingsData.map(async (listing) => {
-        // Get images for this listing
-        const { data: images } = await supabase
-          .from('listing_images')
-          .select('*')
-          .eq('listing_id', listing.id)
-          .order('is_primary', { ascending: false })
-          .order('order_index');
-        
-        return {
-          ...listing,
-          user: usersMap[listing.user_id] || { 
-            firstname: 'User', 
-            surname: '', 
-            email: '', 
-            phone: '' 
-          },
-          category: categoriesMap[listing.category_id] || null,
-          images: images || []
-        };
-      })
-    );
-    
-    return enrichedListings;
+    return filtered;
     
   } catch (error) {
     console.error('Error in fetchMarketplaceData:', error);
