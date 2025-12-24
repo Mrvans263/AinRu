@@ -146,44 +146,37 @@ export const fetchUserDetails = async (userId) => {
       };
     }
     
-    // Use .limit(1) instead of .single() to avoid 406 error
+    // SIMPLE: Just get the user data, don't overcomplicate
     const { data, error } = await supabase
       .from('users')
       .select('firstname, surname, email, phone')
       .eq('id', userId)
-      .limit(1); // Changed from .single() to .limit(1)
+      .maybeSingle(); // This returns null if no user found
     
     if (error) {
-      console.warn('Error fetching user:', error.message);
+      console.log('User fetch error:', error.message);
+    }
+    
+    // If user exists, return their data
+    if (data) {
       return {
-        firstname: 'Seller',
-        surname: '',
-        email: '',
-        phone: ''
+        firstname: data.firstname || 'Seller',
+        surname: data.surname || '',
+        email: data.email || '',
+        phone: data.phone || ''
       };
     }
     
-    // Check if we got any data
-    if (!data || data.length === 0) {
-      console.warn(`User ${userId} not found`);
-      return {
-        firstname: 'Seller',
-        surname: '',
-        email: '',
-        phone: ''
-      };
-    }
-    
-    // Return the first (and should be only) user
+    // If user doesn't exist, return "Seller"
     return {
-      firstname: data[0].firstname || 'Seller',
-      surname: data[0].surname || '',
-      email: data[0].email || '',
-      phone: data[0].phone || ''
+      firstname: 'Seller',
+      surname: '',
+      email: '',
+      phone: ''
     };
     
   } catch (error) {
-    console.error('Error in fetchUserDetails:', error);
+    console.error('Error:', error);
     return {
       firstname: 'Seller',
       surname: '',

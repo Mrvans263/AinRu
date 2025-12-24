@@ -521,9 +521,9 @@ const ListingCard = ({ listing, currentUser, onContactSeller, onMarkAsSold, onDe
             </div>
           )}
           <div className="item-seller">
-            <span className="seller-info">
-              {isOwnListing ? '👤 Your Item' : `👤 ${listing.user?.firstname || 'Seller'} ${listing.user?.surname || ''}`}
-            </span>
+           <span className="seller-info">
+  👤 {listing.user?.firstname || 'Seller'} {listing.user?.surname || ''}
+</span>
             <span className="item-date">{formatDate(listing.created_at)}</span>
           </div>
         </div>
