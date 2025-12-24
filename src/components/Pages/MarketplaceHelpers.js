@@ -187,102 +187,75 @@ export const getPrimaryImageUrl = (images) => {
 // Fetch ALL data - FIXED VERSION FOR USER DISPLAY
 // Fetch ALL data - ULTRA SIMPLE GUARANTEED VERSION
 // Fetch ALL data - CORRECT JOIN SYNTAX
+// WORKING VERSION - No joins, fetch users individually
 export const fetchMarketplaceData = async (filters = {}) => {
   try {
-    // Use the CORRECT foreign key relationship names
-    // Check your Supabase dashboard for the actual relationship names
-    const { data, error } = await supabase
+    console.log('🔄 STEP 1: Fetching listings...');
+    
+    // Get all active listings
+    const { data: listingsData, error } = await supabase
       .from('marketplace_listings')
-      .select(`
-        *,
-        users!marketplace_listings_user_id_fkey (
-          id, firstname, surname, email, phone
-        ),
-        marketplace_categories!marketplace_listings_category_id_fkey (
-          id, name, icon
-        ),
-        listing_images!listing_images_listing_id_fkey (
-          id, image_url, is_primary, order_index
-        )
-      `)
+      .select('*')
       .eq('status', 'active');
     
     if (error) {
-      console.error('Supabase query error:', error);
+      console.error('Error fetching listings:', error);
       throw error;
     }
     
-    if (!data || data.length === 0) return [];
-    
-    // Transform the data - NOTE: users is an array
-    const enrichedListings = data.map(listing => ({
-      ...listing,
-      user: listing.users?.[0] || { firstname: 'User', surname: '', email: '', phone: '' },
-      category: listing.marketplace_categories?.[0] || null,
-      images: listing.listing_images || []
-    }));
-    
-    // Apply client-side filtering...
-    let filtered = enrichedListings;
-    
-    if (filters.search) {
-      filtered = filtered.filter(item => 
-        item.title.toLowerCase().includes(filters.search.toLowerCase()) ||
-        item.description.toLowerCase().includes(filters.search.toLowerCase())
-      );
+    if (!listingsData || listingsData.length === 0) {
+      console.log('No listings found');
+      return [];
     }
     
-    if (filters.category) {
-      filtered = filtered.filter(item => item.category_id === filters.category);
+    console.log(`📊 Found ${listingsData.length} listings`);
+    
+    // Process each listing to get user data
+    const results = [];
+    
+    for (const listing of listingsData) {
+      console.log(`🔄 Processing listing: ${listing.id}, User ID: ${listing.user_id}`);
+      
+      // Get user for this listing
+      const { data: userData } = await supabase
+        .from('users')
+        .select('firstname, surname, email, phone')
+        .eq('id', listing.user_id)
+        .single();
+      
+      console.log(`👤 User data for ${listing.user_id}:`, userData);
+      
+      // Get category
+      const { data: categoryData } = await supabase
+        .from('marketplace_categories')
+        .select('*')
+        .eq('id', listing.category_id)
+        .single();
+      
+      // Get images
+      const { data: images } = await supabase
+        .from('listing_images')
+        .select('*')
+        .eq('listing_id', listing.id);
+      
+      results.push({
+        ...listing,
+        user: userData || { firstname: 'User', surname: '', email: '', phone: '' },
+        category: categoryData || null,
+        images: images || []
+      });
     }
     
-    if (filters.currency) {
-      filtered = filtered.filter(item => item.currency === filters.currency);
-    }
-    
-    if (filters.minPrice) {
-      filtered = filtered.filter(item => item.price >= parseFloat(filters.minPrice));
-    }
-    
-    if (filters.maxPrice) {
-      filtered = filtered.filter(item => item.price <= parseFloat(filters.maxPrice));
-    }
-    
-    if (filters.condition) {
-      filtered = filtered.filter(item => item.condition === filters.condition);
-    }
-    
-    if (filters.negotiable !== '') {
-      filtered = filtered.filter(item => 
-        item.price_negotiable === (filters.negotiable === 'true')
-      );
-    }
-    
-    // Apply sorting
-    filtered.sort((a, b) => {
-      switch (filters.sortBy) {
-        case 'price_low':
-          return a.price - b.price;
-        case 'price_high':
-          return b.price - a.price;
-        default:
-          return new Date(b.created_at) - new Date(a.created_at);
-      }
-    });
-    
-    // DEBUG: Check what we're returning
-    console.log('Final listings with user data:', filtered.map(l => ({
-      id: l.id,
-      title: l.title,
-      userId: l.user_id,
-      userName: l.user.firstname,
-      userFull: l.user
+    console.log('✅ Final results with user names:', results.map(r => ({
+      title: r.title,
+      userId: r.user_id,
+      userName: r.user.firstname
     })));
     
-    return filtered;
+    return results;
     
   } catch (error) {
-    console.error('Error in fetchMarketplaceData:', error);
+    console.error('❌ Error in fetchMarketplaceData:', error);
     throw error;
   }
 };
