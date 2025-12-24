@@ -1,6 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
 import './Marketplace.css';
+import {
+  formatPrice,
+  getCurrencyFlag,
+  formatDate,
+  getConditionClass,
+  handleContactSeller,
+  getContactButtonText,
+  fetchUserDetails,
+  fetchListingImages,
+  getPrimaryImageUrl
+} from './MarketplaceHelpers';
 
 const Marketplace = () => {
   const [user, setUser] = useState(null);
@@ -10,7 +21,7 @@ const Marketplace = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
   
-  // Filters - RUB is first in all selects
+  // Filters
   const [filters, setFilters] = useState({
     search: '',
     category: '',
@@ -48,7 +59,7 @@ const Marketplace = () => {
     }
   };
 
-  const fetchListings = async () => {
+  const fetchListings = useCallback(async () => {
     setLoading(true);
     try {
       let query = supabase
@@ -97,8 +108,7 @@ const Marketplace = () => {
           query = query.order('created_at', { ascending: false });
       }
 
-      const { data, error } = await query;
-
+      const { data: listingsData, error } = await query;
       if (error) throw error;
 
       // Get categories for display
@@ -107,50 +117,30 @@ const Marketplace = () => {
         categoriesMap[cat.id] = cat;
       });
       
-      // Get user data for each listing
-      const listingsWithDetails = await Promise.all(
-        data.map(async (listing) => {
+      // Fetch all related data in parallel
+      const enrichedListings = await Promise.all(
+        (listingsData || []).map(async (listing) => {
           try {
-            // Get user info
-            const { data: user } = await supabase
-              .from('users')
-              .select('firstname, surname, email, phone, avatar_url')
-              .eq('id', listing.user_id)
-              .single();
-            
-            // Try to get images
-            let images = [];
-            try {
-              const { data: listingImages } = await supabase
-                .from('listing_images')
-                .select('*')
-                .eq('listing_id', listing.id)
-                .order('order_index');
-              images = listingImages || [];
-            } catch (imgError) {
-              // Images table might not exist yet
-            }
+            const [userDetails, images] = await Promise.all([
+              fetchUserDetails(listing.user_id),
+              fetchListingImages(listing.id)
+            ]);
             
             return {
               ...listing,
               category: categoriesMap[listing.category_id] || null,
               images: images,
-              user: user || {
-                firstname: 'Unknown',
-                surname: 'User',
-                email: '',
-                phone: '',
-                avatar_url: ''
-              }
+              user: userDetails
             };
           } catch (error) {
+            console.error('Error enriching listing:', listing.id, error);
             return {
               ...listing,
               category: categoriesMap[listing.category_id] || null,
               images: [],
               user: {
-                firstname: 'Unknown',
-                surname: 'User',
+                firstname: 'User',
+                surname: '',
                 email: '',
                 phone: '',
                 avatar_url: ''
@@ -160,14 +150,14 @@ const Marketplace = () => {
         })
       );
 
-      setListings(listingsWithDetails);
+      setListings(enrichedListings);
     } catch (error) {
       console.error('Error fetching listings:', error);
       setMessage({ type: 'error', text: 'Failed to load listings' });
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters, categories]);
 
   const handleCreateListing = async (listingData) => {
     try {
@@ -267,137 +257,6 @@ const Marketplace = () => {
     }
   };
 
-  const handleContactSeller = (listing, method) => {
-    const seller = listing.user;
-    
-    switch (method) {
-      case 'email':
-        window.location.href = `mailto:${seller.email}?subject=Regarding your listing: ${listing.title}`;
-        break;
-        
-      case 'telegram':
-        if (seller.phone) {
-          // Clean phone number for Telegram
-          const cleanPhone = seller.phone.replace(/\D/g, '');
-          window.open(`https://t.me/+${cleanPhone}`, '_blank');
-        } else {
-          alert('Seller has not provided a phone number for Telegram');
-        }
-        break;
-        
-      case 'whatsapp':
-        if (seller.phone) {
-          const message = encodeURIComponent(`Hi, I'm interested in your listing: ${listing.title}`);
-          window.open(`https://wa.me/${seller.phone}?text=${message}`, '_blank');
-        } else {
-          alert('Seller has not provided a phone number for WhatsApp');
-        }
-        break;
-        
-      case 'in_app':
-        alert('In-app messaging feature coming soon!');
-        if (seller.phone) {
-          const confirmContact = window.confirm(
-            `Contact seller directly:\n\nName: ${seller.firstname} ${seller.surname}\nPhone: ${seller.phone}\n\nWould you like to copy the phone number?`
-          );
-          if (confirmContact) {
-            navigator.clipboard.writeText(seller.phone);
-            alert('Phone number copied to clipboard!');
-          }
-        }
-        break;
-        
-      default:
-        if (listing.contact_info) {
-          alert(`Contact seller at: ${listing.contact_info}`);
-        } else if (seller.email) {
-          window.location.href = `mailto:${seller.email}`;
-        } else {
-          alert('No contact information available');
-        }
-    }
-  };
-
-  const formatPrice = (price, currency = 'RUB') => {
-    const currencyConfigs = {
-      'RUB': {
-        locale: 'ru-RU',
-        options: {
-          style: 'currency',
-          currency: 'RUB',
-          minimumFractionDigits: 0,
-          maximumFractionDigits: 2
-        },
-        symbol: '₽'
-      },
-      'USD': {
-        locale: 'en-US',
-        options: {
-          style: 'currency',
-          currency: 'USD',
-          minimumFractionDigits: 0,
-          maximumFractionDigits: 2
-        },
-        symbol: '$'
-      },
-      'ZAR': {
-        locale: 'en-ZA',
-        options: {
-          style: 'currency',
-          currency: 'ZAR',
-          minimumFractionDigits: 0,
-          maximumFractionDigits: 2
-        },
-        symbol: 'R'
-      }
-    };
-    
-    const config = currencyConfigs[currency] || currencyConfigs['RUB'];
-    
-    try {
-      return new Intl.NumberFormat(config.locale, config.options).format(price);
-    } catch (error) {
-      return `${config.symbol} ${price.toFixed(2)}`;
-    }
-  };
-
-  const getCurrencyFlag = (currency) => {
-    const flags = {
-      'RUB': '🇷🇺',
-      'USD': '🇺🇸', 
-      'ZAR': '🇿🇦'
-    };
-    return flags[currency] || '🇷🇺';
-  };
-
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now - date;
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    
-    if (diffDays === 0) return 'Today';
-    if (diffDays === 1) return 'Yesterday';
-    if (diffDays < 7) return `${diffDays} days ago`;
-    if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
-    
-    return date.toLocaleDateString('en-ZA', {
-      month: 'short',
-      day: 'numeric'
-    });
-  };
-
-  const getConditionClass = (condition) => {
-    switch (condition) {
-      case 'new': return 'condition-new';
-      case 'like_new': return 'condition-like-new';
-      case 'good': return 'condition-good';
-      case 'fair': return 'condition-fair';
-      case 'poor': return 'condition-poor';
-      default: return 'condition-default';
-    }
-  };
-
   const clearMessage = () => {
     setMessage({ type: '', text: '' });
   };
@@ -492,7 +351,7 @@ const Marketplace = () => {
             <div className="price-slider">
               <input
                 type="number"
-                className="search-input"
+                className="search-input price-input"
                 placeholder="Min"
                 value={filters.minPrice}
                 onChange={(e) => setFilters({...filters, minPrice: e.target.value})}
@@ -500,7 +359,7 @@ const Marketplace = () => {
               <span>to</span>
               <input
                 type="number"
-                className="search-input"
+                className="search-input price-input"
                 placeholder="Max"
                 value={filters.maxPrice}
                 onChange={(e) => setFilters({...filters, maxPrice: e.target.value})}
@@ -569,141 +428,14 @@ const Marketplace = () => {
           </div>
         ) : (
           listings.map(listing => (
-            <div 
-              key={listing.id} 
-              className={`item-card ${listing.status === 'sold' ? 'sold' : ''}`}
-            >
-              {/* Sold Badge */}
-              {listing.status === 'sold' && (
-                <div className="sold-badge">SOLD</div>
-              )}
-
-              {/* Images */}
-              <div className="item-images">
-                {listing.images && listing.images.length > 0 ? (
-                  <>
-                    <img 
-                      src={listing.images.find(img => img.is_primary)?.image_url || listing.images[0].image_url} 
-                      alt={listing.title}
-                      className="item-image"
-                    />
-                    {listing.images.length > 1 && (
-                      <div className="image-count">+{listing.images.length - 1}</div>
-                    )}
-                  </>
-                ) : (
-                  <div className="item-image-placeholder">
-                    <span>No Image</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Item Info */}
-              <div className="item-info">
-                {/* Header with title and price */}
-                <div className="item-header">
-                  <h3 className="item-title">{listing.title}</h3>
-                  <div className="item-price">
-                    <span className="currency-flag">{getCurrencyFlag(listing.currency || 'RUB')}</span>
-                    {formatPrice(listing.price, listing.currency || 'RUB')}
-                  </div>
-                </div>
-
-                {/* Meta info */}
-                <div className="item-meta">
-                  <span className="item-category">{listing.category?.name}</span>
-                  {listing.price_negotiable && (
-                    <span className="negotiable-badge">Negotiable</span>
-                  )}
-                  <span className={`condition-badge ${getConditionClass(listing.condition)}`}>
-                    {listing.condition.replace('_', ' ')}
-                  </span>
-                  {listing.user_id === user?.id && (
-                    <span className="owner-badge">Your Listing</span>
-                  )}
-                </div>
-
-                {/* Description */}
-                <p className="item-description">{listing.description}</p>
-
-                {/* Footer with location and seller info */}
-                <div className="item-footer">
-                  {listing.location && (
-                    <div className="item-location">
-                      📍 {listing.location}
-                    </div>
-                  )}
-                  <div className="item-seller">
-                    <span className="seller-info">
-                      👤 {listing.user?.firstname} {listing.user?.surname}
-                    </span>
-                    <span className="item-date">{formatDate(listing.created_at)}</span>
-                  </div>
-                </div>
-
-                {/* Actions */}
-                <div className="item-actions">
-                  {/* Contact Options for non-owners */}
-                  {listing.user_id !== user?.id ? (
-                    <>
-                      <button 
-                        className="contact-btn"
-                        onClick={() => handleContactSeller(listing, 'email')}
-                        title="Email seller"
-                      >
-                        📧 Email
-                      </button>
-                      <button 
-                        className="contact-btn"
-                        onClick={() => handleContactSeller(listing, 'whatsapp')}
-                        title="Contact via WhatsApp"
-                      >
-                        💬 WhatsApp
-                      </button>
-                      <button 
-                        className="contact-btn"
-                        onClick={() => handleContactSeller(listing, 'telegram')}
-                        title="Contact via Telegram"
-                      >
-                        📱 Telegram
-                      </button>
-                      <button 
-                        className="contact-btn"
-                        onClick={() => handleContactSeller(listing, 'in_app')}
-                        title="In-app messaging"
-                      >
-                        💬 Message
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      {/* Owner actions */}
-                      <button 
-                        className="contact-btn"
-                        disabled
-                        title="This is your listing"
-                      >
-                        👤 Your Listing
-                      </button>
-                      {listing.status === 'active' && (
-                        <button 
-                          className="sold-btn"
-                          onClick={() => handleMarkAsSold(listing.id)}
-                        >
-                          ✅ Mark as Sold
-                        </button>
-                      )}
-                      <button 
-                        className="delete-btn"
-                        onClick={() => handleDeleteListing(listing.id)}
-                      >
-                        🗑️ Delete
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
+            <ListingCard
+              key={listing.id}
+              listing={listing}
+              currentUser={user}
+              onContactSeller={() => handleContactSeller(listing, user)}
+              onMarkAsSold={handleMarkAsSold}
+              onDelete={handleDeleteListing}
+            />
           ))
         )}
       </div>
@@ -721,14 +453,131 @@ const Marketplace = () => {
   );
 };
 
-// Create Listing Modal Component (Keep as is - it works)
+// Separate Listing Card Component for better organization
+const ListingCard = ({ listing, currentUser, onContactSeller, onMarkAsSold, onDelete }) => {
+  const primaryImageUrl = getPrimaryImageUrl(listing.images);
+
+  return (
+    <div className={`item-card ${listing.status === 'sold' ? 'sold' : ''}`}>
+      {/* Sold Badge */}
+      {listing.status === 'sold' && (
+        <div className="sold-badge">SOLD</div>
+      )}
+
+      {/* Images */}
+      <div className="item-images">
+        {primaryImageUrl ? (
+          <>
+            <img 
+              src={primaryImageUrl} 
+              alt={listing.title}
+              className="item-image"
+            />
+            {listing.images.length > 1 && (
+              <div className="image-count">+{listing.images.length - 1}</div>
+            )}
+          </>
+        ) : (
+          <div className="item-image-placeholder">
+            <span>No Image</span>
+          </div>
+        )}
+      </div>
+
+      {/* Item Info */}
+      <div className="item-info">
+        {/* Header with title and price */}
+        <div className="item-header">
+          <h3 className="item-title">{listing.title}</h3>
+          <div className="item-price">
+            <span className="currency-flag">{getCurrencyFlag(listing.currency || 'RUB')}</span>
+            {formatPrice(listing.price, listing.currency || 'RUB')}
+          </div>
+        </div>
+
+        {/* Meta info */}
+        <div className="item-meta">
+          <span className="item-category">{listing.category?.name}</span>
+          {listing.price_negotiable && (
+            <span className="negotiable-badge">Negotiable</span>
+          )}
+          <span className={`condition-badge ${getConditionClass(listing.condition)}`}>
+            {listing.condition.replace('_', ' ')}
+          </span>
+          {listing.user_id === currentUser?.id && (
+            <span className="owner-badge">Your Listing</span>
+          )}
+        </div>
+
+        {/* Description */}
+        <p className="item-description">{listing.description}</p>
+
+        {/* Footer with location and seller info */}
+        <div className="item-footer">
+          {listing.location && (
+            <div className="item-location">
+              📍 {listing.location}
+            </div>
+          )}
+          <div className="item-seller">
+            <span className="seller-info">
+              👤 {listing.user?.firstname} {listing.user?.surname}
+            </span>
+            <span className="item-date">{formatDate(listing.created_at)}</span>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="item-actions">
+          {/* Contact Options for non-owners */}
+          {listing.user_id !== currentUser?.id ? (
+            <button 
+              className="contact-btn"
+              onClick={onContactSeller}
+              title={`Contact via ${listing.contact_method || 'email'}`}
+            >
+              {getContactButtonText(listing.contact_method || 'email')}
+            </button>
+          ) : (
+            <>
+              {/* Owner actions */}
+              <button 
+                className="contact-btn"
+                disabled
+                title="This is your listing"
+              >
+                👤 Your Listing
+              </button>
+              {listing.status === 'active' && (
+                <button 
+                  className="sold-btn"
+                  onClick={() => onMarkAsSold(listing.id)}
+                >
+                  ✅ Mark as Sold
+                </button>
+              )}
+              <button 
+                className="delete-btn"
+                onClick={() => onDelete(listing.id)}
+              >
+                🗑️ Delete
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Updated Create Listing Modal with better price input
 const CreateListingModal = ({ user, categories, onClose, onSubmit }) => {
   const [formData, setFormData] = useState({
     title: '',
     description: '',
     category_id: '',
     price: '',
-    currency: 'RUB', // Default is RUB
+    currency: 'RUB',
     price_negotiable: true,
     condition: 'good',
     location: '',
@@ -808,6 +657,12 @@ const CreateListingModal = ({ user, categories, onClose, onSubmit }) => {
       return;
     }
 
+    // Validate contact info based on method
+    if (formData.contact_method !== 'in_app' && !formData.contact_info.trim()) {
+      alert(`Please provide ${formData.contact_method} contact information`);
+      return;
+    }
+
     setLoading(true);
     try {
       await onSubmit({
@@ -866,13 +721,13 @@ const CreateListingModal = ({ user, categories, onClose, onSubmit }) => {
               </select>
             </div>
 
-            {/* Price with Currency - RUB first */}
+            {/* Price with Currency - FIXED INPUT */}
             <div className="form-group">
               <label className="form-label">Price *</label>
               <div className="price-input-group">
                 <input
                   type="number"
-                  className="form-input price-input"
+                  className="form-input price-input-large"
                   name="price"
                   value={formData.price}
                   onChange={handleChange}
@@ -880,6 +735,7 @@ const CreateListingModal = ({ user, categories, onClose, onSubmit }) => {
                   min="0"
                   step="0.01"
                   required
+                  style={{ fontSize: '16px', padding: '12px' }}
                 />
                 <select
                   className="form-input currency-select"
@@ -938,12 +794,13 @@ const CreateListingModal = ({ user, categories, onClose, onSubmit }) => {
 
             {/* Contact Method */}
             <div className="form-group">
-              <label className="form-label">Preferred Contact Method</label>
+              <label className="form-label">Preferred Contact Method *</label>
               <select
                 className="form-input"
                 name="contact_method"
                 value={formData.contact_method}
                 onChange={handleChange}
+                required
               >
                 <option value="email">Email</option>
                 <option value="whatsapp">WhatsApp</option>
@@ -953,7 +810,7 @@ const CreateListingModal = ({ user, categories, onClose, onSubmit }) => {
               </select>
             </div>
 
-            {/* Contact Info */}
+            {/* Contact Info - Dynamic placeholder */}
             {formData.contact_method !== 'in_app' && (
               <div className="form-group">
                 <label className="form-label">Contact Information *</label>
@@ -965,11 +822,15 @@ const CreateListingModal = ({ user, categories, onClose, onSubmit }) => {
                   onChange={handleChange}
                   placeholder={
                     formData.contact_method === 'email' ? 'your.email@example.com' :
-                    formData.contact_method === 'whatsapp' || formData.contact_method === 'telegram' ? '+27 12 345 6789' :
-                    'Contact information'
+                    '+27 12 345 6789'
                   }
-                  required
+                  required={formData.contact_method !== 'in_app'}
                 />
+                <small className="form-hint">
+                  {formData.contact_method === 'email' 
+                    ? 'Buyers will contact you via email'
+                    : 'Include country code (e.g., +27 for South Africa)'}
+                </small>
               </div>
             )}
 
