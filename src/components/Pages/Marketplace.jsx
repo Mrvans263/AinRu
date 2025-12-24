@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabase';
+import { supabase } from '../../../lib/supabase';
 import './Marketplace.css';
 
 const Marketplace = () => {
@@ -10,10 +10,11 @@ const Marketplace = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
   
-  // Filters
+  // Filters - RUB is first in all selects
   const [filters, setFilters] = useState({
     search: '',
     category: '',
+    currency: '',
     minPrice: '',
     maxPrice: '',
     condition: '',
@@ -47,129 +48,105 @@ const Marketplace = () => {
     }
   };
 
-  const fetchListings = async () => {
-    setLoading(true);
-    try {
+ const fetchListings = async () => {
+  setLoading(true);
+  
+  try {
+    console.log('🔍 [DEBUG] Step 1: Testing basic users query...');
+    
+    // Test if we can query users directly
+    const { data: testUsers, error: usersError } = await supabase
+      .from('users')
+      .select('id, firstname, surname, email, phone, avatar_url')
+      .limit(2);
+    
+    console.log('Users direct query:', usersError ? `❌ ${usersError.message}` : `✅ ${testUsers?.length} users found`);
+    
+    // Test a simple join
+    console.log('🔍 [DEBUG] Step 2: Testing simple join...');
+    const simpleJoin = await supabase
+      .from('marketplace_listings')
+      .select(`
+        *,
+        users!inner(id, firstname, surname)
+      `)
+      .eq('status', 'active')
+      .limit(2);
+    
+    console.log('Simple join result:', simpleJoin);
+    
+    if (simpleJoin.error) {
+      console.log('❌ Simple join failed, trying different syntax...');
+      
+      // Try alternative syntax
+      const altJoin = await supabase
+        .from('marketplace_listings')
+        .select(`
+          *,
+          user:users(id, firstname, surname)
+        `)
+        .eq('status', 'active')
+        .limit(2);
+      
+      console.log('Alternative join:', altJoin);
+      
+      if (altJoin.error) {
+        throw altJoin.error;
+      }
+      
+      console.log('✅ Alternative join worked! Using this syntax.');
+      
+      // Now build the full query with working syntax
+      let query = supabase
+        .from('marketplace_listings')
+        .select(`
+          *,
+          category:marketplace_categories(name, icon),
+          images:listing_images(image_url, is_primary),
+          user:users(id, firstname, surname, email, phone, avatar_url),
+          saves:listing_saves(count)
+        `)
+        .eq('status', 'active')
+        .order('created_at', { ascending: false });
+        
+      // ... apply your filters ...
+      
+      const { data, error } = await query;
+      
+      if (error) throw error;
+      setListings(data);
+      
+    } else {
+      // The original syntax works
+      console.log('✅ Original syntax works, building full query...');
+      
       let query = supabase
         .from('marketplace_listings')
         .select(`
           *,
           category:marketplace_categories(*),
           images:listing_images(*),
-          user:users(firstname, surname, email, phone, avatar_url),
+          users!inner(*),
           saves:listing_saves(count)
         `)
         .eq('status', 'active')
         .order('created_at', { ascending: false });
-
-      // Apply filters
-      if (filters.search) {
-        query = query.or(`title.ilike.%${filters.search}%,description.ilike.%${filters.search}%`);
-      }
-      if (filters.category) {
-        query = query.eq('category_id', filters.category);
-      }
-      if (filters.minPrice) {
-        query = query.gte('price', parseFloat(filters.minPrice));
-      }
-      if (filters.maxPrice) {
-        query = query.lte('price', parseFloat(filters.maxPrice));
-      }
-      if (filters.condition) {
-        query = query.eq('condition', filters.condition);
-      }
-      if (filters.negotiable === 'true') {
-        query = query.eq('price_negotiable', true);
-      } else if (filters.negotiable === 'false') {
-        query = query.eq('price_negotiable', false);
-      }
-
-      // Apply sorting
-      switch (filters.sortBy) {
-        case 'price_low':
-          query = query.order('price', { ascending: true });
-          break;
-        case 'price_high':
-          query = query.order('price', { ascending: false });
-          break;
-        case 'views':
-          query = query.order('views_count', { ascending: false });
-          break;
-        default:
-          query = query.order('created_at', { ascending: false });
-      }
-
+        
+      // ... apply your filters ...
+      
       const { data, error } = await query;
-
-      if (error) throw error;
-      setListings(data || []);
-    } catch (error) {
-      console.error('Error fetching listings:', error);
-      setMessage({ type: 'error', text: 'Failed to load listings' });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleCreateListing = async (listingData) => {
-    try {
-      const { data: listing, error } = await supabase
-        .from('marketplace_listings')
-        .insert([{
-          ...listingData,
-          user_id: user.id,
-          status: 'active'
-        }])
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      // Handle image uploads
-      if (listingData.images && listingData.images.length > 0) {
-        const imageRecords = listingData.images.map((img, index) => ({
-          listing_id: listing.id,
-          image_url: img,
-          is_primary: index === 0,
-          order_index: index
-        }));
-
-        await supabase
-          .from('listing_images')
-          .insert(imageRecords);
-      }
-
-      setShowCreateModal(false);
-      setMessage({ type: 'success', text: 'Listing created successfully!' });
-      fetchListings();
       
-    } catch (error) {
-      console.error('Error creating listing:', error);
-      setMessage({ type: 'error', text: 'Failed to create listing' });
-      throw error;
-    }
-  };
-
-  const handleDeleteListing = async (listingId) => {
-    if (!window.confirm('Are you sure you want to delete this listing?')) return;
-
-    try {
-      const { error } = await supabase
-        .from('marketplace_listings')
-        .update({ status: 'deleted' })
-        .eq('id', listingId)
-        .eq('user_id', user.id);
-
       if (error) throw error;
-
-      setListings(listings.filter(listing => listing.id !== listingId));
-      setMessage({ type: 'success', text: 'Listing deleted successfully!' });
-      
-    } catch (error) {
-      console.error('Error deleting listing:', error);
-      setMessage({ type: 'error', text: 'Failed to delete listing' });
+      setListings(data);
     }
-  };
+    
+  } catch (error) {
+    console.error('❌ Final error:', error);
+    setMessage({ type: 'error', text: `Failed to load listings: ${error.message}` });
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleMarkAsSold = async (listingId) => {
     try {
@@ -222,9 +199,7 @@ const Marketplace = () => {
         break;
         
       case 'in_app':
-        // This would open a chat modal or redirect to messages page
         alert('In-app messaging feature coming soon!');
-        // For now, show seller info
         if (seller.phone) {
           const confirmContact = window.confirm(
             `Contact seller directly:\n\nName: ${seller.firstname} ${seller.surname}\nPhone: ${seller.phone}\n\nWould you like to copy the phone number?`
@@ -237,7 +212,6 @@ const Marketplace = () => {
         break;
         
       default:
-        // Use contact_info field if provided
         if (listing.contact_info) {
           alert(`Contact seller at: ${listing.contact_info}`);
         } else if (seller.email) {
@@ -248,51 +222,56 @@ const Marketplace = () => {
     }
   };
 
-  const handleSaveListing = async (listingId) => {
-    if (!user) {
-      alert('Please log in to save listings');
-      return;
-    }
-
-    try {
-      const { data: existingSave } = await supabase
-        .from('listing_saves')
-        .select('id')
-        .eq('listing_id', listingId)
-        .eq('user_id', user.id)
-        .single();
-
-      if (existingSave) {
-        // Remove save
-        await supabase
-          .from('listing_saves')
-          .delete()
-          .eq('id', existingSave.id);
-        setMessage({ type: 'success', text: 'Removed from saved items' });
-      } else {
-        // Add save
-        await supabase
-          .from('listing_saves')
-          .insert({
-            listing_id: listingId,
-            user_id: user.id
-          });
-        setMessage({ type: 'success', text: 'Added to saved items' });
+  const formatPrice = (price, currency = 'RUB') => {
+    const currencyConfigs = {
+      'RUB': {
+        locale: 'ru-RU',
+        options: {
+          style: 'currency',
+          currency: 'RUB',
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 2
+        },
+        symbol: '₽'
+      },
+      'USD': {
+        locale: 'en-US',
+        options: {
+          style: 'currency',
+          currency: 'USD',
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 2
+        },
+        symbol: '$'
+      },
+      'ZAR': {
+        locale: 'en-ZA',
+        options: {
+          style: 'currency',
+          currency: 'ZAR',
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 2
+        },
+        symbol: 'R'
       }
-
-      fetchListings();
-      
+    };
+    
+    const config = currencyConfigs[currency] || currencyConfigs['RUB'];
+    
+    try {
+      return new Intl.NumberFormat(config.locale, config.options).format(price);
     } catch (error) {
-      console.error('Error toggling save:', error);
-      setMessage({ type: 'error', text: 'Failed to save listing' });
+      return `${config.symbol} ${price.toFixed(2)}`;
     }
   };
 
-  const formatPrice = (price) => {
-    return new Intl.NumberFormat('en-ZA', {
-      style: 'currency',
-      currency: 'ZAR'
-    }).format(price);
+  const getCurrencyFlag = (currency) => {
+    const flags = {
+      'RUB': '🇷🇺',
+      'USD': '🇺🇸', 
+      'ZAR': '🇿🇦'
+    };
+    return flags[currency] || '🇷🇺';
   };
 
   const formatDate = (dateString) => {
@@ -312,11 +291,6 @@ const Marketplace = () => {
     });
   };
 
-  const clearMessage = () => {
-    setMessage({ type: '', text: '' });
-  };
-
-  // Condition badge styles
   const getConditionClass = (condition) => {
     switch (condition) {
       case 'new': return 'condition-new';
@@ -326,6 +300,10 @@ const Marketplace = () => {
       case 'poor': return 'condition-poor';
       default: return 'condition-default';
     }
+  };
+
+  const clearMessage = () => {
+    setMessage({ type: '', text: '' });
   };
 
   if (loading && listings.length === 0) {
@@ -394,6 +372,21 @@ const Marketplace = () => {
                   {category.icon} {category.name}
                 </option>
               ))}
+            </select>
+          </div>
+
+          {/* Currency Filter - RUB first */}
+          <div className="filter-group">
+            <label className="filter-label">Currency</label>
+            <select
+              className="filter-select"
+              value={filters.currency}
+              onChange={(e) => setFilters({...filters, currency: e.target.value})}
+            >
+              <option value="">All Currencies</option>
+              <option value="RUB">🇷🇺 Russian Ruble (RUB)</option>
+              <option value="USD">🇺🇸 US Dollar (USD)</option>
+              <option value="ZAR">🇿🇦 South African Rand (ZAR)</option>
             </select>
           </div>
 
@@ -514,7 +507,10 @@ const Marketplace = () => {
                 {/* Header with title and price */}
                 <div className="item-header">
                   <h3 className="item-title">{listing.title}</h3>
-                  <div className="item-price">{formatPrice(listing.price)}</div>
+                  <div className="item-price">
+                    <span className="currency-flag">{getCurrencyFlag(listing.currency || 'RUB')}</span>
+                    {formatPrice(listing.price, listing.currency || 'RUB')}
+                  </div>
                 </div>
 
                 {/* Meta info */}
@@ -636,6 +632,7 @@ const CreateListingModal = ({ user, categories, onClose, onSubmit }) => {
     description: '',
     category_id: '',
     price: '',
+    currency: 'RUB', // Default is RUB
     price_negotiable: true,
     condition: 'good',
     location: '',
@@ -773,20 +770,33 @@ const CreateListingModal = ({ user, categories, onClose, onSubmit }) => {
               </select>
             </div>
 
-            {/* Price */}
+            {/* Price with Currency - RUB first */}
             <div className="form-group">
-              <label className="form-label">Price (ZAR) *</label>
-              <input
-                type="number"
-                className="form-input"
-                name="price"
-                value={formData.price}
-                onChange={handleChange}
-                placeholder="0.00"
-                min="0"
-                step="0.01"
-                required
-              />
+              <label className="form-label">Price *</label>
+              <div className="price-input-group">
+                <input
+                  type="number"
+                  className="form-input price-input"
+                  name="price"
+                  value={formData.price}
+                  onChange={handleChange}
+                  placeholder="0.00"
+                  min="0"
+                  step="0.01"
+                  required
+                />
+                <select
+                  className="form-input currency-select"
+                  name="currency"
+                  value={formData.currency}
+                  onChange={handleChange}
+                  required
+                >
+                  <option value="RUB">🇷🇺 RUB</option>
+                  <option value="USD">🇺🇸 USD</option>
+                  <option value="ZAR">🇿🇦 ZAR</option>
+                </select>
+              </div>
               <div className="checkbox-group">
                 <label className="checkbox-label">
                   <input

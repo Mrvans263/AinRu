@@ -777,3 +777,34 @@
     width: 100%;
   }
 }
+/* Currency Styles */
+.currency-flag {
+  font-size: 0.875rem;
+  margin-right: 0.25rem;
+}
+
+.item-price {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* Price input with currency */
+.price-input-group {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.price-input {
+  flex: 1;
+}
+
+.currency-select {
+  min-width: 120px;
+}
+
+/* Currency filter options */
+.filter-select option {
+  padding: 0.5rem;
+}
