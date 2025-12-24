@@ -134,41 +134,64 @@ export const getContactButtonText = (contactMethod) => {
 };
 
 // Fetch user details (without avatar_url)
+// MarketplaceHelpers.js - Corrected fetchUserDetails
 export const fetchUserDetails = async (userId) => {
   try {
-    const { data, error } = await supabase
-      .from('users')
-      .select('firstname, surname, email, phone')
-      .eq('id', userId)
-      .single();
-    
-    if (error) {
-      console.warn('Error fetching user:', error.message);
+    if (!userId) {
       return {
-        firstname: 'User',
+        firstname: 'Seller',
         surname: '',
         email: '',
         phone: ''
       };
     }
     
-    return data || {
-      firstname: 'User',
-      surname: '',
-      email: '',
-      phone: ''
+    // Use .limit(1) instead of .single() to avoid 406 error
+    const { data, error } = await supabase
+      .from('users')
+      .select('firstname, surname, email, phone')
+      .eq('id', userId)
+      .limit(1); // Changed from .single() to .limit(1)
+    
+    if (error) {
+      console.warn('Error fetching user:', error.message);
+      return {
+        firstname: 'Seller',
+        surname: '',
+        email: '',
+        phone: ''
+      };
+    }
+    
+    // Check if we got any data
+    if (!data || data.length === 0) {
+      console.warn(`User ${userId} not found`);
+      return {
+        firstname: 'Seller',
+        surname: '',
+        email: '',
+        phone: ''
+      };
+    }
+    
+    // Return the first (and should be only) user
+    return {
+      firstname: data[0].firstname || 'Seller',
+      surname: data[0].surname || '',
+      email: data[0].email || '',
+      phone: data[0].phone || ''
     };
+    
   } catch (error) {
     console.error('Error in fetchUserDetails:', error);
     return {
-      firstname: 'User',
+      firstname: 'Seller',
       surname: '',
       email: '',
       phone: ''
     };
   }
 };
-
 // Fetch listing images
 export const fetchListingImages = async (listingId) => {
   try {
