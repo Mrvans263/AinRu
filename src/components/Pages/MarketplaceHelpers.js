@@ -57,31 +57,31 @@ export const getConditionClass = (condition) => {
 
 // Handle contact seller based on their preferred method
 export const handleContactSeller = (listing, currentUser) => {
-  const seller = listing.user;
-  const contactMethod = listing.contact_method || 'email';
-  const contactInfo = listing.contact_info || seller?.email || '';
-  
   if (listing.user_id === currentUser?.id) {
     alert("This is your own listing!");
     return;
   }
+  
+  const contactMethod = listing.contact_method || 'email';
+  const contactInfo = listing.contact_info || listing.user?.email || '';
+  const sellerName = `${listing.user?.firstname || 'Seller'} ${listing.user?.surname || ''}`;
   
   switch (contactMethod) {
     case 'email':
       if (contactInfo) {
         window.location.href = `mailto:${contactInfo}?subject=Regarding your listing: ${listing.title}`;
       } else {
-        alert('Seller has not provided an email address');
+        alert(`${sellerName} has not provided an email address`);
       }
       break;
       
     case 'whatsapp':
       if (contactInfo) {
         const phone = contactInfo.replace(/\D/g, '');
-        const message = encodeURIComponent(`Hi, I'm interested in your listing: ${listing.title}`);
+        const message = encodeURIComponent(`Hi ${sellerName}, I'm interested in your listing: ${listing.title}`);
         window.open(`https://wa.me/${phone}?text=${message}`, '_blank');
       } else {
-        alert('Seller has not provided a phone number for WhatsApp');
+        alert(`${sellerName} has not provided a phone number for WhatsApp`);
       }
       break;
       
@@ -90,21 +90,21 @@ export const handleContactSeller = (listing, currentUser) => {
         const phone = contactInfo.replace(/\D/g, '');
         window.open(`https://t.me/+${phone}`, '_blank');
       } else {
-        alert('Seller has not provided a phone number for Telegram');
+        alert(`${sellerName} has not provided a phone number for Telegram`);
       }
       break;
       
     case 'phone':
       if (contactInfo) {
         const confirmCall = window.confirm(
-          `Call seller: ${contactInfo}\n\nName: ${seller?.firstname || 'Seller'} ${seller?.surname || ''}\n\nWould you like to copy the number?`
+          `Call ${sellerName}: ${contactInfo}\n\nWould you like to copy the number?`
         );
         if (confirmCall) {
           navigator.clipboard.writeText(contactInfo);
           alert('Phone number copied to clipboard!');
         }
       } else {
-        alert('Seller has not provided a phone number');
+        alert(`${sellerName} has not provided a phone number`);
       }
       break;
       
@@ -114,7 +114,7 @@ export const handleContactSeller = (listing, currentUser) => {
       
     default:
       if (contactInfo) {
-        alert(`Contact seller at: ${contactInfo}`);
+        alert(`Contact ${sellerName} at: ${contactInfo}`);
       } else {
         alert('No contact information available');
       }
@@ -124,41 +124,47 @@ export const handleContactSeller = (listing, currentUser) => {
 // Get contact button text based on method
 export const getContactButtonText = (contactMethod) => {
   const texts = {
-    'email': '📧 Email',
-    'whatsapp': '💬 WhatsApp', 
-    'telegram': '📱 Telegram',
-    'phone': '📞 Call',
-    'in_app': '💬 Message'
+    'email': '📧 Email Seller',
+    'whatsapp': '💬 WhatsApp Seller', 
+    'telegram': '📱 Telegram Seller',
+    'phone': '📞 Call Seller',
+    'in_app': '💬 Message Seller'
   };
-  return texts[contactMethod] || '📧 Contact';
+  return texts[contactMethod] || '📧 Contact Seller';
 };
 
-// Fetch user details
+// Fetch user details (without avatar_url)
 export const fetchUserDetails = async (userId) => {
   try {
     const { data, error } = await supabase
       .from('users')
-      .select('firstname, surname, email, phone, avatar_url')
+      .select('firstname, surname, email, phone')
       .eq('id', userId)
       .single();
     
-    if (error) throw error;
+    if (error) {
+      console.warn('Error fetching user:', error.message);
+      return {
+        firstname: 'User',
+        surname: '',
+        email: '',
+        phone: ''
+      };
+    }
     
     return data || {
       firstname: 'User',
       surname: '',
       email: '',
-      phone: '',
-      avatar_url: ''
+      phone: ''
     };
   } catch (error) {
-    console.error('Error fetching user:', error);
+    console.error('Error in fetchUserDetails:', error);
     return {
       firstname: 'User',
       surname: '',
       email: '',
-      phone: '',
-      avatar_url: ''
+      phone: ''
     };
   }
 };
@@ -173,7 +179,10 @@ export const fetchListingImages = async (listingId) => {
       .order('is_primary', { ascending: false })
       .order('order_index');
     
-    if (error) throw error;
+    if (error) {
+      console.warn('Error fetching images:', error.message);
+      return [];
+    }
     return data || [];
   } catch (error) {
     console.error('Error fetching images:', error);

@@ -21,7 +21,6 @@ const Marketplace = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
   
-  // Filters
   const [filters, setFilters] = useState({
     search: '',
     category: '',
@@ -142,8 +141,7 @@ const Marketplace = () => {
                 firstname: 'User',
                 surname: '',
                 email: '',
-                phone: '',
-                avatar_url: ''
+                phone: ''
               }
             };
           }
@@ -345,7 +343,7 @@ const Marketplace = () => {
             </select>
           </div>
 
-          {/* Price Range */}
+          {/* Price Range - Fixed Input Size */}
           <div className="filter-group">
             <label className="filter-label">Price Range</label>
             <div className="price-slider">
@@ -355,6 +353,7 @@ const Marketplace = () => {
                 placeholder="Min"
                 value={filters.minPrice}
                 onChange={(e) => setFilters({...filters, minPrice: e.target.value})}
+                style={{ fontSize: '14px', padding: '8px', width: '100px' }}
               />
               <span>to</span>
               <input
@@ -363,6 +362,7 @@ const Marketplace = () => {
                 placeholder="Max"
                 value={filters.maxPrice}
                 onChange={(e) => setFilters({...filters, maxPrice: e.target.value})}
+                style={{ fontSize: '14px', padding: '8px', width: '100px' }}
               />
             </div>
           </div>
@@ -453,9 +453,10 @@ const Marketplace = () => {
   );
 };
 
-// Separate Listing Card Component for better organization
+// Separate Listing Card Component
 const ListingCard = ({ listing, currentUser, onContactSeller, onMarkAsSold, onDelete }) => {
   const primaryImageUrl = getPrimaryImageUrl(listing.images);
+  const isOwnListing = listing.user_id === currentUser?.id;
 
   return (
     <div className={`item-card ${listing.status === 'sold' ? 'sold' : ''}`}>
@@ -504,8 +505,8 @@ const ListingCard = ({ listing, currentUser, onContactSeller, onMarkAsSold, onDe
           <span className={`condition-badge ${getConditionClass(listing.condition)}`}>
             {listing.condition.replace('_', ' ')}
           </span>
-          {listing.user_id === currentUser?.id && (
-            <span className="owner-badge">Your Listing</span>
+          {isOwnListing && (
+            <span className="owner-badge">Your Item</span>
           )}
         </div>
 
@@ -521,7 +522,7 @@ const ListingCard = ({ listing, currentUser, onContactSeller, onMarkAsSold, onDe
           )}
           <div className="item-seller">
             <span className="seller-info">
-              👤 {listing.user?.firstname} {listing.user?.surname}
+              {isOwnListing ? '👤 Your Item' : `👤 ${listing.user?.firstname || 'Seller'} ${listing.user?.surname || ''}`}
             </span>
             <span className="item-date">{formatDate(listing.created_at)}</span>
           </div>
@@ -530,7 +531,7 @@ const ListingCard = ({ listing, currentUser, onContactSeller, onMarkAsSold, onDe
         {/* Actions */}
         <div className="item-actions">
           {/* Contact Options for non-owners */}
-          {listing.user_id !== currentUser?.id ? (
+          {!isOwnListing ? (
             <button 
               className="contact-btn"
               onClick={onContactSeller}
@@ -542,11 +543,11 @@ const ListingCard = ({ listing, currentUser, onContactSeller, onMarkAsSold, onDe
             <>
               {/* Owner actions */}
               <button 
-                className="contact-btn"
+                className="owner-btn"
                 disabled
                 title="This is your listing"
               >
-                👤 Your Listing
+                👤 Your Item
               </button>
               {listing.status === 'active' && (
                 <button 
@@ -570,7 +571,7 @@ const ListingCard = ({ listing, currentUser, onContactSeller, onMarkAsSold, onDe
   );
 };
 
-// Updated Create Listing Modal with better price input
+// Create Listing Modal
 const CreateListingModal = ({ user, categories, onClose, onSubmit }) => {
   const [formData, setFormData] = useState({
     title: '',
@@ -721,7 +722,7 @@ const CreateListingModal = ({ user, categories, onClose, onSubmit }) => {
               </select>
             </div>
 
-            {/* Price with Currency - FIXED INPUT */}
+            {/* Price with Currency - Fixed Large Input */}
             <div className="form-group">
               <label className="form-label">Price *</label>
               <div className="price-input-group">
@@ -735,7 +736,7 @@ const CreateListingModal = ({ user, categories, onClose, onSubmit }) => {
                   min="0"
                   step="0.01"
                   required
-                  style={{ fontSize: '16px', padding: '12px' }}
+                  style={{ fontSize: '16px', padding: '12px', width: '150px' }}
                 />
                 <select
                   className="form-input currency-select"
@@ -743,6 +744,7 @@ const CreateListingModal = ({ user, categories, onClose, onSubmit }) => {
                   value={formData.currency}
                   onChange={handleChange}
                   required
+                  style={{ width: '100px' }}
                 >
                   <option value="RUB">🇷🇺 RUB</option>
                   <option value="USD">🇺🇸 USD</option>
