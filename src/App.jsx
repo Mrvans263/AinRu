@@ -33,18 +33,17 @@ import Settings from './components/Pages/Settings';
 import Loading from './components/Common/Loading';
 
 function App() {
-  // Handle Google OAuth callback
-  if (window.location.pathname === '/auth/callback' || window.location.hash.includes('access_token')) {
+  // Handle Google OAuth callback - MUST BE FIRST
+  if (window.location.pathname === '/auth/callback') {
     return <AuthCallback />;
   }
   
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   
-  // Load active tab from localStorage on initial load
+  // Load active tab from localStorage
   const [activeTab, setActiveTab] = useState(() => {
     const savedTab = localStorage.getItem('activeTab');
-    // Validate saved tab exists in our list of tabs
     const validTabs = [
       'dashboard', 'marketplace', 'feed', 'travel', 'money',
       'services', 'jobs', 'friends', 'students', 'messages',
@@ -53,123 +52,110 @@ function App() {
     return savedTab && validTabs.includes(savedTab) ? savedTab : 'marketplace';
   });
   
-  const [showDashboardAfterSignup, setShowDashboardAfterSignup] = useState(false);
-  
-  // Track auth state: 'login', 'signup', 'complete-profile', 'app'
-  const [authState, setAuthState] = useState('login');
-  const [isNewUser, setIsNewUser] = useState(false);
-  const [initialCheckDone, setInitialCheckDone] = useState(false);
+  // Auth state machine
+  const [authState, setAuthState] = useState('checking'); // 'checking' | 'login' | 'signup' | 'complete-profile' | 'app'
 
-  // Save active tab to localStorage whenever it changes
+  // Save active tab when in app
   useEffect(() => {
     if (authState === 'app') {
       localStorage.setItem('activeTab', activeTab);
     }
   }, [activeTab, authState]);
 
+  // Main auth check - FIXED LOGIC
   useEffect(() => {
-    const checkAuth = async () => {
+    const initializeAuth = async () => {
       setLoading(true);
       
       try {
-        // 1. Get session from Supabase
+        console.log('🔍 Checking authentication...');
+        
+        // 1. Get current session
         const { data: { session } } = await supabase.auth.getSession();
         
         if (!session) {
-          // No session - show login
-          setUser(null);
+          console.log('❌ No session found, showing login');
           setAuthState('login');
+          setUser(null);
           setLoading(false);
-          setInitialCheckDone(true);
           return;
         }
         
-        // We have a session
+        console.log('✅ Session found for:', session.user.email);
         setUser(session.user);
         
-        // 2. Check localStorage FIRST for fast loading
-        const hasCompletedProfile = localStorage.getItem(`user_${session.user.id}_profile_complete`);
+        // 2. Check if user exists in your database
+        const { data: userProfile, error: dbError } = await supabase
+          .from('users')
+          .select('profile_completed, auth_provider, firstname, surname')
+          .eq('id', session.user.id)
+          .single();
         
-        if (hasCompletedProfile === 'true') {
-          // Use localStorage for immediate load (fast)
-          setAuthState('app');
-          setIsNewUser(false);
-          
-          // Check for new signup flag
-          const isNewSignup = localStorage.getItem('just_signed_up');
-          if (isNewSignup) {
-            setActiveTab('dashboard');
-            setShowDashboardAfterSignup(true);
-            localStorage.removeItem('just_signed_up');
-          }
-          
-          // Verify with database in background (slow, but doesn't block UI)
-          setTimeout(async () => {
-            try {
-              const { data: userProfile } = await supabase
-                .from('users')
-                .select('firstname, surname')
-                .eq('id', session.user.id)
-                .maybeSingle();
-              
-              if (!userProfile?.firstname || !userProfile?.surname) {
-                // Database says profile is incomplete
-                setAuthState('complete-profile');
-                setIsNewUser(true);
-                localStorage.removeItem(`user_${session.user.id}_profile_complete`);
-              }
-            } catch (error) {
-              console.log('Background profile check failed:', error);
-              // If database check fails, we keep the localStorage state
-            }
-          }, 0);
-          
-        } else {
-          // No localStorage flag - go to complete profile
+        if (dbError) {
+          // User doesn't exist in database at all
+          console.log('⚠️ User not in database, needs profile creation');
           setAuthState('complete-profile');
-          setIsNewUser(true);
+          setLoading(false);
+          return;
+        }
+        
+        console.log('📊 User profile status:', {
+          profile_completed: userProfile.profile_completed,
+          auth_provider: userProfile.auth_provider,
+          hasName: !!(userProfile.firstname && userProfile.surname)
+        });
+        
+        // 3. DECISION LOGIC: Handle Google vs Email users differently
+        if (userProfile.auth_provider === 'google' && !userProfile.profile_completed) {
+          // Google user without complete profile
+          console.log('➡️ Google user without profile, redirecting to complete-profile');
+          setAuthState('complete-profile');
+        } else if (!userProfile.profile_completed) {
+          // Email user without complete profile
+          console.log('➡️ Email user without profile, redirecting to complete-profile');
+          setAuthState('complete-profile');
+        } else {
+          // Profile is complete - go to app
+          console.log('✅ Profile complete, redirecting to app');
+          setAuthState('app');
         }
         
       } catch (error) {
-        console.error('Auth check failed:', error);
+        console.error('❌ Auth initialization error:', error);
         setAuthState('login');
       } finally {
         setLoading(false);
-        setInitialCheckDone(true);
       }
     };
 
-    checkAuth();
+    initializeAuth();
 
     // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('Auth event:', event);
+      console.log('🔔 Auth state change:', event);
       
       if (event === 'SIGNED_OUT') {
-        // User logged out
+        console.log('👋 User signed out');
         setUser(null);
         setAuthState('login');
-        setIsNewUser(false);
-        setShowDashboardAfterSignup(false);
-        // Don't reset activeTab here - keep it for next login
-      } else if (event === 'SIGNED_IN' && session?.user) {
-        // User signed in
+      } 
+      else if (event === 'SIGNED_IN' && session?.user) {
+        console.log('👤 User signed in:', session.user.email);
         setUser(session.user);
         
-        // Check if user has completed profile
-        const hasCompletedProfile = localStorage.getItem(`user_${session.user.id}_profile_complete`);
+        // Re-check profile status for new sign-ins
+        const { data: userProfile } = await supabase
+          .from('users')
+          .select('profile_completed, auth_provider')
+          .eq('id', session.user.id)
+          .single();
         
-        if (hasCompletedProfile === 'true') {
-          setAuthState('app');
-          setIsNewUser(false);
-        } else {
+        if (!userProfile?.profile_completed) {
+          console.log('➡️ New sign-in needs profile completion');
           setAuthState('complete-profile');
-          setIsNewUser(true);
-        }
-      } else if (event === 'USER_UPDATED') {
-        // User data was updated
-        if (session?.user) {
-          setUser(session.user);
+        } else {
+          console.log('✅ Returning user with complete profile');
+          setAuthState('app');
         }
       }
     });
@@ -177,47 +163,40 @@ function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  const handleSignupComplete = () => {
-    localStorage.setItem('just_signed_up', 'true');
-  };
-
-  const handleProfileComplete = () => {
+  // Handle profile completion
+  const handleProfileComplete = async () => {
     if (user) {
-      // Mark profile as complete in localStorage
-      localStorage.setItem(`user_${user.id}_profile_complete`, 'true');
+      // Update last login
+      await supabase
+        .from('users')
+        .update({ last_login: new Date().toISOString() })
+        .eq('id', user.id);
     }
-    
-    setIsNewUser(false);
     setAuthState('app');
-    
-    // Show dashboard for new signups
-    const isNewSignup = localStorage.getItem('just_signed_up');
-    if (isNewSignup) {
-      setActiveTab('dashboard');
-      setShowDashboardAfterSignup(true);
-      localStorage.removeItem('just_signed_up');
-    }
   };
 
+  // Handle logout
   const handleLogout = async () => {
     try {
       await supabase.auth.signOut();
-      setShowDashboardAfterSignup(false);
-      // Don't reset activeTab - keep it in localStorage for next session
       setAuthState('login');
     } catch (error) {
-      console.error('Error signing out:', error);
+      console.error('Logout error:', error);
     }
   };
 
-  const renderContent = () => {
-    console.log('🔍 [APP DEBUG] Rendering content:', {
-      activeTab,
-      user: user?.id,
-      authState,
-      loading
-    });
-    
+  // Switch to signup
+  const handleSwitchToSignup = () => {
+    setAuthState('signup');
+  };
+
+  // Switch to login
+  const handleSwitchToLogin = () => {
+    setAuthState('login');
+  };
+
+  // Render page content based on active tab
+  const renderPageContent = () => {
     switch (activeTab) {
       case 'dashboard': return <Dashboard user={user} />;
       case 'marketplace': return <Marketplace />;
@@ -228,9 +207,7 @@ function App() {
       case 'jobs': return <StudentJobs />;
       case 'friends': return <Friends />;
       case 'students': return <AllStudents />;
-      case 'messages': 
-        console.log('🔍 [APP DEBUG] Rendering Messages with user:', user);
-        return <Messages user={user} />;
+      case 'messages': return <Messages user={user} />;
       case 'events': return <Events />;
       case 'study-groups': return <StudyGroups />;
       case 'housing': return <Housing />;
@@ -240,29 +217,34 @@ function App() {
     }
   };
 
-  if (loading && !initialCheckDone) {
+  // Show loading while checking auth
+  if (loading) {
     return <Loading fullscreen />;
   }
 
-  // Render based on authState
+  // Render based on auth state
   switch (authState) {
+    case 'checking':
+      return <Loading fullscreen />;
+    
     case 'login':
-      return <Login onSwitchToSignup={() => setAuthState('signup')} />;
+      return <Login onSwitchToSignup={handleSwitchToSignup} />;
     
     case 'signup':
       return (
         <Signup 
-          onSwitchToLogin={() => setAuthState('login')}
-          onSignupComplete={handleSignupComplete}
+          onSwitchToLogin={handleSwitchToLogin}
+          onSignupComplete={() => {
+            // After signup, user will be automatically signed in
+            // The auth listener will handle the state transition
+          }}
         />
       );
     
     case 'complete-profile':
-      // Show loading while user data is being fetched
       if (!user) {
         return <Loading fullscreen />;
       }
-      
       return (
         <CompleteProfile 
           user={user}
@@ -272,11 +254,9 @@ function App() {
       );
     
     case 'app':
-      // Show loading while user data is being fetched
       if (!user) {
         return <Loading fullscreen />;
       }
-      
       return (
         <div className="app-container">
           {/* Desktop Navigation */}
@@ -307,7 +287,7 @@ function App() {
               {/* Page Content */}
               <div className="page-content">
                 <div className="animate-fade-in">
-                  {renderContent()}
+                  {renderPageContent()}
                 </div>
               </div>
             </div>
@@ -319,7 +299,7 @@ function App() {
       );
     
     default:
-      return <Login onSwitchToSignup={() => setAuthState('signup')} />;
+      return <Login onSwitchToSignup={handleSwitchToSignup} />;
   }
 }
 

@@ -28,23 +28,74 @@ const CompleteProfile = ({ user, onProfileComplete, onLogout }) => {
 
   // Pre-fill with Google user data if available
   useEffect(() => {
-    if (user?.user_metadata?.name) {
-      const fullName = user.user_metadata.name;
-      const nameParts = fullName.split(' ');
-      const firstName = nameParts[0] || '';
-      const surname = nameParts.slice(1).join(' ') || '';
+    console.log('🔄 Pre-filling profile from user data:', user);
+    
+    if (user?.user_metadata || user?.app_metadata) {
+      const meta = user.user_metadata || {};
+      const appMeta = user.app_metadata || {};
       
+      console.log('📋 Google metadata:', meta);
+      console.log('📋 App metadata:', appMeta);
+      
+      // Extract name from Google data
+      let firstName = '';
+      let surname = '';
+      
+      if (meta.name) {
+        const nameParts = meta.name.split(' ');
+        firstName = nameParts[0] || '';
+        surname = nameParts.slice(1).join(' ') || '';
+      }
+      
+      if (meta.given_name) firstName = meta.given_name;
+      if (meta.family_name) surname = meta.family_name;
+      if (meta.firstname) firstName = meta.firstname;
+      if (meta.surname) surname = meta.surname;
+      
+      // Set form data
       setFormData(prev => ({
         ...prev,
         firstname: firstName,
-        surname: surname
+        surname: surname,
+        email: user.email || '',
+        phone: meta.phone || meta.phone_number || '',
+        // Try to get other fields from metadata
+        ...(meta.date_of_birth && { date_of_birth: meta.date_of_birth }),
+        ...(meta.education && { education: meta.education }),
+        ...(meta.university && { university: meta.university }),
+        ...(meta.city && { city: meta.city }),
+        ...(meta.verification_board && { verification_board: meta.verification_board })
       }));
+      
+      // Auto-set profile picture from Google
+      if (meta.avatar_url || meta.picture || meta.photoURL) {
+        console.log('🖼️ Setting profile picture from Google');
+        setProfilePreview(meta.avatar_url || meta.picture || meta.photoURL);
+      }
     }
     
-    // Try to get profile picture from Google
-    if (user?.user_metadata?.avatar_url) {
-      setProfilePreview(user.user_metadata.avatar_url);
-    }
+    // Also check if user already has some data in database
+    const checkExistingData = async () => {
+      if (user?.id) {
+        const { data: existingData } = await supabase
+          .from('users')
+          .select('firstname, surname, phone, education, is_student, date_of_birth, university, city, verification_board')
+          .eq('id', user.id)
+          .single();
+        
+        if (existingData && (existingData.firstname || existingData.surname)) {
+          console.log('📊 Found existing user data:', existingData);
+          setFormData(prev => ({
+            ...prev,
+            ...existingData,
+            firstname: existingData.firstname || prev.firstname,
+            surname: existingData.surname || prev.surname
+          }));
+        }
+      }
+    };
+    
+    checkExistingData();
   }, [user]);
 
   const handleChange = (e) => {
@@ -133,52 +184,86 @@ const CompleteProfile = ({ user, onProfileComplete, onLogout }) => {
     setMessage({ type: '', text: '' });
 
     try {
-      // 1. Upload profile picture if provided
-      let avatarUrl = profilePreview?.startsWith('data:') ? null : profilePreview;
+      console.log('💾 Saving profile for user:', user.id);
+      
+      // Determine auth provider
+      const authProvider = user?.app_metadata?.provider || 'email';
+      console.log('🔐 Auth provider:', authProvider);
+      
+      // 1. Upload profile picture if provided (and not from Google)
+      let avatarUrl = profilePreview;
       
       if (profilePicture && profilePreview?.startsWith('data:')) {
-        const fileExt = profilePicture.name.split('.').pop();
-        const fileName = `${user.id}-${Date.now()}.${fileExt}`;
-        
-        const { error: uploadError } = await supabase.storage
-          .from('avatars')
-          .upload(fileName, profilePicture);
-        
-        if (!uploadError) {
-          const { data: { publicUrl } } = supabase.storage
+        // Local file upload
+        try {
+          const fileExt = profilePicture.name.split('.').pop();
+          const fileName = `${user.id}-${Date.now()}.${fileExt}`;
+          
+          console.log('📤 Uploading profile picture...');
+          
+          const { error: uploadError } = await supabase.storage
             .from('avatars')
-            .getPublicUrl(fileName);
-          avatarUrl = publicUrl;
+            .upload(fileName, profilePicture);
+          
+          if (!uploadError) {
+            const { data: { publicUrl } } = supabase.storage
+              .from('avatars')
+              .getPublicUrl(fileName);
+            avatarUrl = publicUrl;
+            console.log('✅ Profile picture uploaded:', avatarUrl);
+          }
+        } catch (uploadError) {
+          console.error('Profile picture upload error:', uploadError);
+          // Non-critical, continue
         }
       }
-
-      // 2. Determine auth provider
-      const authProvider = user?.app_metadata?.provider || 'email';
-
-      // 3. Update complete user profile
+      
+      // 2. Update complete user profile
+      const profileData = {
+        firstname: formData.firstname,
+        surname: formData.surname,
+        phone: formData.phone || null,
+        education: formData.education,
+        is_student: formData.is_student,
+        date_of_birth: formData.date_of_birth,
+        university: formData.university || null,
+        city: formData.city || null,
+        verification_board: formData.verification_board || null,
+        program_field: formData.program_field || null,
+        bio: formData.bio || null,
+        year_of_study: formData.year_of_study || null,
+        interests: interests.length > 0 ? interests : null,
+        profile_picture_url: avatarUrl,
+        auth_provider: authProvider,
+        profile_completed: true,
+        updated_at: new Date().toISOString()
+      };
+      
+      console.log('📝 Profile data to save:', profileData);
+      
       const { error: profileError } = await supabase
         .from('users')
-        .update({
-          firstname: formData.firstname,
-          surname: formData.surname,
-          phone: formData.phone || null,
-          education: formData.education,
-          is_student: formData.is_student,
-          date_of_birth: formData.date_of_birth,
-          university: formData.university || null,
-          city: formData.city || null,
-          verification_board: formData.verification_board || null,
-          program_field: formData.program_field || null,
-          bio: formData.bio || null,
-          year_of_study: formData.year_of_study || null,
-          interests: interests.length > 0 ? interests : null,
-          profile_picture_url: avatarUrl,
-          auth_provider: authProvider,
-          updated_at: new Date().toISOString()
-        })
+        .update(profileData)
         .eq('id', user.id);
 
-      if (profileError) throw profileError;
+      if (profileError) {
+        console.error('❌ Profile update error:', profileError);
+        throw profileError;
+      }
+      
+      console.log('✅ Profile saved successfully');
+      
+      // 3. Also update auth metadata for consistency
+      try {
+        await supabase.auth.updateUser({
+          data: {
+            firstname: formData.firstname,
+            surname: formData.surname
+          }
+        });
+      } catch (authError) {
+        console.log('Auth metadata update (non-critical):', authError.message);
+      }
 
       setMessage({ 
         type: 'success', 
@@ -191,7 +276,7 @@ const CompleteProfile = ({ user, onProfileComplete, onLogout }) => {
       }, 1000);
 
     } catch (error) {
-      console.error('Profile completion error:', error);
+      console.error('❌ Profile completion error:', error);
       setMessage({ 
         type: 'error', 
         text: error.message || 'An error occurred while updating your profile.' 
@@ -220,6 +305,11 @@ const CompleteProfile = ({ user, onProfileComplete, onLogout }) => {
           <p className="auth-subtitle">Finish setting up your account to get started</p>
           <p className="auth-subtitle" style={{ fontSize: '0.75rem', marginTop: '0.5rem' }}>
             Signed in as: <strong>{user?.email}</strong>
+            {user?.app_metadata?.provider && (
+              <span style={{ marginLeft: '1rem', color: '#666' }}>
+                (via {user.app_metadata.provider})
+              </span>
+            )}
           </p>
         </div>
 
@@ -273,7 +363,11 @@ const CompleteProfile = ({ user, onProfileComplete, onLogout }) => {
                 </div>
               )}
             </div>
-            <div className="form-hint">Optional. We'll use your Google photo if available.</div>
+            <div className="form-hint">
+              {profilePreview?.includes('googleusercontent') 
+                ? 'Using your Google profile picture' 
+                : 'Optional. Upload or use Google photo.'}
+            </div>
           </div>
 
           {/* Name Fields */}
@@ -290,6 +384,9 @@ const CompleteProfile = ({ user, onProfileComplete, onLogout }) => {
                 required
                 placeholder="Enter first name"
               />
+              {!formData.firstname && (
+                <div className="form-hint">Required for profile completion</div>
+              )}
             </div>
 
             <div className="form-group">
@@ -304,10 +401,13 @@ const CompleteProfile = ({ user, onProfileComplete, onLogout }) => {
                 required
                 placeholder="Enter surname"
               />
+              {!formData.surname && (
+                <div className="form-hint">Required for profile completion</div>
+              )}
             </div>
           </div>
 
-          {/* Email (read-only, from Google) */}
+          {/* Email (read-only) */}
           <div className="form-group">
             <label htmlFor="email" className="form-label">Email Address</label>
             <input
@@ -320,7 +420,7 @@ const CompleteProfile = ({ user, onProfileComplete, onLogout }) => {
               disabled
               style={{ backgroundColor: '#f9fafb', cursor: 'not-allowed' }}
             />
-            <div className="form-hint">Email from your Google account</div>
+            <div className="form-hint">Email from your {user?.app_metadata?.provider || 'account'}</div>
           </div>
 
           {/* Program/Field */}
@@ -429,6 +529,9 @@ const CompleteProfile = ({ user, onProfileComplete, onLogout }) => {
               <option value="Masters">Masters</option>
               <option value="PhD">PhD</option>
             </select>
+            {!formData.education && (
+              <div className="form-hint">Required for profile completion</div>
+            )}
           </div>
 
           {/* Student Status */}
@@ -458,6 +561,9 @@ const CompleteProfile = ({ user, onProfileComplete, onLogout }) => {
                 <span className="radio-label">No</span>
               </label>
             </div>
+            {!formData.is_student && (
+              <div className="form-hint">Required for profile completion</div>
+            )}
           </div>
 
           {/* Date of Birth */}
@@ -473,7 +579,12 @@ const CompleteProfile = ({ user, onProfileComplete, onLogout }) => {
               required
               max={new Date().toISOString().split('T')[0]}
             />
-            <div className="form-hint">You must be at least 16 years old</div>
+            {!formData.date_of_birth && (
+              <div className="form-hint">Required for profile completion</div>
+            )}
+            {formData.date_of_birth && (
+              <div className="form-hint">You must be at least 16 years old</div>
+            )}
           </div>
 
           {/* Additional Info */}
@@ -574,7 +685,7 @@ const CompleteProfile = ({ user, onProfileComplete, onLogout }) => {
 
         <div className="auth-footer">
           <p className="auth-text">
-            Almost done! Complete your profile to start using CampusConnect.
+            Complete your profile to access all CampusConnect features.
           </p>
         </div>
       </div>
