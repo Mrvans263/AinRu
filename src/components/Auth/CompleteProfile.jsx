@@ -12,17 +12,22 @@ const CompleteProfile = ({ user, onProfileComplete, onLogout }) => {
     date_of_birth: '',
     university: '',
     city: '',
-    verification_board: ''
+    verification_board: '',
+    program_field: '',
+    bio: '',
+    year_of_study: ''
   });
   
   const [profilePicture, setProfilePicture] = useState(null);
   const [profilePreview, setProfilePreview] = useState(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
+  const [interests, setInterests] = useState([]);
+  const [interestInput, setInterestInput] = useState('');
   const fileInputRef = useRef(null);
 
+  // Pre-fill with Google user data if available
   useEffect(() => {
-    // Pre-fill with Google user data if available
     if (user?.user_metadata?.name) {
       const fullName = user.user_metadata.name;
       const nameParts = fullName.split(' ');
@@ -34,6 +39,11 @@ const CompleteProfile = ({ user, onProfileComplete, onLogout }) => {
         firstname: firstName,
         surname: surname
       }));
+    }
+    
+    // Try to get profile picture from Google
+    if (user?.user_metadata?.avatar_url) {
+      setProfilePreview(user.user_metadata.avatar_url);
     }
   }, [user]);
 
@@ -68,6 +78,17 @@ const CompleteProfile = ({ user, onProfileComplete, onLogout }) => {
     reader.readAsDataURL(file);
   };
 
+  const addInterest = () => {
+    if (interestInput.trim() && !interests.includes(interestInput.trim())) {
+      setInterests([...interests, interestInput.trim()]);
+      setInterestInput('');
+    }
+  };
+
+  const removeInterest = (interestToRemove) => {
+    setInterests(interests.filter(i => i !== interestToRemove));
+  };
+
   const validateForm = () => {
     const requiredFields = ['firstname', 'surname', 'education', 'is_student', 'date_of_birth'];
     for (const field of requiredFields) {
@@ -93,6 +114,11 @@ const CompleteProfile = ({ user, onProfileComplete, onLogout }) => {
       }
     }
 
+    if (formData.year_of_study && (formData.year_of_study < 1 || formData.year_of_study > 7)) {
+      setMessage({ type: 'error', text: 'Year of study must be between 1 and 7' });
+      return false;
+    }
+
     return true;
   };
 
@@ -107,29 +133,32 @@ const CompleteProfile = ({ user, onProfileComplete, onLogout }) => {
     setMessage({ type: '', text: '' });
 
     try {
-      // 1. Update auth user metadata
-      const { error: authUpdateError } = await supabase.auth.updateUser({
-        data: {
-          firstname: formData.firstname,
-          surname: formData.surname,
-          phone: formData.phone || null,
-          education: formData.education,
-          is_student: formData.is_student,
-          date_of_birth: formData.date_of_birth,
-          university: formData.university || null,
-          city: formData.city || null,
-          verification_board: formData.verification_board || null
+      // 1. Upload profile picture if provided
+      let avatarUrl = profilePreview?.startsWith('data:') ? null : profilePreview;
+      
+      if (profilePicture && profilePreview?.startsWith('data:')) {
+        const fileExt = profilePicture.name.split('.').pop();
+        const fileName = `${user.id}-${Date.now()}.${fileExt}`;
+        
+        const { error: uploadError } = await supabase.storage
+          .from('avatars')
+          .upload(fileName, profilePicture);
+        
+        if (!uploadError) {
+          const { data: { publicUrl } } = supabase.storage
+            .from('avatars')
+            .getPublicUrl(fileName);
+          avatarUrl = publicUrl;
         }
-      });
+      }
 
-      if (authUpdateError) throw authUpdateError;
+      // 2. Determine auth provider
+      const authProvider = user?.app_metadata?.provider || 'email';
 
-      // 2. Upsert user profile in database
+      // 3. Update complete user profile
       const { error: profileError } = await supabase
         .from('users')
-        .upsert({
-          id: user.id,
-          email: user.email,
+        .update({
           firstname: formData.firstname,
           surname: formData.surname,
           phone: formData.phone || null,
@@ -139,48 +168,24 @@ const CompleteProfile = ({ user, onProfileComplete, onLogout }) => {
           university: formData.university || null,
           city: formData.city || null,
           verification_board: formData.verification_board || null,
+          program_field: formData.program_field || null,
+          bio: formData.bio || null,
+          year_of_study: formData.year_of_study || null,
+          interests: interests.length > 0 ? interests : null,
+          profile_picture_url: avatarUrl,
+          auth_provider: authProvider,
           updated_at: new Date().toISOString()
-        }, {
-          onConflict: 'id'
-        });
+        })
+        .eq('id', user.id);
 
       if (profileError) throw profileError;
-
-      // 3. Handle profile picture upload if provided
-      if (profilePicture) {
-        try {
-          const fileExt = profilePicture.name.split('.').pop();
-          const fileName = `${user.id}-${Date.now()}.${fileExt}`;
-          
-          const { error: uploadError } = await supabase.storage
-            .from('avatars')
-            .upload(fileName, profilePicture);
-          
-          if (!uploadError) {
-            const { data: { publicUrl } } = supabase.storage
-              .from('avatars')
-              .getPublicUrl(fileName);
-            
-            await supabase
-              .from('users')
-              .update({ avatar_url: publicUrl })
-              .eq('id', user.id);
-          }
-        } catch (uploadError) {
-          console.error('Error uploading profile picture:', uploadError);
-          // Non-critical error, continue
-        }
-      }
 
       setMessage({ 
         type: 'success', 
         text: 'Profile completed successfully! Redirecting...' 
       });
 
-      // 4. Set localStorage flag for fast loading on future visits
-      localStorage.setItem(`user_${user.id}_profile_complete`, 'true');
-      
-      // 5. Short delay for better UX, then notify parent
+      // Short delay for better UX
       setTimeout(() => {
         onProfileComplete();
       }, 1000);
@@ -227,7 +232,7 @@ const CompleteProfile = ({ user, onProfileComplete, onLogout }) => {
         <form onSubmit={handleSubmit} className="auth-form">
           {/* Profile Picture Upload */}
           <div className="form-group">
-            <label className="form-label">Profile Picture (Optional)</label>
+            <label className="form-label">Profile Picture</label>
             <div className="profile-upload-container">
               <div 
                 className="profile-upload-area"
@@ -268,6 +273,7 @@ const CompleteProfile = ({ user, onProfileComplete, onLogout }) => {
                 </div>
               )}
             </div>
+            <div className="form-hint">Optional. We'll use your Google photo if available.</div>
           </div>
 
           {/* Name Fields */}
@@ -315,6 +321,96 @@ const CompleteProfile = ({ user, onProfileComplete, onLogout }) => {
               style={{ backgroundColor: '#f9fafb', cursor: 'not-allowed' }}
             />
             <div className="form-hint">Email from your Google account</div>
+          </div>
+
+          {/* Program/Field */}
+          <div className="form-group">
+            <label htmlFor="program_field" className="form-label">Program/Field of Study</label>
+            <input
+              type="text"
+              id="program_field"
+              name="program_field"
+              className="form-input"
+              value={formData.program_field}
+              onChange={handleChange}
+              placeholder="e.g., Computer Science, Business Administration"
+            />
+          </div>
+
+          {/* Year of Study */}
+          <div className="form-group">
+            <label htmlFor="year_of_study" className="form-label">Year of Study</label>
+            <select
+              id="year_of_study"
+              name="year_of_study"
+              className="form-input"
+              value={formData.year_of_study}
+              onChange={handleChange}
+            >
+              <option value="">Select year</option>
+              <option value="1">1st Year</option>
+              <option value="2">2nd Year</option>
+              <option value="3">3rd Year</option>
+              <option value="4">4th Year</option>
+              <option value="5">5th Year</option>
+              <option value="6">6th Year</option>
+              <option value="7">Postgraduate</option>
+            </select>
+          </div>
+
+          {/* Bio */}
+          <div className="form-group">
+            <label htmlFor="bio" className="form-label">Bio</label>
+            <textarea
+              id="bio"
+              name="bio"
+              className="form-input"
+              value={formData.bio}
+              onChange={handleChange}
+              placeholder="Tell us about yourself..."
+              rows="3"
+              maxLength="500"
+            />
+            <div className="form-hint">Max 500 characters</div>
+          </div>
+
+          {/* Interests */}
+          <div className="form-group">
+            <label className="form-label">Interests</label>
+            <div className="interests-input-container">
+              <input
+                type="text"
+                className="form-input"
+                value={interestInput}
+                onChange={(e) => setInterestInput(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addInterest())}
+                placeholder="Type an interest and press Enter"
+              />
+              <button 
+                type="button"
+                onClick={addInterest}
+                className="add-interest-btn"
+              >
+                Add
+              </button>
+            </div>
+            
+            {interests.length > 0 && (
+              <div className="interests-tags">
+                {interests.map((interest, index) => (
+                  <span key={index} className="interest-tag">
+                    {interest}
+                    <button 
+                      type="button"
+                      onClick={() => removeInterest(interest)}
+                      className="remove-interest"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Education */}

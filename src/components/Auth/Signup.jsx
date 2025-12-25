@@ -15,7 +15,10 @@ const Signup = ({ onSwitchToLogin, onSignupComplete }) => {
     date_of_birth: '',
     university: '',
     city: '',
-    verification_board: ''
+    verification_board: '',
+    program_field: '',
+    bio: '',
+    year_of_study: ''
   });
   
   const [profilePicture, setProfilePicture] = useState(null);
@@ -23,6 +26,8 @@ const Signup = ({ onSwitchToLogin, onSignupComplete }) => {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [interests, setInterests] = useState([]);
+  const [interestInput, setInterestInput] = useState('');
   const fileInputRef = useRef(null);
 
   const handleChange = (e) => {
@@ -30,6 +35,17 @@ const Signup = ({ onSwitchToLogin, onSignupComplete }) => {
       ...formData,
       [e.target.name]: e.target.value
     });
+  };
+
+  const addInterest = () => {
+    if (interestInput.trim() && !interests.includes(interestInput.trim())) {
+      setInterests([...interests, interestInput.trim()]);
+      setInterestInput('');
+    }
+  };
+
+  const removeInterest = (interestToRemove) => {
+    setInterests(interests.filter(i => i !== interestToRemove));
   };
 
   const handleFileChange = (e) => {
@@ -100,90 +116,135 @@ const Signup = ({ onSwitchToLogin, onSignupComplete }) => {
     return true;
   };
 
- const handleSubmit = async (e) => {
-  e.preventDefault();
-  
-  if (!validateForm()) {
-    return;
-  }
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!validateForm()) {
+      return;
+    }
 
-  setLoading(true);
-  setMessage({ type: '', text: '' });
+    setLoading(true);
+    setMessage({ type: '', text: '' });
 
-  try {
-    // 1. Sign up with auth (user gets created in auth.users table)
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email: formData.email,
-      password: formData.password,
-      options: {
-        data: {
-          firstname: formData.firstname,
-          surname: formData.surname,
-          phone: formData.phone || null,
-          education: formData.education,
-          is_student: formData.is_student,
-          date_of_birth: formData.date_of_birth,
-          university: formData.university || null,
-          city: formData.city || null,
-          verification_board: formData.verification_board || null
+    try {
+      // 1. Upload profile picture if provided
+      let avatarUrl = null;
+      if (profilePicture) {
+        const fileExt = profilePicture.name.split('.').pop();
+        const fileName = `temp-${Date.now()}.${fileExt}`;
+        const tempPath = `temp/${fileName}`;
+        
+        const { error: uploadError } = await supabase.storage
+          .from('avatars')
+          .upload(tempPath, profilePicture);
+        
+        if (!uploadError) {
+          const { data: { publicUrl } } = supabase.storage
+            .from('avatars')
+            .getPublicUrl(tempPath);
+          avatarUrl = publicUrl;
         }
       }
-    });
 
-    if (authError) throw authError;
+      // 2. Sign up with auth - SIMPLE VERSION
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+        options: {
+          data: {
+            firstname: formData.firstname,
+            surname: formData.surname
+          }
+        }
+      });
 
-    // 2. IMPORTANT: Wait a moment for the user to be fully created in auth.users
-    // This prevents the foreign key constraint error
-    await new Promise(resolve => setTimeout(resolve, 1000));
+      if (authError) throw authError;
 
-    // 3. Now create the user profile
-    if (authData.user) {
-      const { error: profileError } = await supabase
-        .from('users')
-        .insert({
-          id: authData.user.id,
-          email: formData.email,
-          firstname: formData.firstname,
-          surname: formData.surname,
-          phone: formData.phone || null,
-          education: formData.education,
-          is_student: formData.is_student,
-          date_of_birth: formData.date_of_birth,
-          university: formData.university || null,
-          city: formData.city || null,
-          verification_board: formData.verification_board || null,
-          created_at: new Date().toISOString()
+      if (authData.user) {
+        // 3. Wait for the database trigger to create the basic user record
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // 4. Update the user profile with ALL data
+        const { error: profileError } = await supabase
+          .from('users')
+          .update({
+            firstname: formData.firstname,
+            surname: formData.surname,
+            phone: formData.phone || null,
+            education: formData.education,
+            is_student: formData.is_student,
+            date_of_birth: formData.date_of_birth,
+            university: formData.university || null,
+            city: formData.city || null,
+            verification_board: formData.verification_board || null,
+            program_field: formData.program_field || null,
+            bio: formData.bio || null,
+            year_of_study: formData.year_of_study || null,
+            interests: interests.length > 0 ? interests : null,
+            profile_picture_url: avatarUrl,
+            auth_provider: 'email',
+            profile_completed: true,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', authData.user.id);
+
+        if (profileError) {
+          console.error('Profile update error:', profileError);
+          // Non-critical, user can update later
+        }
+
+        // 5. If we uploaded a temp picture, move it to permanent location
+        if (avatarUrl && authData.user.id) {
+          try {
+            const fileName = avatarUrl.split('/').pop();
+            const newFileName = `${authData.user.id}-${Date.now()}.${fileName.split('.').pop()}`;
+            
+            // Copy from temp to permanent location
+            const { error: copyError } = await supabase.storage
+              .from('avatars')
+              .copy(`temp/${fileName}`, `${authData.user.id}/${newFileName}`);
+            
+            if (!copyError) {
+              const { data: { publicUrl } } = supabase.storage
+                .from('avatars')
+                .getPublicUrl(`${authData.user.id}/${newFileName}`);
+              
+              // Update user with permanent URL
+              await supabase
+                .from('users')
+                .update({ profile_picture_url: publicUrl })
+                .eq('id', authData.user.id);
+            }
+          } catch (uploadError) {
+            console.error('Profile picture finalization error:', uploadError);
+          }
+        }
+
+        setMessage({ 
+          type: 'success', 
+          text: 'Registration successful! Please check your email to confirm your account.' 
         });
 
-      if (profileError) {
-        console.error('Profile creation error (non-critical):', profileError);
-        // User can complete profile on first login
+        if (onSignupComplete) {
+          setTimeout(() => {
+            onSignupComplete();
+          }, 2000);
+        }
       }
+
+    } catch (error) {
+      console.error('Signup error:', error);
+      setMessage({ 
+        type: 'error', 
+        text: error.message.includes('already registered') 
+          ? 'This email is already registered. Please log in.'
+          : error.message || 'An error occurred during registration.'
+      });
+    } finally {
+      setLoading(false);
     }
+  };
 
-    setMessage({ 
-      type: 'success', 
-      text: 'Registration successful! You can now log in.' 
-    });
-
-    if (onSignupComplete) {
-      setTimeout(() => {
-        onSignupComplete();
-      }, 2000);
-    }
-
-  } catch (error) {
-    console.error('Signup error:', error);
-    setMessage({ 
-      type: 'error', 
-      text: error.message.includes('already registered') 
-        ? 'This email is already registered. Please log in.'
-        : error.message || 'An error occurred during registration.'
-    });
-  } finally {
-    setLoading(false);
-  }
-};
   const handleGoogleSignUp = async () => {
     setGoogleLoading(true);
     setMessage({ type: '', text: '' });
@@ -344,6 +405,96 @@ const Signup = ({ onSwitchToLogin, onSignupComplete }) => {
               required
               placeholder="Enter your email"
             />
+          </div>
+
+          {/* Program/Field */}
+          <div className="form-group">
+            <label htmlFor="program_field" className="form-label">Program/Field of Study</label>
+            <input
+              type="text"
+              id="program_field"
+              name="program_field"
+              className="form-input"
+              value={formData.program_field}
+              onChange={handleChange}
+              placeholder="e.g., Computer Science, Business Administration"
+            />
+          </div>
+
+          {/* Year of Study */}
+          <div className="form-group">
+            <label htmlFor="year_of_study" className="form-label">Year of Study</label>
+            <select
+              id="year_of_study"
+              name="year_of_study"
+              className="form-input"
+              value={formData.year_of_study}
+              onChange={handleChange}
+            >
+              <option value="">Select year</option>
+              <option value="1">1st Year</option>
+              <option value="2">2nd Year</option>
+              <option value="3">3rd Year</option>
+              <option value="4">4th Year</option>
+              <option value="5">5th Year</option>
+              <option value="6">6th Year</option>
+              <option value="7">Postgraduate</option>
+            </select>
+          </div>
+
+          {/* Bio */}
+          <div className="form-group">
+            <label htmlFor="bio" className="form-label">Bio</label>
+            <textarea
+              id="bio"
+              name="bio"
+              className="form-input"
+              value={formData.bio}
+              onChange={handleChange}
+              placeholder="Tell us about yourself..."
+              rows="3"
+              maxLength="500"
+            />
+            <div className="form-hint">Max 500 characters</div>
+          </div>
+
+          {/* Interests */}
+          <div className="form-group">
+            <label className="form-label">Interests</label>
+            <div className="interests-input-container">
+              <input
+                type="text"
+                className="form-input"
+                value={interestInput}
+                onChange={(e) => setInterestInput(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addInterest())}
+                placeholder="Type an interest and press Enter"
+              />
+              <button 
+                type="button"
+                onClick={addInterest}
+                className="add-interest-btn"
+              >
+                Add
+              </button>
+            </div>
+            
+            {interests.length > 0 && (
+              <div className="interests-tags">
+                {interests.map((interest, index) => (
+                  <span key={index} className="interest-tag">
+                    {interest}
+                    <button 
+                      type="button"
+                      onClick={() => removeInterest(interest)}
+                      className="remove-interest"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Password Fields */}
