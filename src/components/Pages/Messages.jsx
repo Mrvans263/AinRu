@@ -4,6 +4,19 @@ import { messagingAPI, messagingRealtime } from '../../lib/messaging';
 import './Messages.css';
 
 const Messages = ({ user }) => {
+    if (!user) {
+    return (
+      <div className="messages-container">
+        <div className="loading-state">
+          <div className="loading-spinner"></div>
+          <p>Loading user information...</p>
+          <p style={{ fontSize: '12px', color: '#666', marginTop: '10px' }}>
+            If this takes too long, try refreshing the page.
+          </p>
+        </div>
+      </div>
+    );
+  }
   const [conversations, setConversations] = useState([]);
   const [activeConversation, setActiveConversation] = useState(null);
   const [messages, setMessages] = useState([]);
