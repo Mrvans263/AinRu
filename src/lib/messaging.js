@@ -453,7 +453,7 @@ export const messagingAPI = {
 // Add to lib/messaging.js in the messagingAPI object:
 
 // Search users to start new chat
-async searchUsersToMessage(userId, searchQuery = '', limit = 20) {
+async function searchUsersToMessage(userId, searchQuery = '', limit = 20) {
   try {
     const { data, error } = await supabase
       .from('users')
