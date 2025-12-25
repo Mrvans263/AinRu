@@ -1,74 +1,45 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import './Auth.css';
 
 const AuthCallback = () => {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
   useEffect(() => {
-    const handleAuthCallback = async () => {
+    const handleCallback = async () => {
+      console.log('🔄 Processing OAuth callback...');
+      
       try {
-        console.log('🔄 Processing OAuth callback...');
+        // Let Supabase handle the OAuth tokens
+        const { data: { session }, error } = await supabase.auth.getSession();
         
-        // 1. Get the hash from URL (Supabase puts tokens here)
-        const hash = window.location.hash;
-        
-        if (!hash) {
-          console.error('❌ No OAuth data in URL');
-          setError('No authentication data found');
-          setTimeout(() => window.location.href = '/', 2000);
+        if (error) {
+          console.error('OAuth error:', error);
+          window.location.href = '/';
           return;
         }
-
-        // 2. Let Supabase handle the OAuth tokens
-        // This is the CRITICAL part - Supabase v2 handles this automatically
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         
-        if (sessionError) {
-          console.error('❌ Session error:', sessionError);
-          throw sessionError;
-        }
-
-        if (!session?.user) {
-          console.error('❌ No user after OAuth');
-          setError('Authentication failed');
-          setTimeout(() => window.location.href = '/', 2000);
+        if (!session) {
+          console.log('No session after OAuth');
+          window.location.href = '/';
           return;
         }
-
+        
         console.log('✅ OAuth successful for:', session.user.email);
         
-        // 3. Check if user exists in your database
-        const { data: existingUser, error: dbError } = await supabase
-          .from('users')
-          .select('firstname, surname')
-          .eq('id', session.user.id)
-          .single();
-
-        // 4. Redirect based on profile status
-        if (dbError || !existingUser?.firstname) {
-          // New user - needs to complete profile
-          console.log('➡️ Redirecting to complete profile');
-          window.location.href = '/?state=complete-profile';
-        } else {
-          // Existing user - go to app
-          console.log('➡️ Redirecting to app');
+        // Small delay for database sync
+        setTimeout(() => {
+          // Just redirect to root - App.jsx will handle the rest
           window.location.href = '/';
-        }
-
-      } catch (err) {
-        console.error('❌ AuthCallback error:', err);
-        setError(err.message || 'Authentication failed');
-        setTimeout(() => window.location.href = '/', 3000);
-      } finally {
-        setLoading(false);
+        }, 500);
+        
+      } catch (error) {
+        console.error('Callback error:', error);
+        window.location.href = '/';
       }
     };
-
-    handleAuthCallback();
+    
+    handleCallback();
   }, []);
-
+  
   return (
     <div className="auth-container">
       <div className="auth-card">
@@ -80,24 +51,17 @@ const AuthCallback = () => {
           <h2 className="auth-title">Completing Sign In</h2>
           <p className="auth-subtitle">Please wait...</p>
         </div>
-
-        {error ? (
-          <div className="auth-message auth-message-error">
-            <p>{error}</p>
-            <p style={{ fontSize: '0.875rem', marginTop: '0.5rem' }}>
-              Redirecting to login...
-            </p>
-          </div>
-        ) : loading ? (
-          <div className="loading-spinner">
-            <div className="spinner"></div>
-            <p>Finalizing authentication...</p>
-          </div>
-        ) : (
-          <div className="auth-message auth-message-success">
-            <p>Login successful! Redirecting...</p>
-          </div>
-        )}
+        
+        <div className="loading-spinner">
+          <div className="spinner"></div>
+          <p>Finalizing authentication...</p>
+        </div>
+        
+        <div className="auth-footer">
+          <p className="auth-text" style={{ fontSize: '0.875rem' }}>
+            Redirecting you to the app...
+          </p>
+        </div>
       </div>
     </div>
   );

@@ -63,105 +63,149 @@ function App() {
   }, [activeTab, authState]);
 
   // Main auth check - FIXED LOGIC
-  useEffect(() => {
-    const initializeAuth = async () => {
-      setLoading(true);
+  // Main auth check - FIXED with proper OAuth handling
+useEffect(() => {
+  let mounted = true;
+
+  const initializeAuth = async () => {
+    if (!mounted) return;
+    
+    setLoading(true);
+    
+    try {
+      console.log('🔍 Checking authentication...');
       
-      try {
-        console.log('🔍 Checking authentication...');
-        
-        // 1. Get current session
-        const { data: { session } } = await supabase.auth.getSession();
-        
-        if (!session) {
-          console.log('❌ No session found, showing login');
+      // 1. Get current session - WAIT for it
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError) {
+        console.error('❌ Session error:', sessionError);
+        if (mounted) {
           setAuthState('login');
-          setUser(null);
           setLoading(false);
-          return;
         }
-        
-        console.log('✅ Session found for:', session.user.email);
+        return;
+      }
+      
+      console.log('📊 Session check result:', {
+        hasSession: !!session,
+        userEmail: session?.user?.email
+      });
+      
+      if (!session) {
+        console.log('❌ No session found, showing login');
+        if (mounted) {
+          setAuthState('login');
+          setLoading(false);
+        }
+        return;
+      }
+      
+      console.log('✅ Session found for:', session.user.email);
+      
+      if (mounted) {
         setUser(session.user);
+      }
+      
+      // 2. Small delay to ensure database is ready (for new OAuth users)
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // 3. Check if user exists in your database
+      const { data: userProfile, error: dbError } = await supabase
+        .from('users')
+        .select('profile_completed, auth_provider, firstname, surname')
+        .eq('id', session.user.id)
+        .single();
+      
+      if (dbError) {
+        console.log('⚠️ User not in database yet:', dbError.message);
         
-        // 2. Check if user exists in your database
-        const { data: userProfile, error: dbError } = await supabase
-          .from('users')
-          .select('profile_completed, auth_provider, firstname, surname')
-          .eq('id', session.user.id)
-          .single();
-        
-        if (dbError) {
-          // User doesn't exist in database at all
-          console.log('⚠️ User not in database, needs profile creation');
-          setAuthState('complete-profile');
-          setLoading(false);
-          return;
+        // Check if this is a brand new OAuth user
+        if (session.user.app_metadata?.provider === 'google') {
+          console.log('➡️ New Google user, redirecting to complete-profile');
+          if (mounted) setAuthState('complete-profile');
+        } else {
+          console.log('➡️ User needs profile creation');
+          if (mounted) setAuthState('complete-profile');
         }
         
-        console.log('📊 User profile status:', {
-          profile_completed: userProfile.profile_completed,
-          auth_provider: userProfile.auth_provider,
-          hasName: !!(userProfile.firstname && userProfile.surname)
-        });
-        
-        // 3. DECISION LOGIC: Handle Google vs Email users differently
-        if (userProfile.auth_provider === 'google' && !userProfile.profile_completed) {
-          // Google user without complete profile
-          console.log('➡️ Google user without profile, redirecting to complete-profile');
-          setAuthState('complete-profile');
-        } else if (!userProfile.profile_completed) {
-          // Email user without complete profile
-          console.log('➡️ Email user without profile, redirecting to complete-profile');
+        if (mounted) setLoading(false);
+        return;
+      }
+      
+      console.log('📊 User profile status:', {
+        profile_completed: userProfile.profile_completed,
+        auth_provider: userProfile.auth_provider,
+        hasName: !!(userProfile.firstname && userProfile.surname)
+      });
+      
+      if (mounted) {
+        // 4. DECISION LOGIC
+        if (!userProfile.profile_completed) {
+          console.log('➡️ Incomplete profile, redirecting to complete-profile');
           setAuthState('complete-profile');
         } else {
-          // Profile is complete - go to app
           console.log('✅ Profile complete, redirecting to app');
           setAuthState('app');
         }
-        
-      } catch (error) {
-        console.error('❌ Auth initialization error:', error);
-        setAuthState('login');
-      } finally {
         setLoading(false);
       }
-    };
-
-    initializeAuth();
-
-    // Listen for auth state changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('🔔 Auth state change:', event);
       
-      if (event === 'SIGNED_OUT') {
-        console.log('👋 User signed out');
-        setUser(null);
+    } catch (error) {
+      console.error('❌ Auth initialization error:', error);
+      if (mounted) {
         setAuthState('login');
-      } 
-      else if (event === 'SIGNED_IN' && session?.user) {
-        console.log('👤 User signed in:', session.user.email);
+        setLoading(false);
+      }
+    }
+  };
+
+  initializeAuth();
+
+  // Listen for auth state changes - SIMPLIFIED
+  const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    console.log('🔔 Auth state change:', event);
+    
+    if (!mounted) return;
+    
+    if (event === 'SIGNED_OUT') {
+      console.log('👋 User signed out');
+      setUser(null);
+      setAuthState('login');
+    } 
+    else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
+      console.log('👤 Auth event:', event, 'for user:', session?.user?.email);
+      
+      if (session?.user) {
         setUser(session.user);
         
-        // Re-check profile status for new sign-ins
-        const { data: userProfile } = await supabase
-          .from('users')
-          .select('profile_completed, auth_provider')
-          .eq('id', session.user.id)
-          .single();
-        
-        if (!userProfile?.profile_completed) {
-          console.log('➡️ New sign-in needs profile completion');
-          setAuthState('complete-profile');
-        } else {
-          console.log('✅ Returning user with complete profile');
-          setAuthState('app');
-        }
+        // Small delay for database sync
+        setTimeout(async () => {
+          if (!mounted) return;
+          
+          const { data: userProfile } = await supabase
+            .from('users')
+            .select('profile_completed')
+            .eq('id', session.user.id)
+            .single();
+          
+          if (!userProfile?.profile_completed) {
+            console.log('➡️ Needs profile completion');
+            setAuthState('complete-profile');
+          } else {
+            console.log('✅ Profile complete, going to app');
+            setAuthState('app');
+          }
+        }, 300);
       }
-    });
+    }
+  });
 
-    return () => subscription.unsubscribe();
-  }, []);
+  return () => {
+    mounted = false;
+    subscription?.unsubscribe();
+  };
+}, []);
 
   // Handle profile completion
   const handleProfileComplete = async () => {
