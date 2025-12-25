@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
 import { messagingAPI, messagingRealtime } from '../../lib/messaging';
-import NewChatModal from './NewChatModal';
 import './Messages.css';
 
 const Messages = ({ user }) => {
+  // State
   const [conversations, setConversations] = useState([]);
   const [activeConversation, setActiveConversation] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -16,13 +16,29 @@ const Messages = ({ user }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sendingMessage, setSendingMessage] = useState(false);
   const [showNewChatModal, setShowNewChatModal] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [showChat, setShowChat] = useState(false);
   const [page, setPage] = useState(0);
   
+  // Refs
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const isLoadingRef = useRef(false);
   const pageRef = useRef(0);
+
+  // Check if mobile
+  useEffect(() => {
+    const checkMobile = () => {
+      const mobile = window.innerWidth <= 768;
+      setIsMobile(mobile);
+      if (!mobile) setShowChat(true); // Always show chat on desktop
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // Load conversations
   const loadConversations = useCallback(async () => {
@@ -33,7 +49,6 @@ const Messages = ({ user }) => {
     
     try {
       const data = await messagingAPI.getUserConversations(user.id);
-      console.log('📱 Conversations loaded:', data.length);
       setConversations(data);
       
       const totalUnread = data.reduce((sum, conv) => sum + (conv.unread_count || 0), 0);
@@ -61,8 +76,6 @@ const Messages = ({ user }) => {
         currentPage,
         50
       );
-      
-      console.log('📱 Messages loaded:', newMessages.length);
       
       if (reset) {
         setMessages(newMessages);
@@ -118,32 +131,22 @@ const Messages = ({ user }) => {
       return;
     }
     
-    console.log('📤 Sending message:', { content, file, conversation: activeConversation.id });
+    console.log('📤 Sending message:', { content, conversation: activeConversation.id });
     setSendingMessage(true);
     
     try {
-      let fileData = null;
-      
-      if (file) {
-        console.log('📎 Uploading file:', file.name);
-        fileData = await messagingAPI.uploadFile(file, user.id);
-      }
-      
       const sentMessage = await messagingAPI.sendMessage(
         activeConversation.id,
         user.id,
-        content,
-        file ? (file.type.startsWith('image/') ? 'image' : 'file') : 'text',
-        fileData
+        content
       );
       
-      console.log('✅ Message sent successfully:', sentMessage);
+      console.log('✅ Message sent successfully');
       
       // Clear typing indicator
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
       }
-      await messagingRealtime.sendTypingIndicator(activeConversation.id, user.id, false);
       
       // Refresh conversations to update last message preview
       setTimeout(() => loadConversations(), 500);
@@ -158,10 +161,13 @@ const Messages = ({ user }) => {
     }
   };
 
-  // Handle conversation selection
+  // Handle conversation select
   const handleSelectConversation = async (conversation) => {
     console.log('💬 Selecting conversation:', conversation.id);
     setActiveConversation(conversation);
+    if (isMobile) {
+      setShowChat(true);
+    }
     setPage(0);
     pageRef.current = 0;
     setMessages([]);
@@ -169,26 +175,26 @@ const Messages = ({ user }) => {
     await loadMessages(true);
   };
 
-  // Handle new conversation created
-  const handleConversationCreated = async (conversationId) => {
-    // Refresh conversations
-    await loadConversations();
-    
-    // Find and select the new conversation
-    const newConversation = conversations.find(c => c.id === conversationId);
-    if (newConversation) {
-      await handleSelectConversation(newConversation);
-    } else {
-      // If not found in current list, wait a bit and try again
-      setTimeout(async () => {
-        await loadConversations();
-        const refreshedConv = conversations.find(c => c.id === conversationId);
-        if (refreshedConv) {
-          await handleSelectConversation(refreshedConv);
-        }
-      }, 1000);
-    }
+  // Handle back to conversations (mobile)
+  const handleBackToConversations = () => {
+    setShowChat(false);
+    setActiveConversation(null);
   };
+
+  // Handle typing indicator
+  const handleTyping = useCallback(async (isTyping) => {
+    if (!activeConversation || !user?.id) return;
+    
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    
+    if (isTyping) {
+      typingTimeoutRef.current = setTimeout(() => {
+        // Auto-clear typing after 3 seconds
+      }, 3000);
+    }
+  }, [activeConversation?.id, user?.id]);
 
   // Subscribe to real-time updates
   useEffect(() => {
@@ -204,7 +210,7 @@ const Messages = ({ user }) => {
           setMessages(prev => [...prev, data]);
           
           if (data.sender_id !== user.id) {
-            await messagingAPI.markAsRead(activeConversation.id, user.id, [data.id]);
+            await messagingAPI.markAsRead(activeConversation.id, user.id);
           }
           
           setTimeout(() => loadConversations(), 100);
@@ -218,34 +224,6 @@ const Messages = ({ user }) => {
     };
   }, [activeConversation?.id, user?.id, loadConversations]);
 
-  // Subscribe to typing indicators
-  useEffect(() => {
-    if (!activeConversation?.id || !user?.id) return;
-    
-    const channel = supabase.channel(`presence:${activeConversation.id}`);
-    
-    channel
-      .on('presence', { event: 'sync' }, () => {
-        const state = channel.presenceState();
-        const typing = [];
-        
-        Object.values(state).forEach((presences) => {
-          presences.forEach((presence) => {
-            if (presence.userId !== user.id && presence.isTyping) {
-              typing.push(presence.userId);
-            }
-          });
-        });
-        
-        setTypingUsers(typing);
-      })
-      .subscribe();
-    
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [activeConversation?.id, user?.id]);
-
   // Load initial data
   useEffect(() => {
     if (!user?.id) {
@@ -256,12 +234,31 @@ const Messages = ({ user }) => {
     console.log('🚀 Initializing messages for user:', user.id);
     loadConversations();
     
-    const subscription = messagingRealtime.subscribeToUserConversations(
-      user.id,
-      () => {
-        setTimeout(() => loadConversations(), 500);
-      }
-    );
+    // Subscribe to user's conversations updates
+    const subscription = supabase
+      .channel(`user-${user.id}-conversations`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+        },
+        async (payload) => {
+          // Check if this message is for a conversation we're in
+          const { data: isParticipant } = await supabase
+            .from('conversation_participants')
+            .select('conversation_id')
+            .eq('conversation_id', payload.new.conversation_id)
+            .eq('user_id', user.id)
+            .single();
+          
+          if (isParticipant) {
+            setTimeout(() => loadConversations(), 500);
+          }
+        }
+      )
+      .subscribe();
     
     return () => {
       subscription?.unsubscribe();
@@ -317,13 +314,16 @@ const Messages = ({ user }) => {
     if (conversation.is_group) {
       return conversation.group_name || 'Group Chat';
     } else {
-      const otherParticipant = conversation.participants?.find(p => 
-        p.id !== user?.id && !p.isCurrentUser
-      );
-      if (otherParticipant) {
-        return `${otherParticipant.firstname || ''} ${otherParticipant.surname || ''}`.trim() || 'Unknown';
+      // Try to get other participant's name
+      if (conversation.participants && conversation.participants.length > 0) {
+        const otherParticipant = conversation.participants.find(p => 
+          p.id !== user?.id && !p.isCurrentUser
+        );
+        if (otherParticipant) {
+          return `${otherParticipant.firstname || ''} ${otherParticipant.surname || ''}`.trim() || 'User';
+        }
       }
-      return 'Unknown';
+      return 'Chat';
     }
   };
 
@@ -331,10 +331,13 @@ const Messages = ({ user }) => {
     if (conversation.is_group) {
       return conversation.group_photo_url || null;
     } else {
-      const otherParticipant = conversation.participants?.find(p => 
-        p.id !== user?.id && !p.isCurrentUser
-      );
-      return otherParticipant?.profile_picture_url || null;
+      if (conversation.participants && conversation.participants.length > 0) {
+        const otherParticipant = conversation.participants.find(p => 
+          p.id !== user?.id && !p.isCurrentUser
+        );
+        return otherParticipant?.profile_picture_url || null;
+      }
+      return null;
     }
   };
 
@@ -342,12 +345,14 @@ const Messages = ({ user }) => {
     if (conversation.is_group) {
       return '👥';
     } else {
-      const otherParticipant = conversation.participants?.find(p => 
-        p.id !== user?.id && !p.isCurrentUser
-      );
-      if (otherParticipant) {
-        const initials = `${otherParticipant.firstname?.[0] || ''}${otherParticipant.surname?.[0] || ''}`.toUpperCase();
-        return initials || '👤';
+      if (conversation.participants && conversation.participants.length > 0) {
+        const otherParticipant = conversation.participants.find(p => 
+          p.id !== user?.id && !p.isCurrentUser
+        );
+        if (otherParticipant) {
+          const initials = `${otherParticipant.firstname?.[0] || ''}${otherParticipant.surname?.[0] || ''}`.toUpperCase();
+          return initials || '👤';
+        }
       }
       return '👤';
     }
@@ -356,38 +361,14 @@ const Messages = ({ user }) => {
   const filteredConversations = conversations.filter(conv => {
     if (!searchQuery) return true;
     const query = searchQuery.toLowerCase();
-    
-    if (conv.is_group) {
-      return conv.group_name?.toLowerCase().includes(query);
-    } else {
-      const otherParticipant = conv.participants?.find(p => 
-        p.id !== user?.id && !p.isCurrentUser
-      );
-      if (otherParticipant) {
-        const fullName = `${otherParticipant.firstname || ''} ${otherParticipant.surname || ''}`.toLowerCase();
-        return fullName.includes(query) || 
-               otherParticipant.university?.toLowerCase().includes(query);
-      }
-    }
-    return false;
+    const name = getConversationName(conv).toLowerCase();
+    return name.includes(query);
   });
 
   const getTypingNames = () => {
     if (typingUsers.length === 0) return '';
     if (!activeConversation) return '';
-    
-    const participants = activeConversation.participants?.filter(p => !p.isCurrentUser);
-    const typingParticipants = participants?.filter(p => typingUsers.includes(p.id));
-    
-    if (!typingParticipants || typingParticipants.length === 0) {
-      return 'Someone is typing...';
-    }
-    
-    if (typingParticipants.length === 1) {
-      return `${typingParticipants[0].firstname} is typing...`;
-    }
-    
-    return 'Multiple people are typing...';
+    return 'Someone is typing...';
   };
 
   // Loading state
@@ -405,8 +386,8 @@ const Messages = ({ user }) => {
 
   return (
     <div className="messages-container">
-      {/* Left sidebar */}
-      <div className="conversations-sidebar">
+      {/* Left sidebar - Hidden on mobile when chat is open */}
+      <div className={`conversations-sidebar ${isMobile && showChat ? 'mobile-hidden' : ''}`}>
         <div className="sidebar-header">
           <h2>Messages {unreadCount > 0 && <span className="unread-badge">{unreadCount}</span>}</h2>
           <button 
@@ -493,12 +474,21 @@ const Messages = ({ user }) => {
         </div>
       </div>
 
-      {/* Main chat area */}
-      <div className="chat-main">
+      {/* Main chat area - Hidden on mobile when no conversation selected */}
+      <div className={`chat-main ${isMobile && !showChat ? 'mobile-hidden' : ''}`}>
         {activeConversation ? (
           <>
-            {/* Chat header */}
+            {/* Chat Header with Back Button on Mobile */}
             <div className="chat-header">
+              {isMobile && (
+                <button 
+                  className="back-to-conversations"
+                  onClick={handleBackToConversations}
+                  title="Back to conversations"
+                >
+                  ←
+                </button>
+              )}
               <div className="chat-header-avatar">
                 {activeConversation.is_group ? '👥' : '👤'}
               </div>
@@ -511,20 +501,9 @@ const Messages = ({ user }) => {
                   }
                 </p>
               </div>
-              <div className="chat-header-actions">
-                <button className="chat-action-btn" title="Video call" onClick={() => alert('Video call coming soon!')}>
-                  📹
-                </button>
-                <button className="chat-action-btn" title="Voice call" onClick={() => alert('Voice call coming soon!')}>
-                  📞
-                </button>
-                <button className="chat-action-btn" title="More options" onClick={() => alert('More options coming soon!')}>
-                  ⋯
-                </button>
-              </div>
             </div>
 
-            {/* Messages container */}
+            {/* Messages Container */}
             <div className="messages-container-scroll" ref={messagesContainerRef}>
               {loadingMessages && messages.length === 0 ? (
                 <div className="loading-state">
@@ -600,23 +579,11 @@ const Messages = ({ user }) => {
               )}
             </div>
 
-            {/* Message input */}
+            {/* Message Input */}
             <MessageInput 
               onSendMessage={handleSendMessage}
               sendingMessage={sendingMessage}
-              onTyping={async (isTyping) => {
-                if (!activeConversation || !user?.id) return;
-                if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-                
-                if (isTyping) {
-                  await messagingRealtime.sendTypingIndicator(activeConversation.id, user.id, true);
-                  typingTimeoutRef.current = setTimeout(() => {
-                    messagingRealtime.sendTypingIndicator(activeConversation.id, user.id, false);
-                  }, 3000);
-                } else {
-                  await messagingRealtime.sendTypingIndicator(activeConversation.id, user.id, false);
-                }
-              }}
+              onTyping={handleTyping}
             />
           </>
         ) : (
@@ -624,13 +591,28 @@ const Messages = ({ user }) => {
         )}
       </div>
 
-      {/* New Chat Modal */}
+      {/* New Chat Modal - Simple version for now */}
       {showNewChatModal && (
-        <NewChatModal
-          user={user}
-          onClose={() => setShowNewChatModal(false)}
-          onConversationCreated={handleConversationCreated}
-        />
+        <div className="modal-overlay" onClick={() => setShowNewChatModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>New Chat</h2>
+              <button className="close-btn" onClick={() => setShowNewChatModal(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              <p>New chat feature coming soon!</p>
+              <p>For now, you can only message people you already have conversations with.</p>
+            </div>
+            <div className="modal-actions">
+              <button 
+                className="btn-cancel"
+                onClick={() => setShowNewChatModal(false)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -645,77 +627,30 @@ const MessageBubble = ({ message, isOwn, showAvatar, prevSameSender, nextSameSen
     });
   };
 
-  const renderMessageContent = () => {
-    switch (message.message_type) {
-      case 'image':
-        return (
-          <div className="message-image">
-            <img 
-              src={message.file_url} 
-              alt={message.file_name || 'Image'} 
-              onClick={() => window.open(message.file_url, '_blank')}
-            />
-            {message.content && <p className="image-caption">{message.content}</p>}
-          </div>
-        );
-        
-      case 'file':
-        return (
-          <div className="message-file">
-            <div className="file-icon">📎</div>
-            <div className="file-info">
-              <a 
-                href={message.file_url} 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="file-name"
-              >
-                {message.file_name || 'File'}
-              </a>
-              <span className="file-size">
-                {(message.file_size / 1024).toFixed(1)} KB
-              </span>
-            </div>
-            {message.content && <p className="file-message">{message.content}</p>}
-          </div>
-        );
-        
-      default:
-        return <p className="message-text">{message.content}</p>;
-    }
-  };
-
   return (
     <div className={`message-wrapper ${isOwn ? 'own-message' : 'other-message'} ${prevSameSender ? 'same-sender-prev' : ''} ${nextSameSender ? 'same-sender-next' : ''}`}>
       {!isOwn && showAvatar && (
         <div className="message-avatar">
-          {message.users?.profile_picture_url ? (
-            <img 
-              src={message.users.profile_picture_url} 
-              alt={`${message.users.firstname} ${message.users.surname}`}
-            />
-          ) : (
-            <div className="avatar-fallback">
-              {`${message.users?.firstname?.[0] || ''}${message.users?.surname?.[0] || ''}`.toUpperCase() || '👤'}
-            </div>
-          )}
+          <div className="avatar-fallback">
+            {message.users?.firstname?.[0] || '👤'}
+          </div>
         </div>
       )}
       
       <div className="message-content-wrapper">
         {!isOwn && showAvatar && (
           <div className="message-sender">
-            {message.users?.firstname} {message.users?.surname}
+            {message.users?.firstname || 'User'} {message.users?.surname || ''}
           </div>
         )}
         
-        <div className={`message-bubble ${message.message_type}`}>
-          {renderMessageContent()}
+        <div className="message-bubble">
+          <p className="message-text">{message.content}</p>
           <div className="message-meta">
             <span className="message-time">{formatMessageTime(message.created_at)}</span>
             {isOwn && (
               <span className="message-status">
-                {message.read_by?.length > 1 ? '✓✓' : '✓'}
+                ✓
               </span>
             )}
           </div>
@@ -728,8 +663,6 @@ const MessageBubble = ({ message, isOwn, showAvatar, prevSameSender, nextSameSen
 // Message Input Component
 const MessageInput = ({ onSendMessage, sendingMessage, onTyping }) => {
   const [message, setMessage] = useState('');
-  const [file, setFile] = useState(null);
-  const [filePreview, setFilePreview] = useState(null);
   const fileInputRef = useRef(null);
   const typingTimeoutRef = useRef(null);
 
@@ -747,49 +680,15 @@ const MessageInput = ({ onSendMessage, sendingMessage, onTyping }) => {
     }, 3000);
   };
 
-  const handleFileSelect = (e) => {
-    const selectedFile = e.target.files[0];
-    if (!selectedFile) return;
-
-    if (selectedFile.size > 10 * 1024 * 1024) {
-      alert('File size must be less than 10MB');
-      return;
-    }
-
-    setFile(selectedFile);
-
-    if (selectedFile.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFilePreview(reader.result);
-      };
-      reader.readAsDataURL(selectedFile);
-    }
-  };
-
-  const handleRemoveFile = () => {
-    setFile(null);
-    setFilePreview(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    if ((!message.trim() && !file) || sendingMessage) return;
+    if (!message.trim() || sendingMessage) return;
 
     try {
-      await onSendMessage(message, file);
+      await onSendMessage(message);
       setMessage('');
-      setFile(null);
-      setFilePreview(null);
       
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-
       // Clear typing indicator
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
@@ -809,84 +708,38 @@ const MessageInput = ({ onSendMessage, sendingMessage, onTyping }) => {
 
   return (
     <div className="message-input-container">
-      {filePreview && (
-        <div className="file-preview">
-          <img src={filePreview} alt="Preview" />
-          <button 
-            type="button" 
-            className="remove-preview-btn"
-            onClick={handleRemoveFile}
-          >
-            ×
-          </button>
-        </div>
-      )}
-      
-      {file && !filePreview && (
-        <div className="file-preview">
-          <div className="file-info">
-            <span>📎 {file.name}</span>
-            <button 
-              type="button" 
-              className="remove-preview-btn"
-              onClick={handleRemoveFile}
-            >
-              ×
-            </button>
-          </div>
-        </div>
-      )}
-
       <form className="message-input-form" onSubmit={handleSubmit}>
         <div className="input-actions">
           <button 
             type="button"
             className="action-btn"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => alert('File upload coming soon!')}
             title="Attach file"
             disabled={sendingMessage}
           >
             📎
           </button>
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleFileSelect}
-            accept="image/*,.pdf,.doc,.docx,.txt"
-            style={{ display: 'none' }}
-            disabled={sendingMessage}
-          />
-          
-          <button 
-            type="button" 
-            className="action-btn" 
-            title="Emoji"
-            onClick={() => alert('Emoji picker coming soon!')}
-            disabled={sendingMessage}
-          >
-            😊
-          </button>
         </div>
 
         <div className="message-input-wrapper">
-          <textarea
+          <input
+            type="text"
             className="message-input"
             placeholder="Type a message..."
             value={message}
             onChange={handleInputChange}
             onKeyPress={handleKeyPress}
-            rows="1"
             disabled={sendingMessage}
           />
           
           <button 
             type="submit" 
             className="send-btn"
-            disabled={(!message.trim() && !file) || sendingMessage}
+            disabled={!message.trim() || sendingMessage}
           >
             {sendingMessage ? (
               <div className="sending-spinner"></div>
-            ) : message.trim() || file ? (
+            ) : message.trim() ? (
               'Send'
             ) : (
               '→'
