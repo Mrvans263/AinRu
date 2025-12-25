@@ -24,8 +24,8 @@ const Signup = ({ onSwitchToLogin, onSignupComplete }) => {
   const [profilePicture, setProfilePicture] = useState(null);
   const [profilePreview, setProfilePreview] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState({ type: '', text: '' });
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [message, setMessage] = useState({ type: '', text: '' });
   const [interests, setInterests] = useState([]);
   const [interestInput, setInterestInput] = useState('');
   const fileInputRef = useRef(null);
@@ -127,26 +127,7 @@ const Signup = ({ onSwitchToLogin, onSignupComplete }) => {
     setMessage({ type: '', text: '' });
 
     try {
-      // 1. Upload profile picture if provided
-      let avatarUrl = null;
-      if (profilePicture) {
-        const fileExt = profilePicture.name.split('.').pop();
-        const fileName = `temp-${Date.now()}.${fileExt}`;
-        const tempPath = `temp/${fileName}`;
-        
-        const { error: uploadError } = await supabase.storage
-          .from('avatars')
-          .upload(tempPath, profilePicture);
-        
-        if (!uploadError) {
-          const { data: { publicUrl } } = supabase.storage
-            .from('avatars')
-            .getPublicUrl(tempPath);
-          avatarUrl = publicUrl;
-        }
-      }
-
-      // 2. Sign up with auth - SIMPLE VERSION
+      // 1. Sign up with auth
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: formData.email,
         password: formData.password,
@@ -161,63 +142,59 @@ const Signup = ({ onSwitchToLogin, onSignupComplete }) => {
       if (authError) throw authError;
 
       if (authData.user) {
-        // 3. Wait for the database trigger to create the basic user record
+        // 2. Wait for database trigger to create basic user
         await new Promise(resolve => setTimeout(resolve, 500));
         
-        // 4. Update the user profile with ALL data
+        // 3. Prepare profile data
+        const profileData = {
+          firstname: formData.firstname,
+          surname: formData.surname,
+          phone: formData.phone || null,
+          education: formData.education,
+          is_student: formData.is_student,
+          date_of_birth: formData.date_of_birth,
+          university: formData.university || null,
+          city: formData.city || null,
+          verification_board: formData.verification_board || null,
+          program_field: formData.program_field || null,
+          bio: formData.bio || null,
+          year_of_study: formData.year_of_study || null,
+          interests: interests.length > 0 ? interests : null,
+          auth_provider: 'email',
+          profile_completed: true,
+          updated_at: new Date().toISOString()
+        };
+
+        // 4. Upload profile picture if provided
+        if (profilePicture) {
+          try {
+            const fileExt = profilePicture.name.split('.').pop();
+            const fileName = `${authData.user.id}-${Date.now()}.${fileExt}`;
+            
+            const { error: uploadError } = await supabase.storage
+              .from('avatars')
+              .upload(fileName, profilePicture);
+            
+            if (!uploadError) {
+              const { data: { publicUrl } } = supabase.storage
+                .from('avatars')
+                .getPublicUrl(fileName);
+              profileData.profile_picture_url = publicUrl;
+            }
+          } catch (uploadError) {
+            console.error('Profile picture upload error:', uploadError);
+          }
+        }
+
+        // 5. Update user profile
         const { error: profileError } = await supabase
           .from('users')
-          .update({
-            firstname: formData.firstname,
-            surname: formData.surname,
-            phone: formData.phone || null,
-            education: formData.education,
-            is_student: formData.is_student,
-            date_of_birth: formData.date_of_birth,
-            university: formData.university || null,
-            city: formData.city || null,
-            verification_board: formData.verification_board || null,
-            program_field: formData.program_field || null,
-            bio: formData.bio || null,
-            year_of_study: formData.year_of_study || null,
-            interests: interests.length > 0 ? interests : null,
-            profile_picture_url: avatarUrl,
-            auth_provider: 'email',
-            profile_completed: true,
-            updated_at: new Date().toISOString()
-          })
+          .update(profileData)
           .eq('id', authData.user.id);
 
         if (profileError) {
           console.error('Profile update error:', profileError);
           // Non-critical, user can update later
-        }
-
-        // 5. If we uploaded a temp picture, move it to permanent location
-        if (avatarUrl && authData.user.id) {
-          try {
-            const fileName = avatarUrl.split('/').pop();
-            const newFileName = `${authData.user.id}-${Date.now()}.${fileName.split('.').pop()}`;
-            
-            // Copy from temp to permanent location
-            const { error: copyError } = await supabase.storage
-              .from('avatars')
-              .copy(`temp/${fileName}`, `${authData.user.id}/${newFileName}`);
-            
-            if (!copyError) {
-              const { data: { publicUrl } } = supabase.storage
-                .from('avatars')
-                .getPublicUrl(`${authData.user.id}/${newFileName}`);
-              
-              // Update user with permanent URL
-              await supabase
-                .from('users')
-                .update({ profile_picture_url: publicUrl })
-                .eq('id', authData.user.id);
-            }
-          } catch (uploadError) {
-            console.error('Profile picture finalization error:', uploadError);
-          }
         }
 
         setMessage({ 
@@ -238,32 +215,44 @@ const Signup = ({ onSwitchToLogin, onSignupComplete }) => {
         type: 'error', 
         text: error.message.includes('already registered') 
           ? 'This email is already registered. Please log in.'
-          : error.message || 'An error occurred during registration.'
+          : 'An error occurred during registration.'
       });
     } finally {
       setLoading(false);
     }
   };
 
+  // FIXED: Google OAuth - Simple and reliable
   const handleGoogleSignUp = async () => {
     setGoogleLoading(true);
     setMessage({ type: '', text: '' });
 
     try {
+      // Use the CORRECT Supabase OAuth method
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
-          queryParams: {
-            access_type: 'offline',
-            prompt: 'consent'
-          }
+          // CRITICAL: This must match EXACTLY what's in Supabase dashboard
+          redirectTo: `${window.location.origin}/auth/callback`
+          // No queryParams needed for basic OAuth
         }
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Google OAuth error:', error);
+        throw error;
+      }
+      
+      // IMPORTANT: DO NOT setGoogleLoading(false) here
+      // The browser will redirect immediately to Google
+      // The loading state will reset when user returns to app
+      
     } catch (error) {
-      setMessage({ type: 'error', text: error.message || 'Failed to sign up with Google' });
+      console.error('Google signup failed:', error);
+      setMessage({ 
+        type: 'error', 
+        text: 'Failed to sign up with Google. Please try again.' 
+      });
       setGoogleLoading(false);
     }
   };
@@ -294,6 +283,7 @@ const Signup = ({ onSwitchToLogin, onSignupComplete }) => {
           </div>
         )}
 
+        {/* Google OAuth Button - First and prominent */}
         <div className="auth-social" style={{ marginBottom: '2rem' }}>
           <button 
             type="button" 
@@ -307,7 +297,7 @@ const Signup = ({ onSwitchToLogin, onSignupComplete }) => {
               <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
               <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
             </svg>
-            {googleLoading ? 'Connecting...' : 'Sign up with Google'}
+            {googleLoading ? 'Connecting to Google...' : 'Continue with Google'}
           </button>
         </div>
 
