@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
+import { authAPI } from '../../lib/auth';
 import './Auth.css';
 
 const AuthCallback = () => {
@@ -7,15 +8,15 @@ const AuthCallback = () => {
   const [message, setMessage] = useState({ type: '', text: '' });
 
   useEffect(() => {
-    const handleCallback = async () => {
+    const handleOAuthCallback = async () => {
       try {
-        console.log('Handling OAuth callback...');
+        console.log('🔄 Starting OAuth callback processing...');
         
-        // 1. Get the session from the URL hash
-        const { data: { session }, error } = await supabase.auth.getSession();
+        // CRITICAL: First, let Supabase handle the OAuth tokens from URL
+        const { data: { session }, error: oauthError } = await supabase.auth.getSession();
         
-        if (error) {
-          console.error('Session error in callback:', error);
+        if (oauthError) {
+          console.error('❌ OAuth processing error:', oauthError);
           setMessage({ 
             type: 'error', 
             text: 'Authentication failed. Please try again.' 
@@ -25,41 +26,61 @@ const AuthCallback = () => {
         }
 
         if (!session) {
-          console.log('No session found in callback');
+          console.log('⚠️ No session after OAuth - trying to get user...');
+          
+          // Try to get user directly (sometimes needed for OAuth)
+          const { data: { user }, error: userError } = await supabase.auth.getUser();
+          
+          if (userError || !user) {
+            console.error('❌ No user found after OAuth');
+            setMessage({ 
+              type: 'error', 
+              text: 'Authentication incomplete. Redirecting to login...' 
+            });
+            
+            setTimeout(() => {
+              window.location.href = '/';
+            }, 2000);
+            return;
+          }
+          
+          // If we have a user but no session, try to refresh
+          await supabase.auth.refreshSession();
+          console.log('🔄 Refreshed session for user:', user.email);
+        }
+
+        // Now get the final session after processing
+        const { data: { session: finalSession } } = await supabase.auth.getSession();
+        
+        if (!finalSession?.user) {
+          console.error('❌ Final session check failed');
           setMessage({ 
             type: 'error', 
-            text: 'No session found. Redirecting to login...' 
+            text: 'Authentication failed. Please try again.' 
           });
-          setTimeout(() => {
-            window.location.href = '/';
-          }, 2000);
+          setLoading(false);
           return;
         }
 
-        console.log('Session found for user:', session.user.email);
+        console.log('✅ OAuth successful for user:', finalSession.user.email);
         
         // 2. Check if user profile exists in database
-        const { data: userProfile } = await supabase
-          .from('users')
-          .select('firstname, surname')
-          .eq('id', session.user.id)
-          .maybeSingle();
-
-        // 3. Set localStorage flag for immediate loading
-        localStorage.setItem(`user_${session.user.id}_profile_complete`, userProfile?.firstname ? 'true' : 'false');
+        const isProfileComplete = await authAPI.checkProfileCompletion(finalSession.user.id);
         
-        if (userProfile?.firstname && userProfile?.surname) {
-          // Profile exists - redirect to app
-          console.log('Profile exists, redirecting to app');
+        // 3. Update last login
+        await authAPI.updateLastLogin(finalSession.user.id);
+        
+        // 4. Determine where to redirect
+        if (isProfileComplete) {
+          console.log('✅ Profile exists, redirecting to app');
           window.location.href = '/';
         } else {
-          // Profile doesn't exist - redirect to complete profile
-          console.log('No profile found, redirecting to complete-profile');
+          console.log('⚠️ No profile found, redirecting to complete-profile');
           window.location.href = '/?state=complete-profile';
         }
         
       } catch (error) {
-        console.error('Callback error:', error);
+        console.error('❌ Callback error:', error);
         setMessage({ 
           type: 'error', 
           text: 'An error occurred during authentication.' 
@@ -68,7 +89,7 @@ const AuthCallback = () => {
       }
     };
 
-    handleCallback();
+    handleOAuthCallback();
   }, []);
 
   return (
