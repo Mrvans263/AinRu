@@ -2,8 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { messagingAPI } from '../../lib/messaging';
 import './NewChatModal.css';
 
-
-
 const NewChatModal = ({ user, onClose, onConversationCreated }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [users, setUsers] = useState([]);
@@ -24,7 +22,7 @@ const NewChatModal = ({ user, onClose, onConversationCreated }) => {
     
     try {
       const data = await messagingAPI.searchUsersToMessage(user.id, searchQuery);
-      setUsers(data);
+      setUsers(data || []);
     } catch (error) {
       console.error('Error searching users:', error);
       setError('Failed to search users. Please try again.');
@@ -57,7 +55,6 @@ const NewChatModal = ({ user, onClose, onConversationCreated }) => {
       const existingConv = await messagingAPI.checkExistingConversation(user.id, selectedUser.id);
       
       if (existingConv) {
-        // Conversation already exists - just use it
         onConversationCreated(existingConv);
         onClose();
         return;
@@ -166,9 +163,9 @@ const NewChatModal = ({ user, onClose, onConversationCreated }) => {
                       src={userItem.profile_picture_url} 
                       alt={userItem.firstname}
                       onError={(e) => {
-                        e.target.onerror = null;
                         e.target.style.display = 'none';
-                        e.target.parentElement.querySelector('.avatar-fallback').style.display = 'flex';
+                        const fallback = e.target.parentElement.querySelector('.avatar-fallback');
+                        if (fallback) fallback.style.display = 'flex';
                       }}
                     />
                   ) : null}
@@ -177,29 +174,26 @@ const NewChatModal = ({ user, onClose, onConversationCreated }) => {
                   </div>
                 </div>
                 
-               // In NewChatModal.js, fix the user display logic:
-// Replace the user info section in the return statement with:
-
-<div className="new-chat-user-info">
-  <h4 className="new-chat-user-name">
-    {userItem.firstname} {userItem.surname || ''}
-  </h4>
-  <p className="new-chat-user-email">{userItem.email}</p>
-  {(userItem.university || userItem.city) && (
-    <div className="new-chat-user-details">
-      {userItem.university && (
-        <span className="new-chat-user-university">
-          🎓 {userItem.university}
-        </span>
-      )}
-      {userItem.city && (
-        <span className="new-chat-user-city">
-          📍 {userItem.city}
-        </span>
-      )}
-    </div>
-  )}
-</div>
+                <div className="new-chat-user-info">
+                  <h4 className="new-chat-user-name">
+                    {userItem.firstname} {userItem.surname || ''}
+                  </h4>
+                  <p className="new-chat-user-email">{userItem.email}</p>
+                  {(userItem.university || userItem.city) && (
+                    <div className="new-chat-user-details">
+                      {userItem.university && (
+                        <span className="new-chat-user-university">
+                          🎓 {userItem.university}
+                        </span>
+                      )}
+                      {userItem.city && (
+                        <span className="new-chat-user-city">
+                          📍 {userItem.city}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
                 
                 <button 
                   className={`new-chat-select-btn ${selectedUser?.id === userItem.id ? 'selected' : ''}`}

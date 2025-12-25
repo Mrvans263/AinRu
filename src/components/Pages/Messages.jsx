@@ -1,4 +1,3 @@
-// Replace the current Messages.js with this fixed version
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
 import { messagingAPI, messagingRealtime } from '../../lib/messaging';
@@ -42,7 +41,7 @@ const Messages = ({ user }) => {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Load conversations with proper error handling
+  // Load conversations
   const loadConversations = useCallback(async () => {
     if (!user?.id || isLoadingRef.current) return;
     
@@ -53,7 +52,6 @@ const Messages = ({ user }) => {
       const data = await messagingAPI.getUserConversations(user.id);
       setConversations(data || []);
       
-      // Calculate total unread
       const totalUnread = (data || []).reduce((sum, conv) => sum + (conv.unread_count || 0), 0);
       setUnreadCount(totalUnread);
     } catch (error) {
@@ -114,24 +112,20 @@ const Messages = ({ user }) => {
     await loadMessages(false);
   }, [hasMoreMessages, loadMessages, activeConversation]);
 
-  // Handle scroll for infinite loading - FIXED
+  // Handle scroll for infinite loading
   const handleScroll = useCallback(() => {
     if (!messagesContainerRef.current || isLoadingRef.current || !hasMoreMessages || loadingMessages) return;
     
     const container = messagesContainerRef.current;
-    if (!container) return;
-    
     const scrollTop = container.scrollTop;
-    const clientHeight = container.clientHeight;
-    const scrollHeight = container.scrollHeight;
     
-    // Check if we're near the top (for loading older messages)
+    // Load more when scrolled near top
     if (scrollTop < 100) {
       loadMoreMessages();
     }
   }, [hasMoreMessages, loadingMessages, loadMoreMessages]);
 
-  // Send message function - FIXED
+  // Send message function
   const handleSendMessage = async (content) => {
     if (!activeConversation?.id || !user?.id || !content?.trim()) {
       console.log('Cannot send: missing required data');
@@ -165,7 +159,7 @@ const Messages = ({ user }) => {
     }
   };
 
-  // Handle conversation select - FIXED
+  // Handle conversation select
   const handleSelectConversation = async (conversation) => {
     if (!conversation) return;
     
@@ -185,7 +179,7 @@ const Messages = ({ user }) => {
     setMessages([]);
   };
 
-  // Handle typing indicator - SIMPLIFIED
+  // Handle typing indicator
   const handleTyping = useCallback((isTyping) => {
     if (!activeConversation || !user?.id) return;
     
@@ -200,11 +194,9 @@ const Messages = ({ user }) => {
     }
   }, [activeConversation?.id, user?.id]);
 
-  // Subscribe to real-time updates - FIXED
+  // Subscribe to real-time updates
   useEffect(() => {
     if (!activeConversation?.id || !user?.id) return;
-    
-    console.log('Subscribing to conversation:', activeConversation.id);
     
     const subscription = messagingRealtime.subscribeToConversation(
       activeConversation.id,
@@ -228,7 +220,7 @@ const Messages = ({ user }) => {
     };
   }, [activeConversation?.id, user?.id, loadConversations]);
 
-  // Load initial data - FIXED
+  // Load initial data
   useEffect(() => {
     if (!user?.id) return;
     
@@ -242,11 +234,14 @@ const Messages = ({ user }) => {
         {
           event: 'INSERT',
           schema: 'public',
-          table: 'messages',
-          filter: `conversation_id=in.(${conversations.map(c => c.id).join(',')})`
+          table: 'messages'
         },
-        () => {
-          loadConversations();
+        (payload) => {
+          // Check if this message is for a conversation we're in
+          const conv = conversations.find(c => c.id === payload.new.conversation_id);
+          if (conv) {
+            loadConversations();
+          }
         }
       )
       .subscribe();
@@ -276,7 +271,7 @@ const Messages = ({ user }) => {
     }
   }, [messages]);
 
-  // Helper functions - FIXED
+  // Helper functions
   const formatTime = (dateString) => {
     if (!dateString) return '';
     try {
@@ -429,16 +424,12 @@ const Messages = ({ user }) => {
                     <img 
                       src={getAvatar(conversation)} 
                       alt={getConversationName(conversation)}
-                      onError={(e) => {
-                        e.target.style.display = 'none';
-                        const fallback = e.target.parentElement.querySelector('.avatar-fallback');
-                        if (fallback) fallback.style.display = 'flex';
-                      }}
                     />
-                  ) : null}
-                  <div className="avatar-fallback">
-                    {getAvatarFallback(conversation)}
-                  </div>
+                  ) : (
+                    <div className="avatar-fallback">
+                      {getAvatarFallback(conversation)}
+                    </div>
+                  )}
                   {conversation.unread_count > 0 && (
                     <span className="unread-dot">{conversation.unread_count}</span>
                   )}
@@ -518,12 +509,12 @@ const Messages = ({ user }) => {
                   <div className="messages-list">
                     {messages.map((message, index) => {
                       const prevMessage = messages[index - 1];
-                      const nextMessage = messages[index + 1];
                       
                       const showDate = !prevMessage || 
                         new Date(message.created_at).toDateString() !== 
                         new Date(prevMessage.created_at).toDateString();
                       
+                      const nextMessage = messages[index + 1];
                       const showAvatar = !nextMessage || 
                         nextMessage.sender_id !== message.sender_id;
                         
@@ -592,6 +583,14 @@ const Messages = ({ user }) => {
             const newConversation = conversations.find(c => c.id === conversationId);
             if (newConversation) {
               await handleSelectConversation(newConversation);
+            } else {
+              // If not found, reload and try again
+              await loadConversations();
+              const updatedConversations = await messagingAPI.getUserConversations(user.id);
+              const foundConv = updatedConversations.find(c => c.id === conversationId);
+              if (foundConv) {
+                await handleSelectConversation(foundConv);
+              }
             }
           }}
         />
@@ -600,7 +599,7 @@ const Messages = ({ user }) => {
   );
 };
 
-// Message Bubble Component - FIXED
+// Message Bubble Component
 const MessageBubble = ({ message, isOwn, showAvatar, user }) => {
   const formatMessageTime = (dateString) => {
     if (!dateString) return '';
@@ -655,7 +654,7 @@ const MessageBubble = ({ message, isOwn, showAvatar, user }) => {
   );
 };
 
-// Message Input Component - FIXED
+// Message Input Component
 const MessageInput = ({ onSendMessage, sendingMessage, onTyping }) => {
   const [message, setMessage] = useState('');
   const typingTimeoutRef = useRef(null);
