@@ -468,10 +468,10 @@ async searchUsersToMessage(userId, searchQuery = '', limit = 20) {
     console.error('Error searching users:', error);
     return [];
   }
-},
+};
 
 // Check if conversation already exists between two users
-async checkExistingConversation(user1Id, user2Id) {
+ async function checkExistingConversation(user1Id, user2Id) {
   try {
     const { data, error } = await supabase
       .from('conversations')
