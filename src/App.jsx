@@ -10,7 +10,7 @@ import Sidebar from './components/Layout/Sidebar';
 import Login from './components/Auth/Login';
 import Signup from './components/Auth/Signup';
 import CompleteProfile from './components/Auth/CompleteProfile';
-import AuthCallback from './components/Auth/AuthCallback'; // ADDED
+import AuthCallback from './components/Auth/AuthCallback';
 
 // Page Components
 import Dashboard from './components/Pages/Dashboard';
@@ -33,21 +33,39 @@ import Settings from './components/Pages/Settings';
 import Loading from './components/Common/Loading';
 
 function App() {
-  // ADD THESE 2 LINES - handles Google OAuth callback
+  // Handle Google OAuth callback
   if (window.location.pathname === '/auth/callback' || window.location.hash.includes('access_token')) {
     return <AuthCallback />;
   }
   
-  // EVERYTHING BELOW STAYS EXACTLY THE SAME
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('marketplace');
+  
+  // Load active tab from localStorage on initial load
+  const [activeTab, setActiveTab] = useState(() => {
+    const savedTab = localStorage.getItem('activeTab');
+    // Validate saved tab exists in our list of tabs
+    const validTabs = [
+      'dashboard', 'marketplace', 'feed', 'travel', 'money',
+      'services', 'jobs', 'friends', 'students', 'messages',
+      'events', 'study-groups', 'housing', 'campus-eats', 'settings'
+    ];
+    return savedTab && validTabs.includes(savedTab) ? savedTab : 'marketplace';
+  });
+  
   const [showDashboardAfterSignup, setShowDashboardAfterSignup] = useState(false);
   
   // Track auth state: 'login', 'signup', 'complete-profile', 'app'
   const [authState, setAuthState] = useState('login');
   const [isNewUser, setIsNewUser] = useState(false);
   const [initialCheckDone, setInitialCheckDone] = useState(false);
+
+  // Save active tab to localStorage whenever it changes
+  useEffect(() => {
+    if (authState === 'app') {
+      localStorage.setItem('activeTab', activeTab);
+    }
+  }, [activeTab, authState]);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -133,7 +151,7 @@ function App() {
         setAuthState('login');
         setIsNewUser(false);
         setShowDashboardAfterSignup(false);
-        setActiveTab('marketplace');
+        // Don't reset activeTab here - keep it for next login
       } else if (event === 'SIGNED_IN' && session?.user) {
         // User signed in
         setUser(session.user);
@@ -185,7 +203,7 @@ function App() {
     try {
       await supabase.auth.signOut();
       setShowDashboardAfterSignup(false);
-      setActiveTab('marketplace');
+      // Don't reset activeTab - keep it in localStorage for next session
       setAuthState('login');
     } catch (error) {
       console.error('Error signing out:', error);
@@ -193,12 +211,13 @@ function App() {
   };
 
   const renderContent = () => {
-     console.log('🔍 [APP DEBUG] Rendering content:', {
-    activeTab,
-    user: user?.id,
-    authState,
-    loading
-  });
+    console.log('🔍 [APP DEBUG] Rendering content:', {
+      activeTab,
+      user: user?.id,
+      authState,
+      loading
+    });
+    
     switch (activeTab) {
       case 'dashboard': return <Dashboard user={user} />;
       case 'marketplace': return <Marketplace />;
@@ -210,8 +229,8 @@ function App() {
       case 'friends': return <Friends />;
       case 'students': return <AllStudents />;
       case 'messages': 
-      console.log('🔍 [APP DEBUG] Rendering Messages with user:', user);
-      return <Messages user={user} />;
+        console.log('🔍 [APP DEBUG] Rendering Messages with user:', user);
+        return <Messages user={user} />;
       case 'events': return <Events />;
       case 'study-groups': return <StudyGroups />;
       case 'housing': return <Housing />;
