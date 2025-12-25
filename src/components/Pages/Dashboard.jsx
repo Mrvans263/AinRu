@@ -416,352 +416,354 @@ const Dashboard = ({ user }) => {
   }
 
   return (
-    <div className="dashboard">
-      {/* Welcome Header */}
-      <div className="dashboard-header">
-        <div className="header-content">
-          <div className="header-left">
-            {userProfile?.profile_picture_url ? (
-              <img 
-                src={userProfile.profile_picture_url} 
-                alt="Profile"
-                className="profile-avatar-lg"
-              />
-            ) : (
-              <div className="profile-avatar-placeholder">
-                {userProfile?.firstname?.[0]}{userProfile?.surname?.[0]}
+    <div className="dashboard-container">
+      <div className="dashboard-wrapper">
+        {/* Welcome Header */}
+        <div className="dashboard-header">
+          <div className="dashboard-header-content">
+            <div className="dashboard-header-left">
+              {userProfile?.profile_picture_url ? (
+                <img 
+                  src={userProfile.profile_picture_url} 
+                  alt="Profile"
+                  className="dashboard-profile-avatar-lg"
+                />
+              ) : (
+                <div className="dashboard-profile-avatar-placeholder">
+                  {userProfile?.firstname?.[0]}{userProfile?.surname?.[0]}
+                </div>
+              )}
+              <div className="dashboard-header-info">
+                <h1 className="dashboard-welcome-text">
+                  Welcome back, <span className="dashboard-highlight">{userProfile?.firstname}</span>!
+                </h1>
+                <p className="dashboard-user-email">{userProfile?.email}</p>
+                <div className="dashboard-user-meta">
+                  <span className="dashboard-meta-item">
+                    <span className="dashboard-meta-icon">🎓</span>
+                    {userProfile?.university || 'No university set'}
+                  </span>
+                  <span className="dashboard-meta-item">
+                    <span className="dashboard-meta-icon">📍</span>
+                    {userProfile?.city || 'No location set'}
+                  </span>
+                  <span className="dashboard-meta-item">
+                    <span className="dashboard-meta-icon">📅</span>
+                    Joined {new Date(userProfile?.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="dashboard-header-right">
+              <button 
+                onClick={handleRefresh}
+                className="dashboard-refresh-btn"
+                title="Refresh dashboard"
+              >
+                <span className="dashboard-refresh-icon">↻</span>
+                Refresh
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Stats Grid - Extended */}
+        <div className="dashboard-stats-grid">
+          <div className="dashboard-stat-card">
+            <div className="dashboard-stat-icon dashboard-stat-icon-blue">🛒</div>
+            <div className="dashboard-stat-content">
+              <div className="dashboard-stat-value">{stats.activeListings}</div>
+              <div className="dashboard-stat-label">Active Listings</div>
+              <div className="dashboard-stat-subtext">{stats.totalListings} total</div>
+            </div>
+          </div>
+
+          <div className="dashboard-stat-card">
+            <div className="dashboard-stat-icon dashboard-stat-icon-purple">💬</div>
+            <div className="dashboard-stat-content">
+              <div className="dashboard-stat-value">{stats.unreadMessages}</div>
+              <div className="dashboard-stat-label">Unread Messages</div>
+              <div className="dashboard-stat-subtext">{stats.totalMessages} sent</div>
+            </div>
+          </div>
+
+          <div className="dashboard-stat-card">
+            <div className="dashboard-stat-icon dashboard-stat-icon-green">👥</div>
+            <div className="dashboard-stat-content">
+              <div className="dashboard-stat-value">{stats.friends}</div>
+              <div className="dashboard-stat-label">Friends</div>
+              <div className="dashboard-stat-subtext">{stats.pendingFriends} pending</div>
+            </div>
+          </div>
+
+          <div className="dashboard-stat-card">
+            <div className="dashboard-stat-icon dashboard-stat-icon-orange">📅</div>
+            <div className="dashboard-stat-content">
+              <div className="dashboard-stat-value">{stats.eventsAttending}</div>
+              <div className="dashboard-stat-label">Events</div>
+              <div className="dashboard-stat-subtext">{stats.upcomingEvents} upcoming</div>
+            </div>
+          </div>
+
+          <div className="dashboard-stat-card">
+            <div className="dashboard-stat-icon dashboard-stat-icon-red">📝</div>
+            <div className="dashboard-stat-content">
+              <div className="dashboard-stat-value">{stats.feedPosts}</div>
+              <div className="dashboard-stat-label">Feed Posts</div>
+              <div className="dashboard-stat-subtext">{stats.postLikes} likes</div>
+            </div>
+          </div>
+
+          <div className="dashboard-stat-card">
+            <div className="dashboard-stat-icon dashboard-stat-icon-teal">⭐</div>
+            <div className="dashboard-stat-content">
+              <div className="dashboard-stat-value">{stats.savedListings}</div>
+              <div className="dashboard-stat-label">Saved Items</div>
+              <div className="dashboard-stat-subtext">Watchlist</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Dashboard Content Grid */}
+        <div className="dashboard-content">
+          {/* Left Column */}
+          <div className="dashboard-left">
+            {/* Personal Information Card */}
+            <div className="dashboard-info-card">
+              <div className="dashboard-card-header">
+                <h2 className="dashboard-card-title">
+                  <span className="dashboard-card-icon">👤</span>
+                  Personal Information
+                </h2>
+                <button className="dashboard-edit-btn">Edit</button>
+              </div>
+              
+              <div className="dashboard-card-content">
+                <div className="dashboard-info-grid">
+                  <div className="dashboard-info-item">
+                    <span className="dashboard-info-label">Full Name</span>
+                    <span className="dashboard-info-value">
+                      {userProfile?.firstname} {userProfile?.surname}
+                    </span>
+                  </div>
+                  
+                  <div className="dashboard-info-item">
+                    <span className="dashboard-info-label">Education</span>
+                    <span className="dashboard-info-value">{userProfile?.education || 'Not specified'}</span>
+                  </div>
+                  
+                  <div className="dashboard-info-item">
+                    <span className="dashboard-info-label">Student Status</span>
+                    <span className={`dashboard-status-badge ${userProfile?.is_student ? 'dashboard-status-student' : 'dashboard-status-not-student'}`}>
+                      {userProfile?.is_student ? 'Student' : 'Not Student'}
+                    </span>
+                  </div>
+                  
+                  <div className="dashboard-info-item">
+                    <span className="dashboard-info-label">Date of Birth</span>
+                    <span className="dashboard-info-value">
+                      {userProfile?.date_of_birth ? new Date(userProfile.date_of_birth).toLocaleDateString() : 'Not provided'}
+                    </span>
+                  </div>
+                  
+                  <div className="dashboard-info-item">
+                    <span className="dashboard-info-label">Verification</span>
+                    <span className="dashboard-info-value">{userProfile?.verification_board || 'Not verified'}</span>
+                  </div>
+                  
+                  <div className="dashboard-info-item">
+                    <span className="dashboard-info-label">Program Field</span>
+                    <span className="dashboard-info-value">{userProfile?.program_field || 'Not specified'}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Recent Feed Posts */}
+            {feedPosts.length > 0 && (
+              <div className="dashboard-info-card">
+                <div className="dashboard-card-header">
+                  <h2 className="dashboard-card-title">
+                    <span className="dashboard-card-icon">📝</span>
+                    Your Recent Posts
+                  </h2>
+                </div>
+                
+                <div className="dashboard-card-content">
+                  <div className="dashboard-posts-list">
+                    {feedPosts.map((post) => (
+                      <div key={post.id} className="dashboard-post-item">
+                        <div className="dashboard-post-content">
+                          <p className="dashboard-post-text">{post.content}</p>
+                          <div className="dashboard-post-meta">
+                            <span className="dashboard-post-date">{formatDate(post.created_at)}</span>
+                            <span className="dashboard-post-stats">
+                              {post.likes?.[0]?.count || 0} likes • {post.comments?.[0]?.count || 0} comments
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
-            <div className="header-info">
-              <h1 className="welcome-text">
-                Welcome back, <span className="highlight">{userProfile?.firstname}</span>!
-              </h1>
-              <p className="user-email">{userProfile?.email}</p>
-              <div className="user-meta">
-                <span className="meta-item">
-                  <span className="meta-icon">🎓</span>
-                  {userProfile?.university || 'No university set'}
-                </span>
-                <span className="meta-item">
-                  <span className="meta-icon">📍</span>
-                  {userProfile?.city || 'No location set'}
-                </span>
-                <span className="meta-item">
-                  <span className="meta-icon">📅</span>
-                  Joined {new Date(userProfile?.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                </span>
+          </div>
+
+          {/* Right Column */}
+          <div className="dashboard-right">
+            {/* Recent Messages */}
+            <div className="dashboard-info-card">
+              <div className="dashboard-card-header">
+                <h2 className="dashboard-card-title">
+                  <span className="dashboard-card-icon">💬</span>
+                  Recent Conversations
+                </h2>
+              </div>
+              
+              <div className="dashboard-card-content">
+                {recentMessages.length > 0 ? (
+                  <div className="dashboard-conversations-list">
+                    {recentMessages.map((message) => (
+                      <div key={message.id} className={`dashboard-conversation-item ${message.unread ? 'dashboard-conversation-unread' : ''}`}>
+                        <div className="dashboard-conversation-avatar">
+                          {message.sender?.profile_picture_url ? (
+                            <img src={message.sender.profile_picture_url} alt={message.sender.firstname} />
+                          ) : (
+                            <div className="dashboard-avatar-fallback">
+                              {message.sender?.firstname?.[0]}
+                            </div>
+                          )}
+                        </div>
+                        <div className="dashboard-conversation-content">
+                          <div className="dashboard-conversation-header">
+                            <span className="dashboard-conversation-name">
+                              {message.sender?.firstname} {message.sender?.surname}
+                            </span>
+                            <span className="dashboard-conversation-time">
+                              {formatDate(message.created_at)}
+                            </span>
+                          </div>
+                          <p className="dashboard-conversation-preview">{message.content}</p>
+                        </div>
+                        {message.unread && <div className="dashboard-unread-dot"></div>}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="dashboard-empty-state">
+                    <span className="dashboard-empty-icon">💬</span>
+                    <p className="dashboard-empty-text">No conversations yet</p>
+                  </div>
+                )}
               </div>
             </div>
+
+            {/* Upcoming Events */}
+            <div className="dashboard-info-card">
+              <div className="dashboard-card-header">
+                <h2 className="dashboard-card-title">
+                  <span className="dashboard-card-icon">📅</span>
+                  Upcoming Events
+                </h2>
+              </div>
+              
+              <div className="dashboard-card-content">
+                {upcomingEvents.length > 0 ? (
+                  <div className="dashboard-events-list">
+                    {upcomingEvents.map((event) => (
+                      <div key={event.id} className="dashboard-event-item">
+                        <div className="dashboard-event-date">
+                          <div className="dashboard-event-day">
+                            {new Date(event.event_date).getDate()}
+                          </div>
+                          <div className="dashboard-event-month">
+                            {new Date(event.event_date).toLocaleString('default', { month: 'short' })}
+                          </div>
+                        </div>
+                        <div className="dashboard-event-details">
+                          <h4 className="dashboard-event-title">{event.title}</h4>
+                          <p className="dashboard-event-location">{event.location}</p>
+                          <p className="dashboard-event-organizer">
+                            By {event.organizer?.firstname} {event.organizer?.surname}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="dashboard-empty-state">
+                    <span className="dashboard-empty-icon">📅</span>
+                    <p className="dashboard-empty-text">No upcoming events</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Saved Listings */}
+            {savedListings.length > 0 && (
+              <div className="dashboard-info-card">
+                <div className="dashboard-card-header">
+                  <h2 className="dashboard-card-title">
+                    <span className="dashboard-card-icon">⭐</span>
+                    Saved Items
+                  </h2>
+                </div>
+                
+                <div className="dashboard-card-content">
+                  <div className="dashboard-saved-items-list">
+                    {savedListings.map((item) => (
+                      <div key={item.id} className="dashboard-saved-item">
+                        <div className="dashboard-saved-item-info">
+                          <h4 className="dashboard-saved-item-title">{item.listing?.title}</h4>
+                          <p className="dashboard-saved-item-category">{item.listing?.category?.name}</p>
+                          <div className="dashboard-saved-item-meta">
+                            <span className="dashboard-saved-item-price">
+                              {formatCurrency(item.listing?.price || 0)}
+                            </span>
+                            <span className="dashboard-saved-item-date">
+                              Saved {formatDate(item.created_at)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
-          <div className="header-right">
-            <button 
-              onClick={handleRefresh}
-              className="refresh-btn"
-              title="Refresh dashboard"
-            >
-              <span className="refresh-icon">↻</span>
-              Refresh
+        </div>
+
+        {/* Quick Actions */}
+        <div className="dashboard-quick-actions">
+          <h3 className="dashboard-actions-title">Quick Actions</h3>
+          <div className="dashboard-actions-grid">
+            <button className="dashboard-action-btn">
+              <span className="dashboard-action-icon">➕</span>
+              <span className="dashboard-action-text">New Listing</span>
+            </button>
+            <button className="dashboard-action-btn">
+              <span className="dashboard-action-icon">✏️</span>
+              <span className="dashboard-action-text">Create Post</span>
+            </button>
+            <button className="dashboard-action-btn">
+              <span className="dashboard-action-icon">📅</span>
+              <span className="dashboard-action-text">Create Event</span>
+            </button>
+            <button className="dashboard-action-btn">
+              <span className="dashboard-action-icon">🔍</span>
+              <span className="dashboard-action-text">Find Friends</span>
+            </button>
+            <button className="dashboard-action-btn">
+              <span className="dashboard-action-icon">💼</span>
+              <span className="dashboard-action-text">Marketplace</span>
+            </button>
+            <button className="dashboard-action-btn">
+              <span className="dashboard-action-icon">✈️</span>
+              <span className="dashboard-action-text">Travel Deals</span>
             </button>
           </div>
-        </div>
-      </div>
-
-      {/* Stats Grid - Extended */}
-      <div className="stats-grid">
-        <div className="stat-card">
-          <div className="stat-icon stat-icon-blue">🛒</div>
-          <div className="stat-content">
-            <div className="stat-value">{stats.activeListings}</div>
-            <div className="stat-label">Active Listings</div>
-            <div className="stat-subtext">{stats.totalListings} total</div>
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div className="stat-icon stat-icon-purple">💬</div>
-          <div className="stat-content">
-            <div className="stat-value">{stats.unreadMessages}</div>
-            <div className="stat-label">Unread Messages</div>
-            <div className="stat-subtext">{stats.totalMessages} sent</div>
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div className="stat-icon stat-icon-green">👥</div>
-          <div className="stat-content">
-            <div className="stat-value">{stats.friends}</div>
-            <div className="stat-label">Friends</div>
-            <div className="stat-subtext">{stats.pendingFriends} pending</div>
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div className="stat-icon stat-icon-orange">📅</div>
-          <div className="stat-content">
-            <div className="stat-value">{stats.eventsAttending}</div>
-            <div className="stat-label">Events</div>
-            <div className="stat-subtext">{stats.upcomingEvents} upcoming</div>
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div className="stat-icon stat-icon-red">📝</div>
-          <div className="stat-content">
-            <div className="stat-value">{stats.feedPosts}</div>
-            <div className="stat-label">Feed Posts</div>
-            <div className="stat-subtext">{stats.postLikes} likes</div>
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div className="stat-icon stat-icon-teal">⭐</div>
-          <div className="stat-content">
-            <div className="stat-value">{stats.savedListings}</div>
-            <div className="stat-label">Saved Items</div>
-            <div className="stat-subtext">Watchlist</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Dashboard Content Grid */}
-      <div className="dashboard-content">
-        {/* Left Column */}
-        <div className="dashboard-left">
-          {/* Personal Information Card */}
-          <div className="info-card">
-            <div className="card-header">
-              <h2 className="card-title">
-                <span className="card-icon">👤</span>
-                Personal Information
-              </h2>
-              <button className="edit-btn">Edit</button>
-            </div>
-            
-            <div className="card-content">
-              <div className="info-grid">
-                <div className="info-item">
-                  <span className="info-label">Full Name</span>
-                  <span className="info-value">
-                    {userProfile?.firstname} {userProfile?.surname}
-                  </span>
-                </div>
-                
-                <div className="info-item">
-                  <span className="info-label">Education</span>
-                  <span className="info-value">{userProfile?.education || 'Not specified'}</span>
-                </div>
-                
-                <div className="info-item">
-                  <span className="info-label">Student Status</span>
-                  <span className={`status-badge ${userProfile?.is_student ? 'status-student' : 'status-not-student'}`}>
-                    {userProfile?.is_student ? 'Student' : 'Not Student'}
-                  </span>
-                </div>
-                
-                <div className="info-item">
-                  <span className="info-label">Date of Birth</span>
-                  <span className="info-value">
-                    {userProfile?.date_of_birth ? new Date(userProfile.date_of_birth).toLocaleDateString() : 'Not provided'}
-                  </span>
-                </div>
-                
-                <div className="info-item">
-                  <span className="info-label">Verification</span>
-                  <span className="info-value">{userProfile?.verification_board || 'Not verified'}</span>
-                </div>
-                
-                <div className="info-item">
-                  <span className="info-label">Program Field</span>
-                  <span className="info-value">{userProfile?.program_field || 'Not specified'}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Recent Feed Posts */}
-          {feedPosts.length > 0 && (
-            <div className="info-card">
-              <div className="card-header">
-                <h2 className="card-title">
-                  <span className="card-icon">📝</span>
-                  Your Recent Posts
-                </h2>
-              </div>
-              
-              <div className="card-content">
-                <div className="posts-list">
-                  {feedPosts.map((post) => (
-                    <div key={post.id} className="post-item">
-                      <div className="post-content">
-                        <p className="post-text">{post.content}</p>
-                        <div className="post-meta">
-                          <span className="post-date">{formatDate(post.created_at)}</span>
-                          <span className="post-stats">
-                            {post.likes?.[0]?.count || 0} likes • {post.comments?.[0]?.count || 0} comments
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Right Column */}
-        <div className="dashboard-right">
-          {/* Recent Messages */}
-          <div className="info-card">
-            <div className="card-header">
-              <h2 className="card-title">
-                <span className="card-icon">💬</span>
-                Recent Conversations
-              </h2>
-            </div>
-            
-            <div className="card-content">
-              {recentMessages.length > 0 ? (
-                <div className="conversations-list">
-                  {recentMessages.map((message) => (
-                    <div key={message.id} className={`conversation-item ${message.unread ? 'conversation-unread' : ''}`}>
-                      <div className="conversation-avatar">
-                        {message.sender?.profile_picture_url ? (
-                          <img src={message.sender.profile_picture_url} alt={message.sender.firstname} />
-                        ) : (
-                          <div className="avatar-fallback">
-                            {message.sender?.firstname?.[0]}
-                          </div>
-                        )}
-                      </div>
-                      <div className="conversation-content">
-                        <div className="conversation-header">
-                          <span className="conversation-name">
-                            {message.sender?.firstname} {message.sender?.surname}
-                          </span>
-                          <span className="conversation-time">
-                            {formatDate(message.created_at)}
-                          </span>
-                        </div>
-                        <p className="conversation-preview">{message.content}</p>
-                      </div>
-                      {message.unread && <div className="unread-dot"></div>}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="empty-state">
-                  <span className="empty-icon">💬</span>
-                  <p className="empty-text">No conversations yet</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Upcoming Events */}
-          <div className="info-card">
-            <div className="card-header">
-              <h2 className="card-title">
-                <span className="card-icon">📅</span>
-                Upcoming Events
-              </h2>
-            </div>
-            
-            <div className="card-content">
-              {upcomingEvents.length > 0 ? (
-                <div className="events-list">
-                  {upcomingEvents.map((event) => (
-                    <div key={event.id} className="event-item">
-                      <div className="event-date">
-                        <div className="event-day">
-                          {new Date(event.event_date).getDate()}
-                        </div>
-                        <div className="event-month">
-                          {new Date(event.event_date).toLocaleString('default', { month: 'short' })}
-                        </div>
-                      </div>
-                      <div className="event-details">
-                        <h4 className="event-title">{event.title}</h4>
-                        <p className="event-location">{event.location}</p>
-                        <p className="event-organizer">
-                          By {event.organizer?.firstname} {event.organizer?.surname}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="empty-state">
-                  <span className="empty-icon">📅</span>
-                  <p className="empty-text">No upcoming events</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Saved Listings */}
-          {savedListings.length > 0 && (
-            <div className="info-card">
-              <div className="card-header">
-                <h2 className="card-title">
-                  <span className="card-icon">⭐</span>
-                  Saved Items
-                </h2>
-              </div>
-              
-              <div className="card-content">
-                <div className="saved-items-list">
-                  {savedListings.map((item) => (
-                    <div key={item.id} className="saved-item">
-                      <div className="saved-item-info">
-                        <h4 className="saved-item-title">{item.listing?.title}</h4>
-                        <p className="saved-item-category">{item.listing?.category?.name}</p>
-                        <div className="saved-item-meta">
-                          <span className="saved-item-price">
-                            {formatCurrency(item.listing?.price || 0)}
-                          </span>
-                          <span className="saved-item-date">
-                            Saved {formatDate(item.created_at)}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Quick Actions */}
-      <div className="quick-actions">
-        <h3 className="actions-title">Quick Actions</h3>
-        <div className="actions-grid">
-          <button className="action-btn">
-            <span className="action-icon">➕</span>
-            <span className="action-text">New Listing</span>
-          </button>
-          <button className="action-btn">
-            <span className="action-icon">✏️</span>
-            <span className="action-text">Create Post</span>
-          </button>
-          <button className="action-btn">
-            <span className="action-icon">📅</span>
-            <span className="action-text">Create Event</span>
-          </button>
-          <button className="action-btn">
-            <span className="action-icon">🔍</span>
-            <span className="action-text">Find Friends</span>
-          </button>
-          <button className="action-btn">
-            <span className="action-icon">💼</span>
-            <span className="action-text">Marketplace</span>
-          </button>
-          <button className="action-btn">
-            <span className="action-icon">✈️</span>
-            <span className="action-text">Travel Deals</span>
-          </button>
         </div>
       </div>
     </div>
