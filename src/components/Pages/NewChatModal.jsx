@@ -1,286 +1,248 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { messagingAPI } from '../../lib/messaging';
 import './NewChatModal.css';
 
 const NewChatModal = ({ user, onClose, onConversationCreated }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedUsers, setSelectedUsers] = useState([]);
-  const [groupName, setGroupName] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [selectedUser, setSelectedUser] = useState(null);
   const [creating, setCreating] = useState(false);
-  const [tab, setTab] = useState('users'); // 'users' or 'group'
+  const [error, setError] = useState('');
 
-  // Load users when search changes
-  useEffect(() => {
-    const loadUsers = async () => {
-      if (!user?.id) return;
-      
-      setLoading(true);
-      try {
-        const data = await messagingAPI.findUsersToChat(user.id, searchQuery, 20);
-        setUsers(data);
-      } catch (error) {
-        console.error('Error loading users:', error);
-        setUsers([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    const timeoutId = setTimeout(loadUsers, 300);
-    return () => clearTimeout(timeoutId);
+  // Search users with debounce
+  const searchUsers = useCallback(async () => {
+    if (!user?.id || searchQuery.length < 2) {
+      setUsers([]);
+      return;
+    }
+    
+    setLoading(true);
+    setError('');
+    
+    try {
+      const data = await messagingAPI.searchUsersToMessage(user.id, searchQuery);
+      setUsers(data);
+    } catch (error) {
+      console.error('Error searching users:', error);
+      setError('Failed to search users. Please try again.');
+      setUsers([]);
+    } finally {
+      setLoading(false);
+    }
   }, [user?.id, searchQuery]);
 
+  // Debounced search
+  useEffect(() => {
+    const timeoutId = setTimeout(searchUsers, 300);
+    return () => clearTimeout(timeoutId);
+  }, [searchUsers]);
+
   // Handle user selection
-  const toggleUserSelection = (user) => {
-    if (selectedUsers.some(u => u.id === user.id)) {
-      setSelectedUsers(selectedUsers.filter(u => u.id !== user.id));
-    } else {
-      setSelectedUsers([...selectedUsers, user]);
-    }
+  const handleUserSelect = (user) => {
+    setSelectedUser(user);
   };
 
-  // Start 1-on-1 chat
-  const startOneOnOneChat = async (otherUser) => {
-    if (creating || !user?.id) return;
+  // Start new conversation
+  const handleStartConversation = async () => {
+    if (!selectedUser || !user?.id || creating) return;
     
     setCreating(true);
+    setError('');
+    
     try {
+      // First check if conversation already exists
+      const existingConv = await messagingAPI.checkExistingConversation(user.id, selectedUser.id);
+      
+      if (existingConv) {
+        // Conversation already exists - just use it
+        onConversationCreated(existingConv);
+        onClose();
+        return;
+      }
+      
+      // Create new conversation
       const conversationId = await messagingAPI.getOrCreateConversation(
         user.id,
-        otherUser.id
+        selectedUser.id
+      );
+      
+      // Add welcome message
+      await messagingAPI.sendMessage(
+        conversationId,
+        user.id,
+        `Hi ${selectedUser.firstname}! 👋`
       );
       
       onConversationCreated(conversationId);
       onClose();
+      
     } catch (error) {
-      console.error('Error starting chat:', error);
-      alert('Failed to start chat. Please try again.');
+      console.error('Error starting conversation:', error);
+      setError('Failed to start conversation. Please try again.');
     } finally {
       setCreating(false);
     }
   };
 
-  // Create group chat
-  const createGroupChat = async () => {
-    if (creating || !user?.id || selectedUsers.length < 2) return;
-    
-    setCreating(true);
-    try {
-      const conversationId = await messagingAPI.createGroupChat(
-        user.id,
-        selectedUsers.map(u => u.id),
-        groupName || undefined
-      );
-      
-      onConversationCreated(conversationId);
-      onClose();
-    } catch (error) {
-      console.error('Error creating group chat:', error);
-      alert('Failed to create group chat. Please try again.');
-    } finally {
-      setCreating(false);
-    }
+  // Clear search
+  const handleClearSearch = () => {
+    setSearchQuery('');
+    setUsers([]);
+    setSelectedUser(null);
+    setError('');
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>New Chat</h2>
-          <button className="close-btn" onClick={onClose}>×</button>
+    <div className="new-chat-modal-overlay" onClick={onClose}>
+      <div className="new-chat-modal-content" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="new-chat-modal-header">
+          <h2>New Message</h2>
+          <button className="new-chat-close-btn" onClick={onClose}>×</button>
         </div>
-
-        {/* Tabs */}
-        <div className="modal-tabs">
-          <button 
-            className={`tab-btn ${tab === 'users' ? 'active' : ''}`}
-            onClick={() => setTab('users')}
-          >
-            👤 Direct Message
-          </button>
-          <button 
-            className={`tab-btn ${tab === 'group' ? 'active' : ''}`}
-            onClick={() => setTab('group')}
-          >
-            👥 Group Chat
-          </button>
-        </div>
-
+        
         {/* Search */}
-        <div className="search-section">
-          <input
-            type="text"
-            className="search-input"
-            placeholder="Search by name, email, or university..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
-
-        {tab === 'users' ? (
-          /* 1-on-1 Chat Tab */
-          <div className="users-list">
-            {loading ? (
-              <div className="loading-state">
-                <div className="loading-spinner"></div>
-                <p>Loading users...</p>
-              </div>
-            ) : users.length === 0 ? (
-              <div className="empty-state">
-                <p>No users found</p>
-              </div>
-            ) : (
-              users.map(userItem => (
-                <div 
-                  key={userItem.id}
-                  className={`user-item ${userItem.is_already_in_conversation ? 'has-conversation' : ''}`}
-                  onClick={() => startOneOnOneChat(userItem)}
-                >
-                  <div className="user-avatar">
-                    {userItem.profile_picture_url ? (
-                      <img src={userItem.profile_picture_url} alt={userItem.firstname} />
-                    ) : (
-                      <div className="avatar-fallback">
-                        {`${userItem.firstname?.[0] || ''}${userItem.surname?.[0] || ''}`.toUpperCase()}
-                      </div>
-                    )}
-                  </div>
-                  <div className="user-info">
-                    <h4>{userItem.firstname} {userItem.surname}</h4>
-                    <p>{userItem.email}</p>
-                    {userItem.university && (
-                      <small className="university">{userItem.university}</small>
-                    )}
-                  </div>
-                  {userItem.is_already_in_conversation && (
-                    <span className="existing-badge">Existing Chat</span>
-                  )}
-                  <button 
-                    className="message-btn"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      startOneOnOneChat(userItem);
-                    }}
-                    disabled={creating}
-                  >
-                    Message
-                  </button>
-                </div>
-              ))
+        <div className="new-chat-search">
+          <div className="search-input-wrapper">
+            <input
+              type="text"
+              className="new-chat-search-input"
+              placeholder="Search by name, email, or university..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              autoFocus
+            />
+            {searchQuery && (
+              <button 
+                className="clear-search-btn"
+                onClick={handleClearSearch}
+                title="Clear search"
+              >
+                ×
+              </button>
             )}
           </div>
-        ) : (
-          /* Group Chat Tab */
-          <div className="group-chat-section">
-            {/* Selected Users */}
-            {selectedUsers.length > 0 && (
-              <div className="selected-users">
-                <h4>Selected ({selectedUsers.length})</h4>
-                <div className="selected-list">
-                  {selectedUsers.map(userItem => (
-                    <div key={userItem.id} className="selected-user">
-                      <span>
-                        {userItem.firstname} {userItem.surname}
-                      </span>
-                      <button 
-                        className="remove-btn"
-                        onClick={() => toggleUserSelection(userItem)}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
+          {searchQuery.length > 0 && searchQuery.length < 2 && (
+            <div className="search-hint">
+              Type at least 2 characters to search
+            </div>
+          )}
+        </div>
+        
+        {/* Error Message */}
+        {error && (
+          <div className="new-chat-error">
+            {error}
+          </div>
+        )}
+        
+        {/* Loading State */}
+        {loading && (
+          <div className="new-chat-loading">
+            <div className="loading-spinner"></div>
+            <p>Searching users...</p>
+          </div>
+        )}
+        
+        {/* User List */}
+        <div className="new-chat-users-list">
+          {!loading && searchQuery.length >= 2 && users.length === 0 ? (
+            <div className="no-users-found">
+              <p>No users found for "{searchQuery}"</p>
+            </div>
+          ) : (
+            users.map((userItem) => (
+              <div
+                key={userItem.id}
+                className={`new-chat-user-item ${selectedUser?.id === userItem.id ? 'selected' : ''}`}
+                onClick={() => handleUserSelect(userItem)}
+              >
+                <div className="new-chat-user-avatar">
+                  {userItem.profile_picture_url ? (
+                    <img 
+                      src={userItem.profile_picture_url} 
+                      alt={userItem.firstname}
+                      onError={(e) => {
+                        e.target.onerror = null;
+                        e.target.style.display = 'none';
+                        e.target.parentElement.querySelector('.avatar-fallback').style.display = 'flex';
+                      }}
+                    />
+                  ) : null}
+                  <div className="avatar-fallback">
+                    {`${userItem.firstname?.[0] || ''}${userItem.surname?.[0] || ''}`.toUpperCase() || '👤'}
+                  </div>
                 </div>
                 
-                {/* Group Name Input */}
-                {selectedUsers.length >= 2 && (
-                  <div className="group-name-input">
-                    <label>Group Name (Optional)</label>
-                    <input
-                      type="text"
-                      placeholder="e.g., Study Group, Project Team"
-                      value={groupName}
-                      onChange={(e) => setGroupName(e.target.value)}
-                    />
-                  </div>
-                )}
+                <div className="new-chat-user-info">
+                  <h4 className="new-chat-user-name">
+                    {userItem.firstname} {userItem.surname}
+                  </h4>
+                  <p className="new-chat-user-email">{userItem.email}</p>
+                  {userItem.university && (
+                    <span className="new-chat-user-university">
+                      {userItem.university}
+                    </span>
+                  )}
+                </div>
+                
+                <button 
+                  className={`new-chat-select-btn ${selectedUser?.id === userItem.id ? 'selected' : ''}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleUserSelect(userItem);
+                  }}
+                >
+                  {selectedUser?.id === userItem.id ? '✓ Selected' : 'Select'}
+                </button>
               </div>
-            )}
-
-            {/* Available Users */}
-            <div className="available-users">
-              <h4>Select Participants (min 2)</h4>
-              {loading ? (
-                <div className="loading-state">
-                  <div className="loading-spinner"></div>
-                  <p>Loading users...</p>
-                </div>
-              ) : users.length === 0 ? (
-                <div className="empty-state">
-                  <p>No users found</p>
-                </div>
-              ) : (
-                <div className="selectable-users">
-                  {users.map(userItem => (
-                    <div 
-                      key={userItem.id}
-                      className={`selectable-user ${selectedUsers.some(u => u.id === userItem.id) ? 'selected' : ''}`}
-                      onClick={() => toggleUserSelection(userItem)}
-                    >
-                      <div className="user-avatar small">
-                        {userItem.profile_picture_url ? (
-                          <img src={userItem.profile_picture_url} alt={userItem.firstname} />
-                        ) : (
-                          <div className="avatar-fallback">
-                            {`${userItem.firstname?.[0] || ''}${userItem.surname?.[0] || ''}`.toUpperCase()}
-                          </div>
-                        )}
-                      </div>
-                      <div className="user-info">
-                        <span className="user-name">
-                          {userItem.firstname} {userItem.surname}
-                        </span>
-                        <small className="user-email">{userItem.email}</small>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={selectedUsers.some(u => u.id === userItem.id)}
-                        onChange={() => toggleUserSelection(userItem)}
-                      />
-                    </div>
-                  ))}
-                </div>
-              )}
+            ))
+          )}
+        </div>
+        
+        {/* Selected User Preview */}
+        {selectedUser && (
+          <div className="selected-user-preview">
+            <div className="preview-header">
+              <h4>Start conversation with:</h4>
             </div>
-
-            {/* Create Button */}
-            <div className="modal-actions">
-              <button 
-                className="btn-cancel"
-                onClick={onClose}
-                disabled={creating}
-              >
-                Cancel
-              </button>
-              <button 
-                className="btn-create"
-                onClick={createGroupChat}
-                disabled={creating || selectedUsers.length < 2}
-              >
-                {creating ? (
-                  <>
-                    <div className="sending-spinner"></div>
-                    Creating...
-                  </>
-                ) : (
-                  `Create Group (${selectedUsers.length})`
-                )}
-              </button>
+            <div className="preview-user">
+              <div className="preview-avatar">
+                {`${selectedUser.firstname?.[0] || ''}${selectedUser.surname?.[0] || ''}`.toUpperCase() || '👤'}
+              </div>
+              <div className="preview-info">
+                <h5>{selectedUser.firstname} {selectedUser.surname}</h5>
+                <p>{selectedUser.email}</p>
+              </div>
             </div>
           </div>
         )}
+        
+        {/* Actions */}
+        <div className="new-chat-actions">
+          <button 
+            className="new-chat-cancel-btn"
+            onClick={onClose}
+            disabled={creating}
+          >
+            Cancel
+          </button>
+          <button 
+            className="new-chat-start-btn"
+            onClick={handleStartConversation}
+            disabled={!selectedUser || creating}
+          >
+            {creating ? (
+              <>
+                <div className="sending-spinner"></div>
+                Starting...
+              </>
+            ) : (
+              'Start Conversation'
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );

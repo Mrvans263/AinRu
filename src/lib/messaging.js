@@ -450,3 +450,43 @@ export const messagingAPI = {
     }));
   }
 };
+// Add to lib/messaging.js in the messagingAPI object:
+
+// Search users to start new chat
+async searchUsersToMessage(userId, searchQuery = '', limit = 20) {
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, email, firstname, surname, university, profile_picture_url')
+      .neq('id', userId)
+      .or(`firstname.ilike.%${searchQuery}%,surname.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%`)
+      .limit(limit);
+    
+    if (error) throw error;
+    return data || [];
+  } catch (error) {
+    console.error('Error searching users:', error);
+    return [];
+  }
+},
+
+// Check if conversation already exists between two users
+async checkExistingConversation(user1Id, user2Id) {
+  try {
+    const { data, error } = await supabase
+      .from('conversations')
+      .select(`
+        id,
+        conversation_participants!inner (user_id)
+      `)
+      .eq('is_group', false)
+      .eq('conversation_participants.user_id', user1Id)
+      .eq('conversation_participants.user_id', user2Id);
+    
+    if (error) throw error;
+    return data?.[0]?.id || null;
+  } catch (error) {
+    console.error('Error checking existing conversation:', error);
+    return null;
+  }
+};

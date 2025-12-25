@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
 import { messagingAPI, messagingRealtime } from '../../lib/messaging';
 import './Messages.css';
+import NewChatModal from './NewChatModal';
 
 const Messages = ({ user }) => {
   // State
@@ -593,27 +594,24 @@ const Messages = ({ user }) => {
 
       {/* New Chat Modal - Simple version for now */}
       {showNewChatModal && (
-        <div className="modal-overlay" onClick={() => setShowNewChatModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>New Chat</h2>
-              <button className="close-btn" onClick={() => setShowNewChatModal(false)}>×</button>
-            </div>
-            <div className="modal-body">
-              <p>New chat feature coming soon!</p>
-              <p>For now, you can only message people you already have conversations with.</p>
-            </div>
-            <div className="modal-actions">
-              <button 
-                className="btn-cancel"
-                onClick={() => setShowNewChatModal(false)}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+  <NewChatModal
+    user={user}
+    onClose={() => setShowNewChatModal(false)}
+    onConversationCreated={async (conversationId) => {
+      // Close modal
+      setShowNewChatModal(false);
+      
+      // Reload conversations
+      await loadConversations();
+      
+      // Find and select the new conversation
+      const newConversation = conversations.find(c => c.id === conversationId);
+      if (newConversation) {
+        await handleSelectConversation(newConversation);
+      }
+    }}
+  />
+)}
     </div>
   );
 };
