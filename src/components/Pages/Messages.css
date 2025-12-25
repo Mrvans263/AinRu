@@ -823,3 +823,154 @@
     min-height: 48px;
   }
 }
+/* Add these to the existing Messages.css file */
+
+/* Missing classes */
+.unread-badge {
+  background: #ff4757;
+  color: white;
+  font-size: 12px;
+  font-weight: bold;
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-left: 8px;
+}
+
+.start-chat-btn.small {
+  background: #3498db;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.start-chat-btn.small:hover {
+  background: #2980b9;
+}
+
+.load-more-indicator {
+  text-align: center;
+  padding: 10px;
+}
+
+.load-more-indicator button {
+  background: #3498db;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.load-more-indicator button:hover {
+  background: #2980b9;
+}
+
+.load-more-indicator .loading-spinner.small {
+  width: 20px;
+  height: 20px;
+  margin: 0 auto;
+}
+
+/* Message bubble improvements */
+.message-content-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+
+.message-sender {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 4px;
+  margin-left: 4px;
+}
+
+.message-avatar .avatar-fallback {
+  width: 32px;
+  height: 32px;
+  font-size: 14px;
+  margin-right: 8px;
+}
+
+/* Typing indicator */
+.typing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: white;
+  border-radius: 18px;
+  margin-bottom: 8px;
+  align-self: flex-start;
+  max-width: 120px;
+  border: 1px solid #e0e0e0;
+}
+
+.typing-dots {
+  display: flex;
+  gap: 3px;
+}
+
+.typing-dots span {
+  width: 6px;
+  height: 6px;
+  background: #666;
+  border-radius: 50%;
+  animation: typing 1.4s infinite ease-in-out both;
+}
+
+.typing-dots span:nth-child(1) { animation-delay: -0.32s; }
+.typing-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes typing {
+  0%, 80%, 100% { transform: scale(0.8); opacity: 0.5; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
+.typing-text {
+  font-size: 12px;
+  color: #666;
+}
+
+/* Input actions */
+.input-actions {
+  display: flex;
+  align-items: center;
+  margin-right: 12px;
+}
+
+.action-btn {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  color: #666;
+  padding: 8px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.action-btn:hover {
+  background: #f0f0f0;
+}
+
+/* Message status */
+.message-status {
+  margin-left: 4px;
+  opacity: 0.8;
+}
+
+.unread-count {
+  font-size: 11px;
+  color: #3498db;
+  font-weight: 600;
+  margin-top: 2px;
+  display: inline-block;
+}

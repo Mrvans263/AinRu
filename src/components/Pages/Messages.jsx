@@ -1,3 +1,4 @@
+// Replace the current Messages.js with this fixed version
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
 import { messagingAPI, messagingRealtime } from '../../lib/messaging';
@@ -33,7 +34,7 @@ const Messages = ({ user }) => {
     const checkMobile = () => {
       const mobile = window.innerWidth <= 768;
       setIsMobile(mobile);
-      if (!mobile) setShowChat(true); // Always show chat on desktop
+      if (!mobile) setShowChat(true);
     };
     
     checkMobile();
@@ -41,7 +42,7 @@ const Messages = ({ user }) => {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Load conversations
+  // Load conversations with proper error handling
   const loadConversations = useCallback(async () => {
     if (!user?.id || isLoadingRef.current) return;
     
@@ -50,12 +51,14 @@ const Messages = ({ user }) => {
     
     try {
       const data = await messagingAPI.getUserConversations(user.id);
-      setConversations(data);
+      setConversations(data || []);
       
-      const totalUnread = data.reduce((sum, conv) => sum + (conv.unread_count || 0), 0);
+      // Calculate total unread
+      const totalUnread = (data || []).reduce((sum, conv) => sum + (conv.unread_count || 0), 0);
       setUnreadCount(totalUnread);
     } catch (error) {
       console.error('Error loading conversations:', error);
+      setConversations([]);
     } finally {
       setLoadingConversations(false);
       isLoadingRef.current = false;
@@ -64,7 +67,7 @@ const Messages = ({ user }) => {
 
   // Load messages for active conversation
   const loadMessages = useCallback(async (reset = false) => {
-    if (!activeConversation || isLoadingRef.current) return;
+    if (!activeConversation?.id || isLoadingRef.current) return;
     
     isLoadingRef.current = true;
     setLoadingMessages(true);
@@ -79,13 +82,13 @@ const Messages = ({ user }) => {
       );
       
       if (reset) {
-        setMessages(newMessages);
+        setMessages(newMessages || []);
         setPage(0);
         pageRef.current = 0;
-        setHasMoreMessages(newMessages.length === 50);
+        setHasMoreMessages((newMessages || []).length === 50);
       } else {
-        setMessages(prev => [...newMessages, ...prev]);
-        setHasMoreMessages(newMessages.length === 50);
+        setMessages(prev => [...(newMessages || []), ...prev]);
+        setHasMoreMessages((newMessages || []).length === 50);
       }
       
       // Mark as read
@@ -95,66 +98,66 @@ const Messages = ({ user }) => {
       }
     } catch (error) {
       console.error('Error loading messages:', error);
+      setMessages([]);
     } finally {
       setLoadingMessages(false);
       isLoadingRef.current = false;
     }
-  }, [activeConversation, user?.id, loadConversations]);
+  }, [activeConversation?.id, user?.id, loadConversations]);
 
   // Load more messages
   const loadMoreMessages = useCallback(async () => {
-    if (!hasMoreMessages || isLoadingRef.current) return;
+    if (!hasMoreMessages || isLoadingRef.current || !activeConversation) return;
     
     pageRef.current += 1;
     setPage(prev => prev + 1);
     await loadMessages(false);
-  }, [hasMoreMessages, loadMessages]);
+  }, [hasMoreMessages, loadMessages, activeConversation]);
 
-  // Handle scroll for infinite loading
+  // Handle scroll for infinite loading - FIXED
   const handleScroll = useCallback(() => {
-    if (!messagesContainerRef.current || isLoadingRef.current || !hasMoreMessages) return;
+    if (!messagesContainerRef.current || isLoadingRef.current || !hasMoreMessages || loadingMessages) return;
     
     const container = messagesContainerRef.current;
-    const scrollTop = container.scrollTop;
-    const scrollHeight = container.scrollHeight;
-    const clientHeight = container.clientHeight;
+    if (!container) return;
     
-    // Load more when scrolled near top
-    if (scrollTop < 100 && hasMoreMessages && !loadingMessages) {
+    const scrollTop = container.scrollTop;
+    const clientHeight = container.clientHeight;
+    const scrollHeight = container.scrollHeight;
+    
+    // Check if we're near the top (for loading older messages)
+    if (scrollTop < 100) {
       loadMoreMessages();
     }
   }, [hasMoreMessages, loadingMessages, loadMoreMessages]);
 
-  // Send message function
-  const handleSendMessage = async (content, file = null) => {
-    if (!activeConversation || !user?.id || (!content.trim() && !file)) {
-      console.log('❌ Cannot send: missing required data');
-      return;
+  // Send message function - FIXED
+  const handleSendMessage = async (content) => {
+    if (!activeConversation?.id || !user?.id || !content?.trim()) {
+      console.log('Cannot send: missing required data');
+      return null;
     }
     
-    console.log('📤 Sending message:', { content, conversation: activeConversation.id });
     setSendingMessage(true);
     
     try {
       const sentMessage = await messagingAPI.sendMessage(
         activeConversation.id,
         user.id,
-        content
+        content.trim()
       );
-      
-      console.log('✅ Message sent successfully');
       
       // Clear typing indicator
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
       }
       
-      // Refresh conversations to update last message preview
+      // Refresh conversations
       setTimeout(() => loadConversations(), 500);
       
       return sentMessage;
     } catch (error) {
-      console.error('❌ Error sending message:', error);
+      console.error('Error sending message:', error);
       alert(`Failed to send message: ${error.message}`);
       throw error;
     } finally {
@@ -162,17 +165,16 @@ const Messages = ({ user }) => {
     }
   };
 
-  // Handle conversation select
+  // Handle conversation select - FIXED
   const handleSelectConversation = async (conversation) => {
-    console.log('💬 Selecting conversation:', conversation.id);
+    if (!conversation) return;
+    
     setActiveConversation(conversation);
     if (isMobile) {
       setShowChat(true);
     }
     setPage(0);
     pageRef.current = 0;
-    setMessages([]);
-    setHasMoreMessages(true);
     await loadMessages(true);
   };
 
@@ -180,10 +182,11 @@ const Messages = ({ user }) => {
   const handleBackToConversations = () => {
     setShowChat(false);
     setActiveConversation(null);
+    setMessages([]);
   };
 
-  // Handle typing indicator
-  const handleTyping = useCallback(async (isTyping) => {
+  // Handle typing indicator - SIMPLIFIED
+  const handleTyping = useCallback((isTyping) => {
     if (!activeConversation || !user?.id) return;
     
     if (typingTimeoutRef.current) {
@@ -192,22 +195,21 @@ const Messages = ({ user }) => {
     
     if (isTyping) {
       typingTimeoutRef.current = setTimeout(() => {
-        // Auto-clear typing after 3 seconds
+        setTypingUsers([]);
       }, 3000);
     }
   }, [activeConversation?.id, user?.id]);
 
-  // Subscribe to real-time updates
+  // Subscribe to real-time updates - FIXED
   useEffect(() => {
     if (!activeConversation?.id || !user?.id) return;
     
-    console.log('🔔 Subscribing to conversation:', activeConversation.id);
+    console.log('Subscribing to conversation:', activeConversation.id);
     
     const subscription = messagingRealtime.subscribeToConversation(
       activeConversation.id,
       async (event, data) => {
         if (event === 'message') {
-          console.log('📨 New real-time message:', data);
           setMessages(prev => [...prev, data]);
           
           if (data.sender_id !== user.id) {
@@ -220,121 +222,113 @@ const Messages = ({ user }) => {
     );
     
     return () => {
-      console.log('🔕 Unsubscribing from conversation:', activeConversation.id);
-      messagingRealtime.unsubscribeFromConversation(activeConversation.id);
+      if (subscription) {
+        messagingRealtime.unsubscribeFromConversation(activeConversation.id);
+      }
     };
   }, [activeConversation?.id, user?.id, loadConversations]);
 
-  // Load initial data
+  // Load initial data - FIXED
   useEffect(() => {
-    if (!user?.id) {
-      console.log('👤 No user, skipping load');
-      return;
-    }
+    if (!user?.id) return;
     
-    console.log('🚀 Initializing messages for user:', user.id);
     loadConversations();
     
-    // Subscribe to user's conversations updates
-    const subscription = supabase
-      .channel(`user-${user.id}-conversations`)
+    // Subscribe to new messages
+    const channel = supabase
+      .channel(`user-${user.id}-messages`)
       .on(
         'postgres_changes',
         {
           event: 'INSERT',
           schema: 'public',
           table: 'messages',
+          filter: `conversation_id=in.(${conversations.map(c => c.id).join(',')})`
         },
-        async (payload) => {
-          // Check if this message is for a conversation we're in
-          const { data: isParticipant } = await supabase
-            .from('conversation_participants')
-            .select('conversation_id')
-            .eq('conversation_id', payload.new.conversation_id)
-            .eq('user_id', user.id)
-            .single();
-          
-          if (isParticipant) {
-            setTimeout(() => loadConversations(), 500);
-          }
+        () => {
+          loadConversations();
         }
       )
       .subscribe();
     
     return () => {
-      subscription?.unsubscribe();
+      supabase.removeChannel(channel);
     };
-  }, [user?.id, loadConversations]);
+  }, [user?.id, loadConversations, conversations]);
 
   // Add scroll listener for infinite loading
   useEffect(() => {
     const container = messagesContainerRef.current;
-    if (container) {
-      container.addEventListener('scroll', handleScroll);
-      return () => container.removeEventListener('scroll', handleScroll);
-    }
+    if (!container) return;
+    
+    container.addEventListener('scroll', handleScroll);
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+    };
   }, [handleScroll]);
 
   // Scroll to bottom when new messages arrive
   useEffect(() => {
     if (messagesEndRef.current && messages.length > 0) {
-      const container = messagesContainerRef.current;
-      if (container) {
-        const isNearBottom = 
-          container.scrollHeight - container.scrollTop - container.clientHeight < 100;
-        
-        if (isNearBottom) {
-          setTimeout(() => {
-            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-          }, 100);
-        }
-      }
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
     }
   }, [messages]);
 
-  // Helper functions
+  // Helper functions - FIXED
   const formatTime = (dateString) => {
     if (!dateString) return '';
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now - date;
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    
-    if (diffDays === 0) {
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    } else if (diffDays === 1) {
-      return 'Yesterday';
-    } else if (diffDays < 7) {
-      return `${diffDays}d`;
-    } else {
-      return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    try {
+      const date = new Date(dateString);
+      const now = new Date();
+      const diffMs = now - date;
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      
+      if (isNaN(date.getTime())) return '';
+      
+      if (diffDays === 0) {
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      } else if (diffDays === 1) {
+        return 'Yesterday';
+      } else if (diffDays < 7) {
+        return `${diffDays}d`;
+      } else {
+        return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+      }
+    } catch (error) {
+      return '';
     }
   };
 
   const getConversationName = (conversation) => {
+    if (!conversation) return 'Chat';
+    
     if (conversation.is_group) {
       return conversation.group_name || 'Group Chat';
     } else {
-      // Try to get other participant's name
-      if (conversation.participants && conversation.participants.length > 0) {
+      // Find other participant
+      if (conversation.participants && Array.isArray(conversation.participants)) {
         const otherParticipant = conversation.participants.find(p => 
-          p.id !== user?.id && !p.isCurrentUser
+          p.id !== user?.id
         );
         if (otherParticipant) {
           return `${otherParticipant.firstname || ''} ${otherParticipant.surname || ''}`.trim() || 'User';
         }
       }
-      return 'Chat';
+      return 'User';
     }
   };
 
   const getAvatar = (conversation) => {
+    if (!conversation) return null;
+    
     if (conversation.is_group) {
       return conversation.group_photo_url || null;
     } else {
-      if (conversation.participants && conversation.participants.length > 0) {
+      if (conversation.participants && Array.isArray(conversation.participants)) {
         const otherParticipant = conversation.participants.find(p => 
-          p.id !== user?.id && !p.isCurrentUser
+          p.id !== user?.id
         );
         return otherParticipant?.profile_picture_url || null;
       }
@@ -343,16 +337,19 @@ const Messages = ({ user }) => {
   };
 
   const getAvatarFallback = (conversation) => {
+    if (!conversation) return '👤';
+    
     if (conversation.is_group) {
       return '👥';
     } else {
-      if (conversation.participants && conversation.participants.length > 0) {
+      if (conversation.participants && Array.isArray(conversation.participants)) {
         const otherParticipant = conversation.participants.find(p => 
-          p.id !== user?.id && !p.isCurrentUser
+          p.id !== user?.id
         );
         if (otherParticipant) {
-          const initials = `${otherParticipant.firstname?.[0] || ''}${otherParticipant.surname?.[0] || ''}`.toUpperCase();
-          return initials || '👤';
+          const first = otherParticipant.firstname?.[0] || '';
+          const last = otherParticipant.surname?.[0] || '';
+          return `${first}${last}`.toUpperCase() || '👤';
         }
       }
       return '👤';
@@ -369,7 +366,7 @@ const Messages = ({ user }) => {
   const getTypingNames = () => {
     if (typingUsers.length === 0) return '';
     if (!activeConversation) return '';
-    return 'Someone is typing...';
+    return 'Typing...';
   };
 
   // Loading state
@@ -379,7 +376,6 @@ const Messages = ({ user }) => {
         <div className="loading-state">
           <div className="loading-spinner"></div>
           <p>Loading messages...</p>
-          <small>You have {unreadCount} unread conversations</small>
         </div>
       </div>
     );
@@ -387,7 +383,7 @@ const Messages = ({ user }) => {
 
   return (
     <div className="messages-container">
-      {/* Left sidebar - Hidden on mobile when chat is open */}
+      {/* Left sidebar */}
       <div className={`conversations-sidebar ${isMobile && showChat ? 'mobile-hidden' : ''}`}>
         <div className="sidebar-header">
           <h2>Messages {unreadCount > 0 && <span className="unread-badge">{unreadCount}</span>}</h2>
@@ -434,9 +430,9 @@ const Messages = ({ user }) => {
                       src={getAvatar(conversation)} 
                       alt={getConversationName(conversation)}
                       onError={(e) => {
-                        e.target.onerror = null;
                         e.target.style.display = 'none';
-                        e.target.parentElement.querySelector('.avatar-fallback').style.display = 'flex';
+                        const fallback = e.target.parentElement.querySelector('.avatar-fallback');
+                        if (fallback) fallback.style.display = 'flex';
                       }}
                     />
                   ) : null}
@@ -462,12 +458,6 @@ const Messages = ({ user }) => {
                   <p className="conversation-preview">
                     {conversation.last_message_preview || 'No messages yet'}
                   </p>
-                  
-                  {conversation.unread_count > 0 && (
-                    <span className="unread-count">
-                      {conversation.unread_count} new
-                    </span>
-                  )}
                 </div>
               </div>
             ))
@@ -475,11 +465,11 @@ const Messages = ({ user }) => {
         </div>
       </div>
 
-      {/* Main chat area - Hidden on mobile when no conversation selected */}
+      {/* Main chat area */}
       <div className={`chat-main ${isMobile && !showChat ? 'mobile-hidden' : ''}`}>
         {activeConversation ? (
           <>
-            {/* Chat Header with Back Button on Mobile */}
+            {/* Chat Header */}
             <div className="chat-header">
               {isMobile && (
                 <button 
@@ -491,13 +481,13 @@ const Messages = ({ user }) => {
                 </button>
               )}
               <div className="chat-header-avatar">
-                {activeConversation.is_group ? '👥' : '👤'}
+                {getAvatarFallback(activeConversation)}
               </div>
               <div className="chat-header-info">
                 <h3 className="chat-title">{getConversationName(activeConversation)}</h3>
                 <p className="chat-status">
                   {activeConversation.is_group 
-                    ? `${activeConversation.participants?.length || 0} participants`
+                    ? `${activeConversation.participants?.length || 1} participants`
                     : 'Active recently'
                   }
                 </p>
@@ -535,12 +525,10 @@ const Messages = ({ user }) => {
                         new Date(prevMessage.created_at).toDateString();
                       
                       const showAvatar = !nextMessage || 
-                        nextMessage.sender_id !== message.sender_id ||
-                        new Date(nextMessage.created_at).getTime() - 
-                        new Date(message.created_at).getTime() > 300000; // 5 minutes
+                        nextMessage.sender_id !== message.sender_id;
                         
                       return (
-                        <React.Fragment key={message.id}>
+                        <React.Fragment key={message.id || index}>
                           {showDate && (
                             <div className="message-date-divider">
                               <span>{new Date(message.created_at).toLocaleDateString([], { 
@@ -556,8 +544,7 @@ const Messages = ({ user }) => {
                             message={message}
                             isOwn={message.sender_id === user?.id}
                             showAvatar={showAvatar}
-                            prevSameSender={prevMessage?.sender_id === message.sender_id}
-                            nextSameSender={nextMessage?.sender_id === message.sender_id}
+                            user={user}
                           />
                         </React.Fragment>
                       );
@@ -592,41 +579,51 @@ const Messages = ({ user }) => {
         )}
       </div>
 
-      {/* New Chat Modal - Simple version for now */}
+      {/* New Chat Modal */}
       {showNewChatModal && (
-  <NewChatModal
-    user={user}
-    onClose={() => setShowNewChatModal(false)}
-    onConversationCreated={async (conversationId) => {
-      // Close modal
-      setShowNewChatModal(false);
-      
-      // Reload conversations
-      await loadConversations();
-      
-      // Find and select the new conversation
-      const newConversation = conversations.find(c => c.id === conversationId);
-      if (newConversation) {
-        await handleSelectConversation(newConversation);
-      }
-    }}
-  />
-)}
+        <NewChatModal
+          user={user}
+          onClose={() => setShowNewChatModal(false)}
+          onConversationCreated={async (conversationId) => {
+            setShowNewChatModal(false);
+            await loadConversations();
+            
+            // Find and select the new conversation
+            const newConversation = conversations.find(c => c.id === conversationId);
+            if (newConversation) {
+              await handleSelectConversation(newConversation);
+            }
+          }}
+        />
+      )}
     </div>
   );
 };
 
-// Message Bubble Component
-const MessageBubble = ({ message, isOwn, showAvatar, prevSameSender, nextSameSender }) => {
+// Message Bubble Component - FIXED
+const MessageBubble = ({ message, isOwn, showAvatar, user }) => {
   const formatMessageTime = (dateString) => {
-    return new Date(dateString).toLocaleTimeString([], { 
-      hour: '2-digit', 
-      minute: '2-digit' 
-    });
+    if (!dateString) return '';
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return '';
+      return date.toLocaleTimeString([], { 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      });
+    } catch (error) {
+      return '';
+    }
+  };
+
+  // Get sender name
+  const getSenderName = () => {
+    if (!message.users) return 'User';
+    return `${message.users.firstname || ''} ${message.users.surname || ''}`.trim() || 'User';
   };
 
   return (
-    <div className={`message-wrapper ${isOwn ? 'own-message' : 'other-message'} ${prevSameSender ? 'same-sender-prev' : ''} ${nextSameSender ? 'same-sender-next' : ''}`}>
+    <div className={`message-wrapper ${isOwn ? 'own-message' : 'other-message'}`}>
       {!isOwn && showAvatar && (
         <div className="message-avatar">
           <div className="avatar-fallback">
@@ -638,7 +635,7 @@ const MessageBubble = ({ message, isOwn, showAvatar, prevSameSender, nextSameSen
       <div className="message-content-wrapper">
         {!isOwn && showAvatar && (
           <div className="message-sender">
-            {message.users?.firstname || 'User'} {message.users?.surname || ''}
+            {getSenderName()}
           </div>
         )}
         
@@ -658,10 +655,9 @@ const MessageBubble = ({ message, isOwn, showAvatar, prevSameSender, nextSameSen
   );
 };
 
-// Message Input Component
+// Message Input Component - FIXED
 const MessageInput = ({ onSendMessage, sendingMessage, onTyping }) => {
   const [message, setMessage] = useState('');
-  const fileInputRef = useRef(null);
   const typingTimeoutRef = useRef(null);
 
   const handleInputChange = (e) => {
@@ -693,7 +689,7 @@ const MessageInput = ({ onSendMessage, sendingMessage, onTyping }) => {
       }
       onTyping(false);
     } catch (error) {
-      console.error('Error in handleSubmit:', error);
+      console.error('Error sending message:', error);
     }
   };
 
@@ -737,10 +733,8 @@ const MessageInput = ({ onSendMessage, sendingMessage, onTyping }) => {
           >
             {sendingMessage ? (
               <div className="sending-spinner"></div>
-            ) : message.trim() ? (
-              'Send'
             ) : (
-              '→'
+              'Send'
             )}
           </button>
         </div>

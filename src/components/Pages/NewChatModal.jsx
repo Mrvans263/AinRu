@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { messagingAPI } from '../../lib/messaging';
 import './NewChatModal.css';
 
+
+
 const NewChatModal = ({ user, onClose, onConversationCreated }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [users, setUsers] = useState([]);
@@ -175,17 +177,29 @@ const NewChatModal = ({ user, onClose, onConversationCreated }) => {
                   </div>
                 </div>
                 
-                <div className="new-chat-user-info">
-                  <h4 className="new-chat-user-name">
-                    {userItem.firstname} {userItem.surname}
-                  </h4>
-                  <p className="new-chat-user-email">{userItem.email}</p>
-                  {userItem.university && (
-                    <span className="new-chat-user-university">
-                      {userItem.university}
-                    </span>
-                  )}
-                </div>
+               // In NewChatModal.js, fix the user display logic:
+// Replace the user info section in the return statement with:
+
+<div className="new-chat-user-info">
+  <h4 className="new-chat-user-name">
+    {userItem.firstname} {userItem.surname || ''}
+  </h4>
+  <p className="new-chat-user-email">{userItem.email}</p>
+  {(userItem.university || userItem.city) && (
+    <div className="new-chat-user-details">
+      {userItem.university && (
+        <span className="new-chat-user-university">
+          🎓 {userItem.university}
+        </span>
+      )}
+      {userItem.city && (
+        <span className="new-chat-user-city">
+          📍 {userItem.city}
+        </span>
+      )}
+    </div>
+  )}
+</div>
                 
                 <button 
                   className={`new-chat-select-btn ${selectedUser?.id === userItem.id ? 'selected' : ''}`}
