@@ -114,30 +114,55 @@ export const messagingRealtime = new MessagingRealtime();
 // Message fetching utilities
 export const messagingAPI = {
   // Get user's conversations
-  async getUserConversations(userId, limit = 50) {
-    // First get participant records
-    const { data: participants, error } = await supabase
+ // In lib/messaging.js, replace the getUserConversations function with this:
+
+async getUserConversations(userId, limit = 50) {
+  console.log('📞 [DEBUG] Calling getUserConversations for user:', userId);
+  
+  try {
+    // FIRST: Get conversation IDs where user is a participant
+    const { data: participantData, error: participantError } = await supabase
       .from('conversation_participants')
-      .select(`
-        conversation_id,
-        unread_count,
-        last_read_at,
-        conversations (*)
-      `)
-      .eq('user_id', userId)
-      .order('conversations.updated_at', { ascending: false, foreignTable: 'conversations' })
-      .limit(limit);
-
-    if (error) {
-      console.error('Error getting conversations:', error);
-      throw error;
+      .select('conversation_id, unread_count, last_read_at')
+      .eq('user_id', userId);
+    
+    if (participantError) {
+      console.error('❌ [DEBUG] Error getting participant data:', participantError);
+      throw participantError;
     }
-
-    if (!participants) return [];
-
-    // Get participants for each conversation
+    
+    if (!participantData || participantData.length === 0) {
+      console.log('📞 [DEBUG] No conversations found for user');
+      return [];
+    }
+    
+    console.log('📞 [DEBUG] Participant data:', participantData);
+    
+    // Get conversation IDs
+    const conversationIds = participantData.map(p => p.conversation_id);
+    
+    // SECOND: Get the actual conversations
+    const { data: conversationsData, error: conversationsError } = await supabase
+      .from('conversations')
+      .select('*')
+      .in('id', conversationIds)
+      .order('updated_at', { ascending: false })
+      .limit(limit);
+    
+    if (conversationsError) {
+      console.error('❌ [DEBUG] Error getting conversations:', conversationsError);
+      throw conversationsError;
+    }
+    
+    console.log('📞 [DEBUG] Conversations data:', conversationsData);
+    
+    // THIRD: Combine data and get participants for each conversation
     const conversationsWithDetails = await Promise.all(
-      participants.map(async (participant) => {
+      conversationsData.map(async (conversation) => {
+        // Find participant data for this conversation
+        const participantInfo = participantData.find(p => p.conversation_id === conversation.id);
+        
+        // Get other participants
         const { data: otherParticipants } = await supabase
           .from('conversation_participants')
           .select(`
@@ -149,16 +174,26 @@ export const messagingAPI = {
               university
             )
           `)
-          .eq('conversation_id', participant.conversation_id)
+          .eq('conversation_id', conversation.id)
           .neq('user_id', userId);
-
+        
+        // Get current user info
+        const { data: currentUserData } = await supabase
+          .from('users')
+          .select('id, firstname, surname, profile_picture_url, university')
+          .eq('id', userId)
+          .single();
+        
         return {
-          ...participant.conversations,
-          unread_count: participant.unread_count || 0,
-          last_read_at: participant.last_read_at,
+          ...conversation,
+          unread_count: participantInfo?.unread_count || 0,
+          last_read_at: participantInfo?.last_read_at,
           participants: [
             // Include current user
-            { id: userId, isCurrentUser: true },
+            { 
+              ...currentUserData, 
+              isCurrentUser: true 
+            },
             // Include other participants
             ...(otherParticipants?.map(p => ({
               ...p.users,
@@ -168,10 +203,15 @@ export const messagingAPI = {
         };
       })
     );
-
+    
+    console.log('✅ [DEBUG] Final conversationsWithDetails:', conversationsWithDetails);
     return conversationsWithDetails;
-  },
-
+    
+  } catch (error) {
+    console.error('❌ [DEBUG] getUserConversations failed:', error);
+    throw error;
+  }
+},
   // Get conversation messages with pagination
   async getConversationMessages(conversationId, page = 0, pageSize = 50) {
     const from = page * pageSize;
