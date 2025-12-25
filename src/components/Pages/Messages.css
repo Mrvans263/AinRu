@@ -848,3 +848,15 @@
     color: #aaa;
   }
 }
+
+/* Add to Messages.css */
+.loading-spinner.small {
+  width: 20px;
+  height: 20px;
+  border-width: 2px;
+  margin: 0 auto;
+}
+
+.load-more-indicator .loading-spinner.small {
+  margin: 10px auto;
+}

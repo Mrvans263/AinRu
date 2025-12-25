@@ -20,6 +20,26 @@ const Messages = ({ user }) => {
   const typingTimeoutRef = useRef(null);
   const isLoadingRef = useRef(false);
   const pageRef = useRef(0);
+  // Temporary debug - add this at the top of your Messages component
+useEffect(() => {
+  console.log('=== MESSAGES DEBUG ===');
+  console.log('User ID:', user?.id);
+  console.log('User Email:', user?.email);
+  
+  // Test the API directly
+  if (user?.id) {
+    console.log('Testing messagingAPI.getUserConversations...');
+    messagingAPI.getUserConversations(user.id)
+      .then(data => {
+        console.log('✅ Conversations loaded:', data);
+        console.log('First conversation:', data[0]);
+        console.log('All conversations:', data);
+      })
+      .catch(error => {
+        console.error('❌ Error loading conversations:', error);
+      });
+  }
+}, [user]);
 
   // Load user's conversations (only once on mount or user change)
   const loadConversations = useCallback(async () => {
