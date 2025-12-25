@@ -1,4 +1,3 @@
-// lib/messaging.js - Fixed version
 import { supabase } from './supabase';
 
 // Realtime subscription manager
@@ -114,104 +113,95 @@ export const messagingRealtime = new MessagingRealtime();
 // Message fetching utilities
 export const messagingAPI = {
   // Get user's conversations
- // In lib/messaging.js, replace the getUserConversations function with this:
-
-async getUserConversations(userId, limit = 50) {
-  console.log('📞 [DEBUG] Calling getUserConversations for user:', userId);
-  
-  try {
-    // FIRST: Get conversation IDs where user is a participant
-    const { data: participantData, error: participantError } = await supabase
-      .from('conversation_participants')
-      .select('conversation_id, unread_count, last_read_at')
-      .eq('user_id', userId);
-    
-    if (participantError) {
-      console.error('❌ [DEBUG] Error getting participant data:', participantError);
-      throw participantError;
-    }
-    
-    if (!participantData || participantData.length === 0) {
-      console.log('📞 [DEBUG] No conversations found for user');
+  async getUserConversations(userId, limit = 50) {
+    try {
+      // Get participant records
+      const { data: participants, error } = await supabase
+        .from('conversation_participants')
+        .select('conversation_id, unread_count, last_read_at')
+        .eq('user_id', userId);
+      
+      if (error) {
+        console.error('Error getting participant data:', error);
+        return [];
+      }
+      
+      if (!participants || participants.length === 0) {
+        console.log('No conversations found for user');
+        return [];
+      }
+      
+      // Get conversation IDs
+      const conversationIds = participants.map(p => p.conversation_id);
+      
+      // Get the actual conversations
+      const { data: conversations, error: convError } = await supabase
+        .from('conversations')
+        .select('*')
+        .in('id', conversationIds)
+        .order('updated_at', { ascending: false })
+        .limit(limit);
+      
+      if (convError) {
+        console.error('Error getting conversations:', convError);
+        return [];
+      }
+      
+      // Get participants for each conversation
+      const conversationsWithDetails = await Promise.all(
+        conversations.map(async (conversation) => {
+          const participantInfo = participants.find(p => p.conversation_id === conversation.id);
+          
+          // Get other participants
+          const { data: otherParticipants } = await supabase
+            .from('conversation_participants')
+            .select(`
+              users (
+                id,
+                firstname,
+                surname,
+                profile_picture_url,
+                university
+              )
+            `)
+            .eq('conversation_id', conversation.id)
+            .neq('user_id', userId);
+          
+          // Get current user info
+          const { data: currentUserData } = await supabase
+            .from('users')
+            .select('id, firstname, surname, profile_picture_url, university')
+            .eq('id', userId)
+            .single();
+          
+          return {
+            ...conversation,
+            unread_count: participantInfo?.unread_count || 0,
+            last_read_at: participantInfo?.last_read_at,
+            participants: [
+              // Include current user
+              { 
+                ...currentUserData, 
+                isCurrentUser: true 
+              },
+              // Include other participants
+              ...(otherParticipants?.map(p => ({
+                ...p.users,
+                isCurrentUser: false
+              })) || [])
+            ]
+          };
+        })
+      );
+      
+      return conversationsWithDetails;
+      
+    } catch (error) {
+      console.error('Error in getUserConversations:', error);
       return [];
     }
-    
-    console.log('📞 [DEBUG] Participant data:', participantData);
-    
-    // Get conversation IDs
-    const conversationIds = participantData.map(p => p.conversation_id);
-    
-    // SECOND: Get the actual conversations
-    const { data: conversationsData, error: conversationsError } = await supabase
-      .from('conversations')
-      .select('*')
-      .in('id', conversationIds)
-      .order('updated_at', { ascending: false })
-      .limit(limit);
-    
-    if (conversationsError) {
-      console.error('❌ [DEBUG] Error getting conversations:', conversationsError);
-      throw conversationsError;
-    }
-    
-    console.log('📞 [DEBUG] Conversations data:', conversationsData);
-    
-    // THIRD: Combine data and get participants for each conversation
-    const conversationsWithDetails = await Promise.all(
-      conversationsData.map(async (conversation) => {
-        // Find participant data for this conversation
-        const participantInfo = participantData.find(p => p.conversation_id === conversation.id);
-        
-        // Get other participants
-        const { data: otherParticipants } = await supabase
-          .from('conversation_participants')
-          .select(`
-            users (
-              id,
-              firstname,
-              surname,
-              profile_picture_url,
-              university
-            )
-          `)
-          .eq('conversation_id', conversation.id)
-          .neq('user_id', userId);
-        
-        // Get current user info
-        const { data: currentUserData } = await supabase
-          .from('users')
-          .select('id, firstname, surname, profile_picture_url, university')
-          .eq('id', userId)
-          .single();
-        
-        return {
-          ...conversation,
-          unread_count: participantInfo?.unread_count || 0,
-          last_read_at: participantInfo?.last_read_at,
-          participants: [
-            // Include current user
-            { 
-              ...currentUserData, 
-              isCurrentUser: true 
-            },
-            // Include other participants
-            ...(otherParticipants?.map(p => ({
-              ...p.users,
-              isCurrentUser: false
-            })) || [])
-          ]
-        };
-      })
-    );
-    
-    console.log('✅ [DEBUG] Final conversationsWithDetails:', conversationsWithDetails);
-    return conversationsWithDetails;
-    
-  } catch (error) {
-    console.error('❌ [DEBUG] getUserConversations failed:', error);
-    throw error;
-  }
-},
+  },
+
   // Get conversation messages with pagination
   async getConversationMessages(conversationId, page = 0, pageSize = 50) {
     const from = page * pageSize;
@@ -328,33 +318,80 @@ async getUserConversations(userId, limit = 50) {
     }
   },
 
-  // Get conversation participants
-  async getConversationParticipants(conversationId) {
-    const { data, error } = await supabase
-      .from('conversation_participants')
-      .select(`
-        users (
-          id,
-          firstname,
-          surname,
-          profile_picture_url,
-          university
-        ),
-        last_read_at,
-        joined_at
-      `)
-      .eq('conversation_id', conversationId);
+  // Find users to chat with
+  async findUsersToChat(currentUserId, searchQuery = '', limit = 20) {
+    try {
+      const { data, error } = await supabase.rpc('find_users_to_chat', {
+        current_user_id: currentUserId,
+        search_query: searchQuery,
+        limit_count: limit
+      });
+      
+      if (error) {
+        console.error('Error finding users:', error);
+        // Fallback: simple query
+        const { data: fallbackData } = await supabase
+          .from('users')
+          .select('id, email, firstname, surname, university, profile_picture_url')
+          .neq('id', currentUserId)
+          .or(`firstname.ilike.%${searchQuery}%,surname.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%`)
+          .limit(limit);
+        
+        return fallbackData?.map(user => ({
+          ...user,
+          is_already_in_conversation: false
+        })) || [];
+      }
+      
+      return data || [];
+    } catch (error) {
+      console.error('Error in findUsersToChat:', error);
+      return [];
+    }
+  },
 
-    if (error) {
-      console.error('Error getting participants:', error);
+  // Create group chat
+  async createGroupChat(userId, participantIds, groupName) {
+    try {
+      // Create group conversation
+      const { data: conversation, error: convError } = await supabase
+        .from('conversations')
+        .insert([{
+          is_group: true,
+          group_name: groupName || `Group Chat`,
+          group_photo_url: null
+        }])
+        .select()
+        .single();
+      
+      if (convError) throw convError;
+      
+      // Prepare participants (include creator)
+      const allParticipantIds = [...new Set([userId, ...participantIds])];
+      const participantRecords = allParticipantIds.map(pid => ({
+        conversation_id: conversation.id,
+        user_id: pid
+      }));
+      
+      // Add all participants
+      const { error: partError } = await supabase
+        .from('conversation_participants')
+        .insert(participantRecords);
+      
+      if (partError) throw partError;
+      
+      // Add welcome message
+      const welcomeMessage = groupName 
+        ? `Created group "${groupName}"`
+        : 'Created group chat';
+      
+      await this.sendMessage(conversation.id, userId, welcomeMessage, 'system');
+      
+      return conversation.id;
+    } catch (error) {
+      console.error('Error creating group chat:', error);
       throw error;
     }
-
-    return data.map(item => ({
-      ...item.users,
-      last_read_at: item.last_read_at,
-      joined_at: item.joined_at
-    }));
   },
 
   // Upload file
@@ -382,5 +419,34 @@ async getUserConversations(userId, limit = 50) {
       size: file.size,
       type: file.type
     };
+  },
+
+  // Get conversation participants
+  async getConversationParticipants(conversationId) {
+    const { data, error } = await supabase
+      .from('conversation_participants')
+      .select(`
+        users (
+          id,
+          firstname,
+          surname,
+          profile_picture_url,
+          university
+        ),
+        last_read_at,
+        joined_at
+      `)
+      .eq('conversation_id', conversationId);
+
+    if (error) {
+      console.error('Error getting participants:', error);
+      throw error;
+    }
+
+    return data.map(item => ({
+      ...item.users,
+      last_read_at: item.last_read_at,
+      joined_at: item.joined_at
+    }));
   }
 };

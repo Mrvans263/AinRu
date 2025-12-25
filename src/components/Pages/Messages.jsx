@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
 import { messagingAPI, messagingRealtime } from '../../lib/messaging';
+import NewChatModal from './NewChatModal';
 import './Messages.css';
 
 const Messages = ({ user }) => {
@@ -14,6 +15,7 @@ const Messages = ({ user }) => {
   const [unreadCount, setUnreadCount] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [showNewChatModal, setShowNewChatModal] = useState(false);
   const [page, setPage] = useState(0);
   
   const messagesEndRef = useRef(null);
@@ -31,7 +33,7 @@ const Messages = ({ user }) => {
     
     try {
       const data = await messagingAPI.getUserConversations(user.id);
-      console.log('📱 Conversations loaded:', data);
+      console.log('📱 Conversations loaded:', data.length);
       setConversations(data);
       
       const totalUnread = data.reduce((sum, conv) => sum + (conv.unread_count || 0), 0);
@@ -84,6 +86,30 @@ const Messages = ({ user }) => {
       isLoadingRef.current = false;
     }
   }, [activeConversation, user?.id, loadConversations]);
+
+  // Load more messages
+  const loadMoreMessages = useCallback(async () => {
+    if (!hasMoreMessages || isLoadingRef.current) return;
+    
+    pageRef.current += 1;
+    setPage(prev => prev + 1);
+    await loadMessages(false);
+  }, [hasMoreMessages, loadMessages]);
+
+  // Handle scroll for infinite loading
+  const handleScroll = useCallback(() => {
+    if (!messagesContainerRef.current || isLoadingRef.current || !hasMoreMessages) return;
+    
+    const container = messagesContainerRef.current;
+    const scrollTop = container.scrollTop;
+    const scrollHeight = container.scrollHeight;
+    const clientHeight = container.clientHeight;
+    
+    // Load more when scrolled near top
+    if (scrollTop < 100 && hasMoreMessages && !loadingMessages) {
+      loadMoreMessages();
+    }
+  }, [hasMoreMessages, loadingMessages, loadMoreMessages]);
 
   // Send message function
   const handleSendMessage = async (content, file = null) => {
@@ -143,6 +169,27 @@ const Messages = ({ user }) => {
     await loadMessages(true);
   };
 
+  // Handle new conversation created
+  const handleConversationCreated = async (conversationId) => {
+    // Refresh conversations
+    await loadConversations();
+    
+    // Find and select the new conversation
+    const newConversation = conversations.find(c => c.id === conversationId);
+    if (newConversation) {
+      await handleSelectConversation(newConversation);
+    } else {
+      // If not found in current list, wait a bit and try again
+      setTimeout(async () => {
+        await loadConversations();
+        const refreshedConv = conversations.find(c => c.id === conversationId);
+        if (refreshedConv) {
+          await handleSelectConversation(refreshedConv);
+        }
+      }, 1000);
+    }
+  };
+
   // Subscribe to real-time updates
   useEffect(() => {
     if (!activeConversation?.id || !user?.id) return;
@@ -171,6 +218,34 @@ const Messages = ({ user }) => {
     };
   }, [activeConversation?.id, user?.id, loadConversations]);
 
+  // Subscribe to typing indicators
+  useEffect(() => {
+    if (!activeConversation?.id || !user?.id) return;
+    
+    const channel = supabase.channel(`presence:${activeConversation.id}`);
+    
+    channel
+      .on('presence', { event: 'sync' }, () => {
+        const state = channel.presenceState();
+        const typing = [];
+        
+        Object.values(state).forEach((presences) => {
+          presences.forEach((presence) => {
+            if (presence.userId !== user.id && presence.isTyping) {
+              typing.push(presence.userId);
+            }
+          });
+        });
+        
+        setTypingUsers(typing);
+      })
+      .subscribe();
+    
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeConversation?.id, user?.id]);
+
   // Load initial data
   useEffect(() => {
     if (!user?.id) {
@@ -193,7 +268,16 @@ const Messages = ({ user }) => {
     };
   }, [user?.id, loadConversations]);
 
-  // Scroll to bottom
+  // Add scroll listener for infinite loading
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.addEventListener('scroll', handleScroll);
+      return () => container.removeEventListener('scroll', handleScroll);
+    }
+  }, [handleScroll]);
+
+  // Scroll to bottom when new messages arrive
   useEffect(() => {
     if (messagesEndRef.current && messages.length > 0) {
       const container = messagesContainerRef.current;
@@ -288,6 +372,24 @@ const Messages = ({ user }) => {
     return false;
   });
 
+  const getTypingNames = () => {
+    if (typingUsers.length === 0) return '';
+    if (!activeConversation) return '';
+    
+    const participants = activeConversation.participants?.filter(p => !p.isCurrentUser);
+    const typingParticipants = participants?.filter(p => typingUsers.includes(p.id));
+    
+    if (!typingParticipants || typingParticipants.length === 0) {
+      return 'Someone is typing...';
+    }
+    
+    if (typingParticipants.length === 1) {
+      return `${typingParticipants[0].firstname} is typing...`;
+    }
+    
+    return 'Multiple people are typing...';
+  };
+
   // Loading state
   if (loadingConversations && conversations.length === 0) {
     return (
@@ -309,8 +411,8 @@ const Messages = ({ user }) => {
           <h2>Messages {unreadCount > 0 && <span className="unread-badge">{unreadCount}</span>}</h2>
           <button 
             className="new-chat-btn"
-            onClick={() => alert('Group chat feature coming soon!')}
-            title="New group chat"
+            onClick={() => setShowNewChatModal(true)}
+            title="New chat"
           >
             +
           </button>
@@ -330,6 +432,12 @@ const Messages = ({ user }) => {
           {filteredConversations.length === 0 ? (
             <div className="no-conversations">
               <p>No conversations found</p>
+              <button 
+                className="start-chat-btn small"
+                onClick={() => setShowNewChatModal(true)}
+              >
+                Start New Chat
+              </button>
             </div>
           ) : (
             filteredConversations.map(conversation => (
@@ -389,35 +497,110 @@ const Messages = ({ user }) => {
       <div className="chat-main">
         {activeConversation ? (
           <>
-            <ChatHeader 
-              conversation={activeConversation}
-              user={user}
-              getConversationName={getConversationName}
-            />
-            
-            <ChatWindow 
-              messages={messages}
-              user={user}
-              loadingMessages={loadingMessages}
-              hasMoreMessages={hasMoreMessages}
-              loadMoreMessages={() => {
-                pageRef.current += 1;
-                loadMessages(false);
-              }}
-              messagesContainerRef={messagesContainerRef}
-              messagesEndRef={messagesEndRef}
-              typingUsers={typingUsers}
-              getTypingNames={() => {
-                if (typingUsers.length === 0) return '';
-                const participants = activeConversation.participants?.filter(p => !p.isCurrentUser);
-                const typingParticipants = participants?.filter(p => typingUsers.includes(p.id));
-                if (typingParticipants?.length > 0) {
-                  return `${typingParticipants[0].firstname} is typing...`;
-                }
-                return 'Someone is typing...';
-              }}
-            />
-            
+            {/* Chat header */}
+            <div className="chat-header">
+              <div className="chat-header-avatar">
+                {activeConversation.is_group ? '👥' : '👤'}
+              </div>
+              <div className="chat-header-info">
+                <h3 className="chat-title">{getConversationName(activeConversation)}</h3>
+                <p className="chat-status">
+                  {activeConversation.is_group 
+                    ? `${activeConversation.participants?.length || 0} participants`
+                    : 'Active recently'
+                  }
+                </p>
+              </div>
+              <div className="chat-header-actions">
+                <button className="chat-action-btn" title="Video call" onClick={() => alert('Video call coming soon!')}>
+                  📹
+                </button>
+                <button className="chat-action-btn" title="Voice call" onClick={() => alert('Voice call coming soon!')}>
+                  📞
+                </button>
+                <button className="chat-action-btn" title="More options" onClick={() => alert('More options coming soon!')}>
+                  ⋯
+                </button>
+              </div>
+            </div>
+
+            {/* Messages container */}
+            <div className="messages-container-scroll" ref={messagesContainerRef}>
+              {loadingMessages && messages.length === 0 ? (
+                <div className="loading-state">
+                  <div className="loading-spinner"></div>
+                  <p>Loading messages...</p>
+                </div>
+              ) : (
+                <>
+                  {hasMoreMessages && !loadingMessages && (
+                    <div className="load-more-indicator">
+                      <button onClick={loadMoreMessages}>Load older messages</button>
+                    </div>
+                  )}
+                  
+                  {loadingMessages && messages.length > 0 && (
+                    <div className="load-more-indicator">
+                      <div className="loading-spinner small"></div>
+                    </div>
+                  )}
+
+                  <div className="messages-list">
+                    {messages.map((message, index) => {
+                      const prevMessage = messages[index - 1];
+                      const nextMessage = messages[index + 1];
+                      
+                      const showDate = !prevMessage || 
+                        new Date(message.created_at).toDateString() !== 
+                        new Date(prevMessage.created_at).toDateString();
+                      
+                      const showAvatar = !nextMessage || 
+                        nextMessage.sender_id !== message.sender_id ||
+                        new Date(nextMessage.created_at).getTime() - 
+                        new Date(message.created_at).getTime() > 300000; // 5 minutes
+                        
+                      return (
+                        <React.Fragment key={message.id}>
+                          {showDate && (
+                            <div className="message-date-divider">
+                              <span>{new Date(message.created_at).toLocaleDateString([], { 
+                                weekday: 'long',
+                                year: 'numeric',
+                                month: 'long',
+                                day: 'numeric'
+                              })}</span>
+                            </div>
+                          )}
+                          
+                          <MessageBubble 
+                            message={message}
+                            isOwn={message.sender_id === user?.id}
+                            showAvatar={showAvatar}
+                            prevSameSender={prevMessage?.sender_id === message.sender_id}
+                            nextSameSender={nextMessage?.sender_id === message.sender_id}
+                          />
+                        </React.Fragment>
+                      );
+                    })}
+                    
+                    {typingUsers.length > 0 && (
+                      <div className="typing-indicator">
+                        <div className="typing-dots">
+                          <span></span>
+                          <span></span>
+                          <span></span>
+                        </div>
+                        <span className="typing-text">{getTypingNames()}</span>
+                      </div>
+                    )}
+                    
+                    <div ref={messagesEndRef} />
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Message input */}
             <MessageInput 
               onSendMessage={handleSendMessage}
               sendingMessage={sendingMessage}
@@ -437,129 +620,21 @@ const Messages = ({ user }) => {
             />
           </>
         ) : (
-          <NoConversationSelected onStartChat={() => alert('Start new chat feature coming soon!')} />
+          <NoConversationSelected onStartChat={() => setShowNewChatModal(true)} />
         )}
       </div>
+
+      {/* New Chat Modal */}
+      {showNewChatModal && (
+        <NewChatModal
+          user={user}
+          onClose={() => setShowNewChatModal(false)}
+          onConversationCreated={handleConversationCreated}
+        />
+      )}
     </div>
   );
 };
-
-// Chat Header Component
-const ChatHeader = ({ conversation, user, getConversationName }) => (
-  <div className="chat-header">
-    <div className="chat-header-avatar">
-      {conversation.is_group ? '👥' : '👤'}
-    </div>
-    <div className="chat-header-info">
-      <h3 className="chat-title">{getConversationName(conversation)}</h3>
-      <p className="chat-status">
-        {conversation.is_group 
-          ? `${conversation.participants?.length || 0} participants`
-          : 'Active recently'
-        }
-      </p>
-    </div>
-    <div className="chat-header-actions">
-      <button className="chat-action-btn" title="Video call" onClick={() => alert('Video call coming soon!')}>
-        📹
-      </button>
-      <button className="chat-action-btn" title="Voice call" onClick={() => alert('Voice call coming soon!')}>
-        📞
-      </button>
-      <button className="chat-action-btn" title="More options" onClick={() => alert('More options coming soon!')}>
-        ⋯
-      </button>
-    </div>
-  </div>
-);
-
-// Chat Window Component
-const ChatWindow = ({ 
-  messages, 
-  user, 
-  loadingMessages, 
-  hasMoreMessages, 
-  loadMoreMessages,
-  messagesContainerRef,
-  messagesEndRef,
-  typingUsers,
-  getTypingNames
-}) => (
-  <div className="messages-container-scroll" ref={messagesContainerRef}>
-    {loadingMessages && messages.length === 0 ? (
-      <div className="loading-state">
-        <div className="loading-spinner"></div>
-        <p>Loading messages...</p>
-      </div>
-    ) : (
-      <>
-        {hasMoreMessages && !loadingMessages && (
-          <div className="load-more-indicator">
-            <button onClick={loadMoreMessages}>Load older messages</button>
-          </div>
-        )}
-        
-        {loadingMessages && messages.length > 0 && (
-          <div className="load-more-indicator">
-            <div className="loading-spinner small"></div>
-          </div>
-        )}
-
-        <div className="messages-list">
-          {messages.map((message, index) => {
-            const prevMessage = messages[index - 1];
-            const nextMessage = messages[index + 1];
-            
-            const showDate = !prevMessage || 
-              new Date(message.created_at).toDateString() !== 
-              new Date(prevMessage.created_at).toDateString();
-            
-            const showAvatar = !nextMessage || 
-              nextMessage.sender_id !== message.sender_id ||
-              new Date(nextMessage.created_at).getTime() - 
-              new Date(message.created_at).getTime() > 300000;
-              
-            return (
-              <React.Fragment key={message.id}>
-                {showDate && (
-                  <div className="message-date-divider">
-                    <span>{new Date(message.created_at).toLocaleDateString([], { 
-                      weekday: 'long',
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric'
-                    })}</span>
-                  </div>
-                )}
-                
-                <MessageBubble 
-                  message={message}
-                  isOwn={message.sender_id === user?.id}
-                  showAvatar={showAvatar}
-                  prevSameSender={prevMessage?.sender_id === message.sender_id}
-                  nextSameSender={nextMessage?.sender_id === message.sender_id}
-                />
-              </React.Fragment>
-            );
-          })}
-          
-          {typingUsers.length > 0 && (
-            <div className="typing-indicator">
-              <div className="typing-dots">
-                <span></span>
-                <span></span>
-                <span></span>
-              </div>
-              <span className="typing-text">{getTypingNames()}</span>
-            </div>
-          )}
-          
-          <div ref={messagesEndRef} />
-        </div>
-      </>
-    )}
-  </div>
-);
 
 // Message Bubble Component
 const MessageBubble = ({ message, isOwn, showAvatar, prevSameSender, nextSameSender }) => {
