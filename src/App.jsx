@@ -193,6 +193,12 @@ function App() {
   };
 
   const renderContent = () => {
+     console.log('🔍 [APP DEBUG] Rendering content:', {
+    activeTab,
+    user: user?.id,
+    authState,
+    loading
+  });
     switch (activeTab) {
       case 'dashboard': return <Dashboard user={user} />;
       case 'marketplace': return <Marketplace />;
@@ -203,7 +209,9 @@ function App() {
       case 'jobs': return <StudentJobs />;
       case 'friends': return <Friends />;
       case 'students': return <AllStudents />;
-      case 'messages': return <Messages />;
+      case 'messages': 
+      console.log('🔍 [APP DEBUG] Rendering Messages with user:', user);
+      return <Messages user={user} />;
       case 'events': return <Events />;
       case 'study-groups': return <StudyGroups />;
       case 'housing': return <Housing />;
