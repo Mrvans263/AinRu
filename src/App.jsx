@@ -33,6 +33,96 @@ import Settings from './components/Pages/Settings';
 import Loading from './components/Common/Loading';
 
 function App() {
+  useEffect(() => {
+  console.log('=== APP.JSX DEBUG ===');
+  console.log('🔍 Initial check - URL:', window.location.href);
+  console.log('🔍 Has hash:', !!window.location.hash);
+  console.log('🔍 Hash content:', window.location.hash.substring(0, 100));
+  
+  const checkAuth = async () => {
+    setLoading(true);
+    
+    try {
+      console.log('🔄 Step 1: Getting session...');
+      
+      // 1. Get session
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      console.log('📋 Session result:', {
+        hasSession: !!session,
+        userEmail: session?.user?.email,
+        userId: session?.user?.id,
+        provider: session?.user?.app_metadata?.provider
+      });
+      
+      if (!session) {
+        console.log('❌ No session, showing login');
+        setAuthState('login');
+        setLoading(false);
+        return;
+      }
+      
+      console.log('✅ Session found for:', session.user.email);
+      setUser(session.user);
+      
+      // 2. Check if user exists in database
+      console.log('🔄 Step 2: Checking database...');
+      const { data: userProfile, error: dbError } = await supabase
+        .from('users')
+        .select('profile_completed, auth_provider, firstname, surname')
+        .eq('id', session.user.id)
+        .single();
+      
+      console.log('📋 Database check:', {
+        hasProfile: !!userProfile,
+        dbError: dbError?.message,
+        profileCompleted: userProfile?.profile_completed,
+        authProvider: userProfile?.auth_provider,
+        hasName: !!(userProfile?.firstname && userProfile?.surname)
+      });
+      
+      // 3. DECISION LOGIC
+      if (dbError || !userProfile) {
+        console.log('⚠️ User not in database yet');
+        setAuthState('complete-profile');
+      } else if (!userProfile.profile_completed) {
+        console.log('⚠️ Profile incomplete');
+        setAuthState('complete-profile');
+      } else {
+        console.log('✅ Profile complete - going to app');
+        setAuthState('app');
+      }
+      
+    } catch (error) {
+      console.error('❌ Auth check error:', error);
+      setAuthState('login');
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  checkAuth();
+  
+  // Auth listener with debugging
+  const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    console.log('🔔 Auth state change:', event, {
+      hasSession: !!session,
+      userEmail: session?.user?.email
+    });
+    
+    if (event === 'SIGNED_OUT') {
+      setUser(null);
+      setAuthState('login');
+    } 
+    else if (session) {
+      setUser(session.user);
+      // Re-check after auth change
+      setTimeout(() => checkAuth(), 300);
+    }
+  });
+  
+  return () => subscription.unsubscribe();
+}, []);
   // Handle Google OAuth callback - MUST BE FIRST
   if (window.location.pathname === '/auth/callback') {
     return <AuthCallback />;
