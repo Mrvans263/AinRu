@@ -7,168 +7,199 @@ const Dashboard = ({ user }) => {
   const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
-    listings: 0,
-    messages: 0,
+    activeListings: 0,
+    totalListings: 0,
+    unreadMessages: 0,
+    totalMessages: 0,
     friends: 0,
-    events: 0
+    pendingFriends: 0,
+    upcomingEvents: 0,
+    eventsAttending: 0,
+    marketplaceItems: 0,
+    travelDeals: 0,
+    moneyDeals: 0,
+    feedPosts: 0,
+    postLikes: 0,
+    savedListings: 0
   });
   const [recentListings, setRecentListings] = useState([]);
   const [recentMessages, setRecentMessages] = useState([]);
+  const [upcomingEvents, setUpcomingEvents] = useState([]);
+  const [feedPosts, setFeedPosts] = useState([]);
+  const [savedListings, setSavedListings] = useState([]);
+  const [marketplaceItems, setMarketplaceItems] = useState([]);
 
   useEffect(() => {
     if (user) {
-      initializeUserProfile();
+      initializeDashboard();
     }
   }, [user]);
 
-  const initializeUserProfile = async () => {
+  const initializeDashboard = async () => {
     try {
-      // First, try to get the user profile
-      const profile = await getUserProfile();
+      console.log('🔄 Initializing dashboard for user:', user.id);
       
-      if (!profile) {
-        // If no profile exists, create one from auth data
-        await createUserProfileFromAuth();
-        // Then fetch the newly created profile
-        const newProfile = await getUserProfile();
-        setUserProfile(newProfile);
-      } else {
-        setUserProfile(profile);
-      }
-      
-      // Fetch additional data
+      // Fetch all data in parallel
       await Promise.all([
-        fetchUserStats(),
+        fetchUserProfile(),
+        fetchAllStats(),
         fetchRecentListings(),
-        fetchRecentMessages()
+        fetchRecentMessages(),
+        fetchUpcomingEvents(),
+        fetchFeedPosts(),
+        fetchSavedListings(),
+        fetchMarketplaceItems()
       ]);
       
     } catch (error) {
-      console.error('Error initializing user profile:', error);
+      console.error('❌ Error initializing dashboard:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const getUserProfile = async () => {
+  const fetchUserProfile = async () => {
     try {
       const { data, error } = await supabase
         .from('users')
         .select('*')
         .eq('id', user.id)
-        .maybeSingle(); // Use maybeSingle instead of single to avoid PGRST116
-
-      if (error) {
-        console.error('Error fetching profile:', error);
-        return null;
-      }
-      
-      return data;
-    } catch (error) {
-      console.error('Exception in getUserProfile:', error);
-      return null;
-    }
-  };
-
-  const createUserProfileFromAuth = async () => {
-    try {
-      console.log('Creating user profile from auth data...');
-      
-      // Get fresh user data from auth
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      
-      if (!authUser) {
-        throw new Error('No auth user found');
-      }
-      
-      // Extract data from user_metadata
-      const metadata = authUser.user_metadata || {};
-      
-      const profileData = {
-        id: authUser.id,
-        email: authUser.email,
-        firstname: metadata.firstname || '',
-        surname: metadata.surname || '',
-        profile_picture_url: metadata.profile_picture_url || null,
-        education: metadata.education || 'Not specified',
-        university: metadata.university || '',
-        city: metadata.city || '',
-        phone: metadata.phone || '',
-        date_of_birth: metadata.date_of_birth || null,
-        verification_board: metadata.verification_board || '',
-        is_student: metadata.is_student === 'Yes' || metadata.is_student === true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-      
-      console.log('Creating profile with data:', profileData);
-      
-      const { data, error } = await supabase
-        .from('users')
-        .insert(profileData)
-        .select()
         .single();
 
-      if (error) {
-        console.error('Error creating profile:', error);
-        
-        // If it's a duplicate key error, the profile might have been created by another process
-        if (error.code === '23505') { // Unique violation
-          console.log('Profile already exists (duplicate key)');
-          return;
-        }
-        
-        throw error;
-      }
+      if (error) throw error;
       
-      console.log('Profile created successfully:', data);
-      return data;
+      setUserProfile(data);
+      console.log('✅ User profile loaded:', data.email);
       
     } catch (error) {
-      console.error('Error in createUserProfileFromAuth:', error);
-      throw error;
+      console.error('Error fetching profile:', error);
     }
   };
 
-  const fetchUserStats = async () => {
+  const fetchAllStats = async () => {
     try {
+      // Fetch all stats in parallel
       const [
-        { count: listingsCount },
-        { count: messagesCount },
-        { count: friendsCount },
-        { count: eventsCount }
+        { count: activeListings },
+        { count: totalListings },
+        { count: unreadMessages },
+        { count: totalMessages },
+        { count: friends },
+        { count: pendingFriends },
+        { count: upcomingEvents },
+        { count: eventsAttending },
+        { count: marketplaceItems },
+        { count: travelDeals },
+        { count: moneyDeals },
+        { count: feedPosts },
+        { count: postLikes },
+        { count: savedListings }
       ] = await Promise.all([
+        // Active listings
         supabase
           .from('listings')
           .select('*', { count: 'exact', head: true })
           .eq('user_id', user.id)
           .eq('is_active', true),
         
+        // Total listings
+        supabase
+          .from('listings')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id),
+        
+        // Unread messages (using conversation logic)
+        supabase
+          .from('conversation_participants')
+          .select('unread_count', { count: 'exact', head: true })
+          .eq('user_id', user.id),
+        
+        // Total messages sent
         supabase
           .from('messages')
           .select('*', { count: 'exact', head: true })
-          .eq('receiver_id', user.id)
-          .eq('is_read', false),
+          .eq('sender_id', user.id),
         
+        // Friends (accepted)
         supabase
           .from('friends')
           .select('*', { count: 'exact', head: true })
           .eq('user_id', user.id)
           .eq('status', 'accepted'),
         
+        // Pending friend requests
+        supabase
+          .from('friends')
+          .select('*', { count: 'exact', head: true })
+          .eq('friend_id', user.id)
+          .eq('status', 'pending'),
+        
+        // Upcoming events
+        supabase
+          .from('events')
+          .select('*', { count: 'exact', head: true })
+          .gt('event_date', new Date().toISOString()),
+        
+        // Events user is attending
         supabase
           .from('event_attendees')
           .select('*', { count: 'exact', head: true })
           .eq('user_id', user.id)
-          .eq('status', 'going')
+          .eq('status', 'going'),
+        
+        // Marketplace items
+        supabase
+          .from('marketplace_items')
+          .select('*', { count: 'exact', head: true }),
+        
+        // Travel deals
+        supabase
+          .from('travel_deals')
+          .select('*', { count: 'exact', head: true }),
+        
+        // Money deals
+        supabase
+          .from('money_deals')
+          .select('*', { count: 'exact', head: true }),
+        
+        // Feed posts
+        supabase
+          .from('feed_posts')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id),
+        
+        // Post likes received
+        supabase
+          .from('post_likes')
+          .select('*', { count: 'exact', head: true })
+          .eq('post_owner_id', user.id),
+        
+        // Saved listings
+        supabase
+          .from('saved_listings')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
       ]);
 
       setStats({
-        listings: listingsCount || 0,
-        messages: messagesCount || 0,
-        friends: friendsCount || 0,
-        events: eventsCount || 0
+        activeListings: activeListings || 0,
+        totalListings: totalListings || 0,
+        unreadMessages: unreadMessages || 0,
+        totalMessages: totalMessages || 0,
+        friends: friends || 0,
+        pendingFriends: pendingFriends || 0,
+        upcomingEvents: upcomingEvents || 0,
+        eventsAttending: eventsAttending || 0,
+        marketplaceItems: marketplaceItems || 0,
+        travelDeals: travelDeals || 0,
+        moneyDeals: moneyDeals || 0,
+        feedPosts: feedPosts || 0,
+        postLikes: postLikes || 0,
+        savedListings: savedListings || 0
       });
+      
+      console.log('📊 Stats loaded successfully');
+      
     } catch (error) {
       console.error('Error fetching stats:', error);
     }
@@ -178,14 +209,19 @@ const Dashboard = ({ user }) => {
     try {
       const { data, error } = await supabase
         .from('listings')
-        .select('*')
+        .select(`
+          *,
+          category:marketplace_categories(name),
+          images:listing_images(url)
+        `)
         .eq('user_id', user.id)
         .eq('is_active', true)
         .order('created_at', { ascending: false })
-        .limit(3);
+        .limit(5);
 
       if (error) throw error;
       setRecentListings(data || []);
+      
     } catch (error) {
       console.error('Error fetching listings:', error);
     }
@@ -193,79 +229,190 @@ const Dashboard = ({ user }) => {
 
   const fetchRecentMessages = async () => {
     try {
-      const { data, error } = await supabase
-        .from('messages')
+      // Get recent conversations
+      const { data: conversations, error: convError } = await supabase
+        .from('conversation_participants')
         .select(`
-          *,
-          sender:users!messages_sender_id_fkey (
-            firstname,
-            surname,
-            profile_picture_url
+          conversation_id,
+          unread_count,
+          conversations (
+            id,
+            last_message_at,
+            messages!conversation_id (
+              content,
+              created_at,
+              sender:users!messages_sender_id_fkey (
+                firstname,
+                surname,
+                profile_picture_url
+              )
+            )
           )
         `)
-        .eq('receiver_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(3);
+        .eq('user_id', user.id)
+        .order('last_read_at', { ascending: false })
+        .limit(5);
 
-      if (error) throw error;
-      setRecentMessages(data || []);
+      if (convError) throw convError;
+      
+      // Process conversation data
+      const messages = conversations?.map(conv => ({
+        id: conv.conversation_id,
+        unread: conv.unread_count > 0,
+        content: conv.conversations?.messages?.[0]?.content || 'No messages',
+        sender: conv.conversations?.messages?.[0]?.sender,
+        created_at: conv.conversations?.last_message_at
+      })) || [];
+      
+      setRecentMessages(messages);
+      
     } catch (error) {
       console.error('Error fetching messages:', error);
     }
   };
 
-  const handleEditProfile = () => {
-    alert('Edit profile feature coming soon!');
-  };
-
-  const handleMarkAsRead = async (messageId) => {
+  const fetchUpcomingEvents = async () => {
     try {
-      const { error } = await supabase
-        .from('messages')
-        .update({ is_read: true })
-        .eq('id', messageId);
+      const { data, error } = await supabase
+        .from('event_attendees')
+        .select(`
+          status,
+          events (
+            id,
+            title,
+            description,
+            event_date,
+            location,
+            organizer:users!events_organizer_id_fkey (
+              firstname,
+              surname
+            )
+          )
+        `)
+        .eq('user_id', user.id)
+        .eq('status', 'going')
+        .gt('events.event_date', new Date().toISOString())
+        .order('events.event_date', { ascending: true })
+        .limit(5);
 
       if (error) throw error;
       
-      fetchRecentMessages();
-      fetchUserStats();
+      const events = data?.map(item => ({
+        ...item.events,
+        status: item.status
+      })) || [];
+      
+      setUpcomingEvents(events);
+      
     } catch (error) {
-      console.error('Error marking message as read:', error);
+      console.error('Error fetching events:', error);
     }
   };
 
-  if (loading) {
-    return <Loading message="Setting up your dashboard..." />;
-  }
+  const fetchFeedPosts = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('feed_posts')
+        .select(`
+          *,
+          user:users!feed_posts_user_id_fkey (
+            firstname,
+            surname,
+            profile_picture_url
+          ),
+          likes:post_likes(count),
+          comments:post_comments(count)
+        `)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(3);
 
-  if (!userProfile) {
-    return (
-      <div className="dashboard-error">
-        <div className="error-container">
-          <h2>Unable to Load Profile</h2>
-          <p>There was an issue loading your profile data.</p>
-          <p style={{ fontSize: '14px', color: '#666', marginTop: '10px' }}>
-            User ID: {user?.id}
-          </p>
-          <button 
-            onClick={() => {
-              setLoading(true);
-              initializeUserProfile();
-            }}
-            className="retry-btn"
-          >
-            Try Again
-          </button>
-          <button 
-            onClick={createUserProfileFromAuth}
-            className="retry-btn"
-            style={{ marginLeft: '10px', backgroundColor: '#28a745' }}
-          >
-            Create Profile Manually
-          </button>
-        </div>
-      </div>
-    );
+      if (error) throw error;
+      setFeedPosts(data || []);
+      
+    } catch (error) {
+      console.error('Error fetching feed posts:', error);
+    }
+  };
+
+  const fetchSavedListings = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('saved_listings')
+        .select(`
+          *,
+          listing:listings!saved_listings_listing_id_fkey (
+            id,
+            title,
+            price,
+            description,
+            is_active,
+            category:marketplace_categories(name)
+          )
+        `)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (error) throw error;
+      setSavedListings(data || []);
+      
+    } catch (error) {
+      console.error('Error fetching saved listings:', error);
+    }
+  };
+
+  const fetchMarketplaceItems = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('marketplace_items')
+        .select(`
+          *,
+          category:marketplace_categories(name)
+        `)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (error) throw error;
+      setMarketplaceItems(data || []);
+      
+    } catch (error) {
+      console.error('Error fetching marketplace items:', error);
+    }
+  };
+
+  const handleRefresh = () => {
+    setLoading(true);
+    initializeDashboard();
+  };
+
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffTime = Math.abs(now - date);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) {
+      return 'Today';
+    } else if (diffDays === 1) {
+      return 'Yesterday';
+    } else if (diffDays < 7) {
+      return `${diffDays} days ago`;
+    } else {
+      return date.toLocaleDateString();
+    }
+  };
+
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD'
+    }).format(amount);
+  };
+
+  if (loading) {
+    return <Loading message="Loading your dashboard..." />;
   }
 
   return (
@@ -280,12 +427,6 @@ const Dashboard = ({ user }) => {
                 alt="Profile"
                 className="profile-avatar-lg"
               />
-            ) : user?.user_metadata?.profile_picture_url ? (
-              <img 
-                src={user.user_metadata.profile_picture_url} 
-                alt="Profile"
-                className="profile-avatar-lg"
-              />
             ) : (
               <div className="profile-avatar-placeholder">
                 {userProfile?.firstname?.[0]}{userProfile?.surname?.[0]}
@@ -296,41 +437,52 @@ const Dashboard = ({ user }) => {
                 Welcome back, <span className="highlight">{userProfile?.firstname}</span>!
               </h1>
               <p className="user-email">{userProfile?.email}</p>
-              <div className="member-since">
-                <span className="member-icon">🎓</span>
-                <span className="member-text">
-                  Member since {new Date(userProfile?.created_at).toLocaleDateString()}
+              <div className="user-meta">
+                <span className="meta-item">
+                  <span className="meta-icon">🎓</span>
+                  {userProfile?.university || 'No university set'}
+                </span>
+                <span className="meta-item">
+                  <span className="meta-icon">📍</span>
+                  {userProfile?.city || 'No location set'}
+                </span>
+                <span className="meta-item">
+                  <span className="meta-icon">📅</span>
+                  Joined {new Date(userProfile?.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
                 </span>
               </div>
             </div>
           </div>
           <div className="header-right">
             <button 
-              onClick={handleEditProfile}
-              className="edit-profile-btn"
+              onClick={handleRefresh}
+              className="refresh-btn"
+              title="Refresh dashboard"
             >
-              <span className="edit-icon">✏️</span>
-              Edit Profile
+              <span className="refresh-icon">↻</span>
+              Refresh
             </button>
           </div>
         </div>
       </div>
 
-      {/* Stats Grid */}
+      {/* Stats Grid - Extended */}
       <div className="stats-grid">
         <div className="stat-card">
           <div className="stat-icon stat-icon-blue">🛒</div>
           <div className="stat-content">
-            <div className="stat-value">{stats.listings}</div>
+            <div className="stat-value">{stats.activeListings}</div>
             <div className="stat-label">Active Listings</div>
+            <div className="stat-subtext">{stats.totalListings} total</div>
           </div>
         </div>
 
         <div className="stat-card">
           <div className="stat-icon stat-icon-purple">💬</div>
           <div className="stat-content">
-            <div className="stat-value">{stats.messages}</div>
+            <div className="stat-value">{stats.unreadMessages}</div>
             <div className="stat-label">Unread Messages</div>
+            <div className="stat-subtext">{stats.totalMessages} sent</div>
           </div>
         </div>
 
@@ -339,196 +491,277 @@ const Dashboard = ({ user }) => {
           <div className="stat-content">
             <div className="stat-value">{stats.friends}</div>
             <div className="stat-label">Friends</div>
+            <div className="stat-subtext">{stats.pendingFriends} pending</div>
           </div>
         </div>
 
         <div className="stat-card">
           <div className="stat-icon stat-icon-orange">📅</div>
           <div className="stat-content">
-            <div className="stat-value">{stats.events}</div>
-            <div className="stat-label">Upcoming Events</div>
+            <div className="stat-value">{stats.eventsAttending}</div>
+            <div className="stat-label">Events</div>
+            <div className="stat-subtext">{stats.upcomingEvents} upcoming</div>
+          </div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-icon stat-icon-red">📝</div>
+          <div className="stat-content">
+            <div className="stat-value">{stats.feedPosts}</div>
+            <div className="stat-label">Feed Posts</div>
+            <div className="stat-subtext">{stats.postLikes} likes</div>
+          </div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-icon stat-icon-teal">⭐</div>
+          <div className="stat-content">
+            <div className="stat-value">{stats.savedListings}</div>
+            <div className="stat-label">Saved Items</div>
+            <div className="stat-subtext">Watchlist</div>
           </div>
         </div>
       </div>
 
-      {/* Dashboard Grid */}
-      <div className="dashboard-grid">
-        {/* Personal Information */}
-        <div className="info-card">
-          <div className="card-header">
-            <h2 className="card-title">
-              <span className="card-icon">👤</span>
-              Personal Information
-            </h2>
+      {/* Dashboard Content Grid */}
+      <div className="dashboard-content">
+        {/* Left Column */}
+        <div className="dashboard-left">
+          {/* Personal Information Card */}
+          <div className="info-card">
+            <div className="card-header">
+              <h2 className="card-title">
+                <span className="card-icon">👤</span>
+                Personal Information
+              </h2>
+              <button className="edit-btn">Edit</button>
+            </div>
+            
+            <div className="card-content">
+              <div className="info-grid">
+                <div className="info-item">
+                  <span className="info-label">Full Name</span>
+                  <span className="info-value">
+                    {userProfile?.firstname} {userProfile?.surname}
+                  </span>
+                </div>
+                
+                <div className="info-item">
+                  <span className="info-label">Education</span>
+                  <span className="info-value">{userProfile?.education || 'Not specified'}</span>
+                </div>
+                
+                <div className="info-item">
+                  <span className="info-label">Student Status</span>
+                  <span className={`status-badge ${userProfile?.is_student ? 'status-student' : 'status-not-student'}`}>
+                    {userProfile?.is_student ? 'Student' : 'Not Student'}
+                  </span>
+                </div>
+                
+                <div className="info-item">
+                  <span className="info-label">Date of Birth</span>
+                  <span className="info-value">
+                    {userProfile?.date_of_birth ? new Date(userProfile.date_of_birth).toLocaleDateString() : 'Not provided'}
+                  </span>
+                </div>
+                
+                <div className="info-item">
+                  <span className="info-label">Verification</span>
+                  <span className="info-value">{userProfile?.verification_board || 'Not verified'}</span>
+                </div>
+                
+                <div className="info-item">
+                  <span className="info-label">Program Field</span>
+                  <span className="info-value">{userProfile?.program_field || 'Not specified'}</span>
+                </div>
+              </div>
+            </div>
           </div>
-          
-          <div className="card-content">
-            <div className="info-item">
-              <span className="info-label">Full Name</span>
-              <span className="info-value">
-                {userProfile?.firstname} {userProfile?.surname}
-              </span>
-            </div>
-            
-            <div className="info-item">
-              <span className="info-label">Education Level</span>
-              <span className="info-value">{userProfile?.education}</span>
-            </div>
-            
-            <div className="info-item">
-              <span className="info-label">Student Status</span>
-              <span className={`status-badge ${userProfile?.is_student ? 'status-student' : 'status-not-student'}`}>
-                {userProfile?.is_student ? 'Currently a Student' : 'Not a Student'}
-              </span>
-            </div>
-            
-            <div className="info-item">
-              <span className="info-label">Date of Birth</span>
-              <span className="info-value">
-                {userProfile?.date_of_birth ? new Date(userProfile.date_of_birth).toLocaleDateString() : 'Not provided'}
-              </span>
-            </div>
-          </div>
-        </div>
 
-        {/* Contact Information */}
-        <div className="info-card">
-          <div className="card-header">
-            <h2 className="card-title">
-              <span className="card-icon">📞</span>
-              Contact Information
-            </h2>
-          </div>
-          
-          <div className="card-content">
-            <div className="info-item info-item-with-icon">
-              <span className="info-icon">📧</span>
-              <div className="info-content">
-                <span className="info-label">Email  </span>
-                <span className="info-value">{userProfile?.email}</span>
+          {/* Recent Feed Posts */}
+          {feedPosts.length > 0 && (
+            <div className="info-card">
+              <div className="card-header">
+                <h2 className="card-title">
+                  <span className="card-icon">📝</span>
+                  Your Recent Posts
+                </h2>
               </div>
-            </div>
-            
-            <div className="info-item info-item-with-icon">
-              <span className="info-icon">📱</span>
-              <div className="info-content">
-                <span className="info-label">Phone  </span>
-                <span className="info-value">{userProfile?.phone || 'Not provided'}</span>
-              </div>
-            </div>
-            
-            <div className="info-item info-item-with-icon">
-              <span className="info-icon">🏫</span>
-              <div className="info-content">
-                <span className="info-label">University  </span>
-                <span className="info-value">{userProfile?.university || 'Not provided'}</span>
-              </div>
-            </div>
-            
-            <div className="info-item info-item-with-icon">
-              <span className="info-icon">📍</span>
-              <div className="info-content">
-                <span className="info-label">City  </span>
-                <span className="info-value">{userProfile?.city || 'Not provided'}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Recent Listings */}
-        <div className="info-card">
-          <div className="card-header">
-            <h2 className="card-title">
-              <span className="card-icon">📋</span>
-              Recent Listings
-            </h2>
-            <div className="card-actions">
-              <button className="card-action-btn">View All</button>
-            </div>
-          </div>
-          
-          <div className="card-content">
-            {recentListings.length > 0 ? (
-              <div className="listings-list">
-                {recentListings.map((listing) => (
-                  <div key={listing.id} className="listing-item">
-                    <div className="listing-title">{listing.title}</div>
-                    <div className="listing-meta">
-                      <span className="listing-price">${listing.price}</span>
-                      <span className="listing-date">
-                        {new Date(listing.created_at).toLocaleDateString()}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="empty-state">
-                <span className="empty-icon">🛒</span>
-                <p className="empty-text">No listings yet</p>
-                <button className="empty-action">Create First Listing</button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Recent Messages */}
-        <div className="info-card">
-          <div className="card-header">
-            <h2 className="card-title">
-              <span className="card-icon">💬</span>
-              Recent Messages
-            </h2>
-            <div className="card-actions">
-              <button className="card-action-btn">View All</button>
-            </div>
-          </div>
-          
-          <div className="card-content">
-            {recentMessages.length > 0 ? (
-              <div className="messages-list">
-                {recentMessages.map((message) => (
-                  <div 
-                    key={message.id} 
-                    className={`message-item ${!message.is_read ? 'message-unread' : ''}`}
-                    onClick={() => handleMarkAsRead(message.id)}
-                  >
-                    <div className="message-sender">
-                      {message.sender?.profile_picture_url ? (
-                        <img 
-                          src={message.sender.profile_picture_url} 
-                          alt={message.sender.firstname}
-                          className="sender-avatar"
-                        />
-                      ) : (
-                        <div className="sender-avatar-placeholder">
-                          {message.sender?.firstname?.[0]}
-                        </div>
-                      )}
-                      <div className="sender-info">
-                        <div className="sender-name">
-                          {message.sender?.firstname} {message.sender?.surname}
-                        </div>
-                        <div className="message-preview">
-                          {message.content.length > 50 
-                            ? `${message.content.substring(0, 50)}...` 
-                            : message.content}
+              
+              <div className="card-content">
+                <div className="posts-list">
+                  {feedPosts.map((post) => (
+                    <div key={post.id} className="post-item">
+                      <div className="post-content">
+                        <p className="post-text">{post.content}</p>
+                        <div className="post-meta">
+                          <span className="post-date">{formatDate(post.created_at)}</span>
+                          <span className="post-stats">
+                            {post.likes?.[0]?.count || 0} likes • {post.comments?.[0]?.count || 0} comments
+                          </span>
                         </div>
                       </div>
                     </div>
-                    {!message.is_read && (
-                      <div className="unread-indicator"></div>
-                    )}
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            ) : (
-              <div className="empty-state">
-                <span className="empty-icon">💬</span>
-                <p className="empty-text">No messages yet</p>
-              </div>
-            )}
+            </div>
+          )}
+        </div>
+
+        {/* Right Column */}
+        <div className="dashboard-right">
+          {/* Recent Messages */}
+          <div className="info-card">
+            <div className="card-header">
+              <h2 className="card-title">
+                <span className="card-icon">💬</span>
+                Recent Conversations
+              </h2>
+            </div>
+            
+            <div className="card-content">
+              {recentMessages.length > 0 ? (
+                <div className="conversations-list">
+                  {recentMessages.map((message) => (
+                    <div key={message.id} className={`conversation-item ${message.unread ? 'conversation-unread' : ''}`}>
+                      <div className="conversation-avatar">
+                        {message.sender?.profile_picture_url ? (
+                          <img src={message.sender.profile_picture_url} alt={message.sender.firstname} />
+                        ) : (
+                          <div className="avatar-fallback">
+                            {message.sender?.firstname?.[0]}
+                          </div>
+                        )}
+                      </div>
+                      <div className="conversation-content">
+                        <div className="conversation-header">
+                          <span className="conversation-name">
+                            {message.sender?.firstname} {message.sender?.surname}
+                          </span>
+                          <span className="conversation-time">
+                            {formatDate(message.created_at)}
+                          </span>
+                        </div>
+                        <p className="conversation-preview">{message.content}</p>
+                      </div>
+                      {message.unread && <div className="unread-dot"></div>}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-state">
+                  <span className="empty-icon">💬</span>
+                  <p className="empty-text">No conversations yet</p>
+                </div>
+              )}
+            </div>
           </div>
+
+          {/* Upcoming Events */}
+          <div className="info-card">
+            <div className="card-header">
+              <h2 className="card-title">
+                <span className="card-icon">📅</span>
+                Upcoming Events
+              </h2>
+            </div>
+            
+            <div className="card-content">
+              {upcomingEvents.length > 0 ? (
+                <div className="events-list">
+                  {upcomingEvents.map((event) => (
+                    <div key={event.id} className="event-item">
+                      <div className="event-date">
+                        <div className="event-day">
+                          {new Date(event.event_date).getDate()}
+                        </div>
+                        <div className="event-month">
+                          {new Date(event.event_date).toLocaleString('default', { month: 'short' })}
+                        </div>
+                      </div>
+                      <div className="event-details">
+                        <h4 className="event-title">{event.title}</h4>
+                        <p className="event-location">{event.location}</p>
+                        <p className="event-organizer">
+                          By {event.organizer?.firstname} {event.organizer?.surname}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-state">
+                  <span className="empty-icon">📅</span>
+                  <p className="empty-text">No upcoming events</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Saved Listings */}
+          {savedListings.length > 0 && (
+            <div className="info-card">
+              <div className="card-header">
+                <h2 className="card-title">
+                  <span className="card-icon">⭐</span>
+                  Saved Items
+                </h2>
+              </div>
+              
+              <div className="card-content">
+                <div className="saved-items-list">
+                  {savedListings.map((item) => (
+                    <div key={item.id} className="saved-item">
+                      <div className="saved-item-info">
+                        <h4 className="saved-item-title">{item.listing?.title}</h4>
+                        <p className="saved-item-category">{item.listing?.category?.name}</p>
+                        <div className="saved-item-meta">
+                          <span className="saved-item-price">
+                            {formatCurrency(item.listing?.price || 0)}
+                          </span>
+                          <span className="saved-item-date">
+                            Saved {formatDate(item.created_at)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Quick Actions */}
+      <div className="quick-actions">
+        <h3 className="actions-title">Quick Actions</h3>
+        <div className="actions-grid">
+          <button className="action-btn">
+            <span className="action-icon">➕</span>
+            <span className="action-text">New Listing</span>
+          </button>
+          <button className="action-btn">
+            <span className="action-icon">✏️</span>
+            <span className="action-text">Create Post</span>
+          </button>
+          <button className="action-btn">
+            <span className="action-icon">📅</span>
+            <span className="action-text">Create Event</span>
+          </button>
+          <button className="action-btn">
+            <span className="action-icon">🔍</span>
+            <span className="action-text">Find Friends</span>
+          </button>
+          <button className="action-btn">
+            <span className="action-icon">💼</span>
+            <span className="action-text">Marketplace</span>
+          </button>
+          <button className="action-btn">
+            <span className="action-icon">✈️</span>
+            <span className="action-text">Travel Deals</span>
+          </button>
         </div>
       </div>
     </div>
