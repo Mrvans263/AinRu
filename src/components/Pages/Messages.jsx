@@ -7,7 +7,8 @@ const Messages = ({ user }) => {
   const [conversations, setConversations] = useState([]);
   const [activeConversation, setActiveConversation] = useState(null);
   const [messages, setMessages] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loadingConversations, setLoadingConversations] = useState(true);
+  const [loadingMessages, setLoadingMessages] = useState(false);
   const [hasMoreMessages, setHasMoreMessages] = useState(true);
   const [page, setPage] = useState(0);
   const [typingUsers, setTypingUsers] = useState([]);
@@ -17,10 +18,15 @@ const Messages = ({ user }) => {
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+  const isLoadingRef = useRef(false);
+  const pageRef = useRef(0);
 
-  // Load user's conversations
+  // Load user's conversations (only once on mount or user change)
   const loadConversations = useCallback(async () => {
-    if (!user?.id) return;
+    if (!user?.id || isLoadingRef.current) return;
+    
+    isLoadingRef.current = true;
+    setLoadingConversations(true);
     
     try {
       const data = await messagingAPI.getUserConversations(user.id);
@@ -31,14 +37,20 @@ const Messages = ({ user }) => {
       setUnreadCount(totalUnread);
     } catch (error) {
       console.error('Error loading conversations:', error);
+    } finally {
+      setLoadingConversations(false);
+      isLoadingRef.current = false;
     }
   }, [user?.id]);
 
   // Load messages for active conversation
   const loadMessages = useCallback(async (reset = false) => {
-    if (!activeConversation) return;
+    if (!activeConversation || isLoadingRef.current) return;
     
-    const currentPage = reset ? 0 : page;
+    isLoadingRef.current = true;
+    setLoadingMessages(true);
+    
+    const currentPage = reset ? 0 : pageRef.current;
     
     try {
       const newMessages = await messagingAPI.getConversationMessages(
@@ -50,6 +62,7 @@ const Messages = ({ user }) => {
       if (reset) {
         setMessages(newMessages);
         setPage(0);
+        pageRef.current = 0;
         setHasMoreMessages(newMessages.length === 50);
       } else {
         setMessages(prev => [...newMessages, ...prev]);
@@ -59,29 +72,50 @@ const Messages = ({ user }) => {
       // Mark as read if it's a new load
       if (reset && user?.id) {
         await messagingAPI.markAsRead(activeConversation.id, user.id);
+        // Refresh conversations to update unread count
+        loadConversations();
       }
     } catch (error) {
       console.error('Error loading messages:', error);
+    } finally {
+      setLoadingMessages(false);
+      isLoadingRef.current = false;
     }
-  }, [activeConversation, page, user?.id]);
+  }, [activeConversation, user?.id, loadConversations]);
 
   // Load more messages (infinite scroll)
   const loadMoreMessages = useCallback(async () => {
-    if (!hasMoreMessages || loading) return;
+    if (!hasMoreMessages || isLoadingRef.current) return;
     
+    pageRef.current += 1;
     setPage(prev => prev + 1);
     await loadMessages(false);
-  }, [hasMoreMessages, loading, loadMessages]);
+  }, [hasMoreMessages, loadMessages]);
+
+  // Handle scroll for infinite loading
+  const handleScroll = useCallback(() => {
+    if (!messagesContainerRef.current || isLoadingRef.current || !hasMoreMessages) return;
+    
+    const container = messagesContainerRef.current;
+    const scrollTop = container.scrollTop;
+    const scrollHeight = container.scrollHeight;
+    const clientHeight = container.clientHeight;
+    
+    // Load more when scrolled near top
+    if (scrollTop < 100 && hasMoreMessages && !loadingMessages) {
+      loadMoreMessages();
+    }
+  }, [hasMoreMessages, loadingMessages, loadMoreMessages]);
 
   // Subscribe to conversation updates
   useEffect(() => {
     if (!activeConversation?.id || !user?.id) return;
     
-    const unsubscribe = messagingRealtime.subscribeToConversation(
+    const subscription = messagingRealtime.subscribeToConversation(
       activeConversation.id,
       async (event, data) => {
         if (event === 'message') {
-          // Add new message
+          // Add new message to the end
           setMessages(prev => [...prev, data]);
           
           // Mark as read if user is viewing
@@ -89,8 +123,8 @@ const Messages = ({ user }) => {
             await messagingAPI.markAsRead(activeConversation.id, user.id, [data.id]);
           }
           
-          // Update conversations list
-          await loadConversations();
+          // Update conversations list (but don't await to avoid blocking)
+          setTimeout(() => loadConversations(), 100);
         }
       }
     );
@@ -98,7 +132,7 @@ const Messages = ({ user }) => {
     return () => {
       messagingRealtime.unsubscribeFromConversation(activeConversation.id);
     };
-  }, [activeConversation?.id, user?.id, loadConversations]);
+  }, [activeConversation?.id, user?.id]);
 
   // Subscribe to typing indicators
   useEffect(() => {
@@ -128,22 +162,19 @@ const Messages = ({ user }) => {
     };
   }, [activeConversation?.id, user?.id]);
 
-  // Load initial data
+  // Load initial conversations
   useEffect(() => {
     if (!user?.id) return;
     
-    const init = async () => {
-      setLoading(true);
-      await loadConversations();
-      setLoading(false);
-    };
-    
-    init();
+    loadConversations();
     
     // Subscribe to new conversations
     const subscription = messagingRealtime.subscribeToUserConversations(
       user.id,
-      () => loadConversations()
+      () => {
+        // Debounce conversation updates
+        setTimeout(() => loadConversations(), 500);
+      }
     );
     
     return () => {
@@ -151,16 +182,34 @@ const Messages = ({ user }) => {
     };
   }, [user?.id, loadConversations]);
 
-  // Scroll to bottom on new messages
+  // Add scroll listener for infinite loading
   useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.addEventListener('scroll', handleScroll);
+      return () => container.removeEventListener('scroll', handleScroll);
+    }
+  }, [handleScroll]);
+
+  // Scroll to bottom when new messages arrive
+  useEffect(() => {
+    if (messagesEndRef.current && messages.length > 0) {
+      // Only auto-scroll if user is near bottom
+      const container = messagesContainerRef.current;
+      if (container) {
+        const isNearBottom = 
+          container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+        
+        if (isNearBottom) {
+          messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+      }
     }
   }, [messages]);
 
   // Handle send message
   const handleSendMessage = async (content, file) => {
-    if (!activeConversation || !user?.id || !content.trim()) return;
+    if (!activeConversation || !user?.id || (!content.trim() && !file)) return;
     
     try {
       let fileData = null;
@@ -214,6 +263,9 @@ const Messages = ({ user }) => {
   const handleSelectConversation = async (conversation) => {
     setActiveConversation(conversation);
     setPage(0);
+    pageRef.current = 0;
+    setMessages([]); // Clear previous messages immediately
+    setHasMoreMessages(true);
     await loadMessages(true);
   };
 
@@ -232,12 +284,18 @@ const Messages = ({ user }) => {
         conversation = {
           id: conversationId,
           is_group: false,
-          participants: []
+          participants: [],
+          unread_count: 0,
+          last_message_preview: 'Start a conversation...'
         };
         setConversations(prev => [conversation, ...prev]);
       }
       
       setActiveConversation(conversation);
+      setPage(0);
+      pageRef.current = 0;
+      setMessages([]);
+      setHasMoreMessages(true);
       await loadMessages(true);
     } catch (error) {
       console.error('Error starting conversation:', error);
@@ -253,7 +311,9 @@ const Messages = ({ user }) => {
     if (conv.is_group) {
       return conv.group_name?.toLowerCase().includes(query);
     } else {
-      const otherParticipant = conv.participants?.find(p => p.id !== user?.id && !p.isCurrentUser);
+      const otherParticipant = conv.participants?.find(p => 
+        p.id !== user?.id && !p.isCurrentUser
+      );
       if (otherParticipant) {
         const fullName = `${otherParticipant.firstname || ''} ${otherParticipant.surname || ''}`.toLowerCase();
         return fullName.includes(query) || 
@@ -287,7 +347,9 @@ const Messages = ({ user }) => {
     if (conversation.is_group) {
       return conversation.group_name || 'Group Chat';
     } else {
-      const otherParticipant = conversation.participants?.find(p => p.id !== user?.id && !p.isCurrentUser);
+      const otherParticipant = conversation.participants?.find(p => 
+        p.id !== user?.id && !p.isCurrentUser
+      );
       if (otherParticipant) {
         return `${otherParticipant.firstname || ''} ${otherParticipant.surname || ''}`.trim() || 'Unknown';
       }
@@ -300,7 +362,9 @@ const Messages = ({ user }) => {
     if (conversation.is_group) {
       return conversation.group_photo_url || null;
     } else {
-      const otherParticipant = conversation.participants?.find(p => p.id !== user?.id && !p.isCurrentUser);
+      const otherParticipant = conversation.participants?.find(p => 
+        p.id !== user?.id && !p.isCurrentUser
+      );
       return otherParticipant?.profile_picture_url || null;
     }
   };
@@ -310,7 +374,9 @@ const Messages = ({ user }) => {
     if (conversation.is_group) {
       return '👥';
     } else {
-      const otherParticipant = conversation.participants?.find(p => p.id !== user?.id && !p.isCurrentUser);
+      const otherParticipant = conversation.participants?.find(p => 
+        p.id !== user?.id && !p.isCurrentUser
+      );
       if (otherParticipant) {
         const initials = `${otherParticipant.firstname?.[0] || ''}${otherParticipant.surname?.[0] || ''}`.toUpperCase();
         return initials || '👤';
@@ -425,14 +491,10 @@ const Messages = ({ user }) => {
       return `${typingParticipants[0].firstname} is typing...`;
     }
     
-    if (typingParticipants.length === 2) {
-      return `${typingParticipants[0].firstname} and ${typingParticipants[1].firstname} are typing...`;
-    }
-    
-    return `${typingParticipants[0].firstname} and ${typingParticipants.length - 1} others are typing...`;
+    return 'Multiple people are typing...';
   };
 
-  if (loading && conversations.length === 0) {
+  if (loadingConversations && conversations.length === 0) {
     return (
       <div className="messages-container">
         <div className="loading-state">
@@ -554,63 +616,78 @@ const Messages = ({ user }) => {
 
             {/* Messages container */}
             <div className="messages-container-scroll" ref={messagesContainerRef}>
-              {hasMoreMessages && (
-                <div className="load-more-indicator">
-                  <button onClick={loadMoreMessages}>Load older messages</button>
+              {loadingMessages && messages.length === 0 ? (
+                <div className="loading-state">
+                  <div className="loading-spinner"></div>
+                  <p>Loading messages...</p>
                 </div>
-              )}
-
-              <div className="messages-list">
-                {messages.map((message, index) => {
-                  const prevMessage = messages[index - 1];
-                  const nextMessage = messages[index + 1];
-                  
-                  const showDate = !prevMessage || 
-                    new Date(message.created_at).toDateString() !== 
-                    new Date(prevMessage.created_at).toDateString();
-                  
-                  const showAvatar = !nextMessage || 
-                    nextMessage.sender_id !== message.sender_id ||
-                    new Date(nextMessage.created_at).getTime() - 
-                    new Date(message.created_at).getTime() > 300000; // 5 minutes
-                    
-                  return (
-                    <React.Fragment key={message.id}>
-                      {showDate && (
-                        <div className="message-date-divider">
-                          <span>{new Date(message.created_at).toLocaleDateString([], { 
-                            weekday: 'long',
-                            year: 'numeric',
-                            month: 'long',
-                            day: 'numeric'
-                          })}</span>
-                        </div>
-                      )}
-                      
-                      {renderMessageBubble(
-                        message,
-                        message.sender_id === user?.id,
-                        showAvatar,
-                        prevMessage?.sender_id === message.sender_id,
-                        nextMessage?.sender_id === message.sender_id
-                      )}
-                    </React.Fragment>
-                  );
-                })}
-                
-                {typingUsers.length > 0 && (
-                  <div className="typing-indicator">
-                    <div className="typing-dots">
-                      <span></span>
-                      <span></span>
-                      <span></span>
+              ) : (
+                <>
+                  {hasMoreMessages && !loadingMessages && (
+                    <div className="load-more-indicator">
+                      <button onClick={loadMoreMessages}>Load older messages</button>
                     </div>
-                    <span className="typing-text">{getTypingNames()}</span>
+                  )}
+                  
+                  {loadingMessages && messages.length > 0 && (
+                    <div className="load-more-indicator">
+                      <div className="loading-spinner small"></div>
+                    </div>
+                  )}
+
+                  <div className="messages-list">
+                    {messages.map((message, index) => {
+                      const prevMessage = messages[index - 1];
+                      const nextMessage = messages[index + 1];
+                      
+                      const showDate = !prevMessage || 
+                        new Date(message.created_at).toDateString() !== 
+                        new Date(prevMessage.created_at).toDateString();
+                      
+                      const showAvatar = !nextMessage || 
+                        nextMessage.sender_id !== message.sender_id ||
+                        new Date(nextMessage.created_at).getTime() - 
+                        new Date(message.created_at).getTime() > 300000; // 5 minutes
+                        
+                      return (
+                        <React.Fragment key={message.id}>
+                          {showDate && (
+                            <div className="message-date-divider">
+                              <span>{new Date(message.created_at).toLocaleDateString([], { 
+                                weekday: 'long',
+                                year: 'numeric',
+                                month: 'long',
+                                day: 'numeric'
+                              })}</span>
+                            </div>
+                          )}
+                          
+                          {renderMessageBubble(
+                            message,
+                            message.sender_id === user?.id,
+                            showAvatar,
+                            prevMessage?.sender_id === message.sender_id,
+                            nextMessage?.sender_id === message.sender_id
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                    
+                    {typingUsers.length > 0 && (
+                      <div className="typing-indicator">
+                        <div className="typing-dots">
+                          <span></span>
+                          <span></span>
+                          <span></span>
+                        </div>
+                        <span className="typing-text">{getTypingNames()}</span>
+                      </div>
+                    )}
+                    
+                    <div ref={messagesEndRef} />
                   </div>
-                )}
-                
-                <div ref={messagesEndRef} />
-              </div>
+                </>
+              )}
             </div>
 
             {/* Message input */}
