@@ -448,45 +448,75 @@ export const messagingAPI = {
       last_read_at: item.last_read_at,
       joined_at: item.joined_at
     }));
-  }
-};
-// Add to lib/messaging.js in the messagingAPI object:
+  },
 
-// Search users to start new chat
-async function searchUsersToMessage(userId, searchQuery = '', limit = 20) {
-  try {
-    const { data, error } = await supabase
-      .from('users')
-      .select('id, email, firstname, surname, university, profile_picture_url')
-      .neq('id', userId)
-      .or(`firstname.ilike.%${searchQuery}%,surname.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%`)
-      .limit(limit);
-    
-    if (error) throw error;
-    return data || [];
-  } catch (error) {
-    console.error('Error searching users:', error);
-    return [];
-  }
-};
+  // NEW FUNCTIONS - Added below:
 
-// Check if conversation already exists between two users
- async function checkExistingConversation(user1Id, user2Id) {
-  try {
-    const { data, error } = await supabase
-      .from('conversations')
-      .select(`
-        id,
-        conversation_participants!inner (user_id)
-      `)
-      .eq('is_group', false)
-      .eq('conversation_participants.user_id', user1Id)
-      .eq('conversation_participants.user_id', user2Id);
-    
-    if (error) throw error;
-    return data?.[0]?.id || null;
-  } catch (error) {
-    console.error('Error checking existing conversation:', error);
-    return null;
+  // Search users to message (for new chat modal)
+  async searchUsersToMessage(userId, searchQuery = '', limit = 20) {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('id, email, firstname, surname, university, profile_picture_url')
+        .neq('id', userId)
+        .or(`firstname.ilike.%${searchQuery}%,surname.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%`)
+        .limit(limit);
+      
+      if (error) {
+        console.error('Error searching users:', error);
+        return [];
+      }
+      
+      return data || [];
+    } catch (error) {
+      console.error('Error in searchUsersToMessage:', error);
+      return [];
+    }
+  },
+
+  // Check if conversation already exists between two users
+  async checkExistingConversation(user1Id, user2Id) {
+    try {
+      // First, find all conversations where user1 is a participant
+      const { data: user1Conversations, error: error1 } = await supabase
+        .from('conversation_participants')
+        .select('conversation_id')
+        .eq('user_id', user1Id);
+      
+      if (error1) throw error1;
+      
+      if (!user1Conversations || user1Conversations.length === 0) {
+        return null;
+      }
+      
+      const conversationIds = user1Conversations.map(c => c.conversation_id);
+      
+      // Check if user2 is in any of these conversations (non-group chats only)
+      const { data: sharedConversations, error: error2 } = await supabase
+        .from('conversation_participants')
+        .select(`
+          conversation_id,
+          conversations!inner (
+            id,
+            is_group
+          )
+        `)
+        .eq('user_id', user2Id)
+        .in('conversation_id', conversationIds)
+        .eq('conversations.is_group', false);
+      
+      if (error2) throw error2;
+      
+      if (!sharedConversations || sharedConversations.length === 0) {
+        return null;
+      }
+      
+      // Return the first matching conversation ID
+      return sharedConversations[0]?.conversation_id || null;
+      
+    } catch (error) {
+      console.error('Error checking existing conversation:', error);
+      return null;
+    }
   }
 };
