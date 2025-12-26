@@ -533,7 +533,7 @@ const CreateDealModal = ({ user, onClose, onCreate }) => {
     
     // Contact
     contact_method: 'whatsapp',
-    contact_info: user?.email || '',
+    contact_info: '',
   });
 
   const handleSubmit = async (e) => {
@@ -808,7 +808,7 @@ const CreateDealModal = ({ user, onClose, onCreate }) => {
               <label>Contact Information *</label>
               <input
                 type="text"
-                placeholder="Phone number or email"
+                placeholder= {form.contact_method}
                 value={form.contact_info}
                 onChange={(e) => setForm({...form, contact_info: e.target.value})}
                 required
