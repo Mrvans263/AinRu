@@ -808,7 +808,7 @@ const CreateDealModal = ({ user, onClose, onCreate }) => {
               <label>{user.contact_method} Contact *</label>
               <input
                 type="text" 
-                placeholder= {user.contact_method + " contact"} 
+                placeholder= {user?.contact_method + " contact"} 
                 value={form.contact_info}
                 onChange={(e) => setForm({...form, contact_info: e.target.value})}
                 required
