@@ -552,15 +552,15 @@ const PostCard = ({ post, currentUser, onLove, onComment, formatTimeAgo, getInit
 
       <div className="post-stats">
         <div className="stat-item">
-          <span className="stat-icon">❤️</span>
+          <span className="stat-icon"></span>
           <span className="stat-count">{post.like_count || 0}</span>
         </div>
         <div className="stat-item">
-          <span className="stat-icon">💬</span>
+          <span className="stat-icon"></span>
           <span className="stat-count">{post.comment_count || 0}</span>
         </div>
         <div className="stat-item">
-          <span className="stat-icon">↪️</span>
+          <span className="stat-icon"></span>
           <span className="stat-count">{post.share_count || 0}</span>
         </div>
       </div>
