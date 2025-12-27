@@ -400,12 +400,18 @@ const Feed = () => {
           <div className="post-form-header">
             <div className="user-avatar">
               {user?.user_metadata?.avatar_url ? (
-                <img src={user.user_metadata.avatar_url} alt="Profile" />
-              ) : (
-                <div className="avatar-fallback gradient-bg">
-                  {getInitials(user?.user_metadata?.firstname, user?.user_metadata?.surname)}
-                </div>
-              )}
+                <img 
+                  src={user.user_metadata.avatar_url} 
+                  alt="Profile" 
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                    e.target.parentElement.querySelector('.avatar-fallback').style.display = 'flex';
+                  }}
+                />
+              ) : null}
+              <div className={`avatar-fallback ${user?.user_metadata?.avatar_url ? 'hidden' : ''}`}>
+                {getInitials(user?.user_metadata?.firstname, user?.user_metadata?.surname)}
+              </div>
             </div>
             <div className="post-input-wrapper">
               <textarea
@@ -580,14 +586,20 @@ const PostCard = ({
     <div className={`post-card glassmorphism ${post.isNewPost ? 'new-post-highlight' : ''}`}>
       <div className="post-header">
         <div className="post-author">
-          <div className="author-avatar gradient-bg">
+          <div className="author-avatar">
             {post.user?.profile_picture_url ? (
-              <img src={post.user.profile_picture_url} alt={post.user.firstname} />
-            ) : (
-              <div className="avatar-fallback">
-                {getInitials(post.user?.firstname, post.user?.surname)}
-              </div>
-            )}
+              <img 
+                src={post.user.profile_picture_url} 
+                alt={post.user.firstname}
+                onError={(e) => {
+                  e.target.style.display = 'none';
+                  e.target.parentElement.querySelector('.avatar-fallback').style.display = 'flex';
+                }}
+              />
+            ) : null}
+            <div className={`avatar-fallback ${post.user?.profile_picture_url ? 'hidden' : ''}`}>
+              {getInitials(post.user?.firstname, post.user?.surname)}
+            </div>
           </div>
           <div className="author-details">
             <div className="author-name">
@@ -632,6 +644,10 @@ const PostCard = ({
               alt="Post" 
               className="post-image"
               loading="lazy"
+              onError={(e) => {
+                e.target.style.display = 'none';
+                e.target.parentElement.innerHTML = '<div class="image-error">Image failed to load</div>';
+              }}
             />
           </div>
         )}
@@ -681,15 +697,21 @@ const PostCard = ({
           <div className="comment-input-wrapper">
             <div className="comment-avatar small">
               {currentUser?.user_metadata?.avatar_url ? (
-                <img src={currentUser.user_metadata.avatar_url} alt="You" />
-              ) : (
-                <div className="avatar-fallback small gradient-bg">
-                  {getInitials(
-                    currentUser?.user_metadata?.firstname,
-                    currentUser?.user_metadata?.surname
-                  )}
-                </div>
-              )}
+                <img 
+                  src={currentUser.user_metadata.avatar_url} 
+                  alt="You"
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                    e.target.parentElement.querySelector('.avatar-fallback').style.display = 'flex';
+                  }}
+                />
+              ) : null}
+              <div className={`avatar-fallback small ${currentUser?.user_metadata?.avatar_url ? 'hidden' : ''}`}>
+                {getInitials(
+                  currentUser?.user_metadata?.firstname,
+                  currentUser?.user_metadata?.surname
+                )}
+              </div>
             </div>
             <div className="comment-input-container">
               <input
@@ -718,12 +740,18 @@ const PostCard = ({
             <div key={comment.id} className="comment-item">
               <div className="comment-avatar small">
                 {comment.user?.profile_picture_url ? (
-                  <img src={comment.user.profile_picture_url} alt={comment.user.firstname} />
-                ) : (
-                  <div className="avatar-fallback small gradient-bg">
-                    {getInitials(comment.user?.firstname, comment.user?.surname)}
-                  </div>
-                )}
+                  <img 
+                    src={comment.user.profile_picture_url} 
+                    alt={comment.user.firstname}
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                      e.target.parentElement.querySelector('.avatar-fallback').style.display = 'flex';
+                    }}
+                  />
+                ) : null}
+                <div className={`avatar-fallback small ${comment.user?.profile_picture_url ? 'hidden' : ''}`}>
+                  {getInitials(comment.user?.firstname, comment.user?.surname)}
+                </div>
               </div>
               <div className="comment-content">
                 <div className="comment-header">

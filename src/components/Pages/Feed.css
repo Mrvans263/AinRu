@@ -1,4 +1,4 @@
-/* Feed.css - Beautiful Modern Design */
+/* Feed.css - Fixed Profile Photos & Mobile Layout */
 
 :root {
   --primary: #6366f1;
@@ -119,13 +119,15 @@ body {
   box-shadow: var(--shadow-lg);
 }
 
-/* Create Post Card */
+/* FIXED: Create Post Card */
 .create-post-card {
   border-radius: var(--radius-xl);
   padding: 24px;
   margin-bottom: 32px;
   transition: all 0.3s ease;
   border: 1px solid rgba(255, 255, 255, 0.3);
+  width: 100%;
+  display: block;
 }
 
 .create-post-card:hover {
@@ -138,8 +140,10 @@ body {
   align-items: flex-start;
   gap: 16px;
   margin-bottom: 20px;
+  width: 100%;
 }
 
+/* FIXED: User Avatar - PROPER PROFILE PHOTO STYLING */
 .user-avatar {
   width: 56px;
   height: 56px;
@@ -148,6 +152,15 @@ body {
   flex-shrink: 0;
   border: 3px solid white;
   box-shadow: var(--shadow-lg);
+  position: relative;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+}
+
+.user-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .avatar-fallback {
@@ -159,6 +172,11 @@ body {
   color: white;
   font-weight: 600;
   font-size: 1.25rem;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+}
+
+.avatar-fallback.hidden {
+  display: none;
 }
 
 .gradient-bg {
@@ -167,6 +185,7 @@ body {
 
 .post-input-wrapper {
   flex: 1;
+  width: calc(100% - 72px); /* Account for avatar + gap */
 }
 
 .post-input {
@@ -275,11 +294,14 @@ body {
   align-items: center;
   padding-top: 20px;
   border-top: 1px solid rgba(0, 0, 0, 0.1);
+  flex-wrap: wrap;
+  gap: 16px;
 }
 
 .action-icons {
   display: flex;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .action-icon-btn {
@@ -295,6 +317,7 @@ body {
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
+  white-space: nowrap;
 }
 
 .action-icon-btn:hover {
@@ -313,6 +336,7 @@ body {
   cursor: pointer;
   transition: all 0.3s ease;
   box-shadow: 0 4px 6px rgba(99, 102, 241, 0.3);
+  white-space: nowrap;
 }
 
 .gradient-btn:hover:not(:disabled) {
@@ -325,7 +349,7 @@ body {
   cursor: not-allowed;
 }
 
-/* Tabs */
+/* FIXED: Tabs - Single Row on Mobile */
 .feed-tabs {
   display: flex;
   gap: 8px;
@@ -335,10 +359,18 @@ body {
   backdrop-filter: blur(10px);
   border-radius: var(--radius-full);
   border: 1px solid rgba(255, 255, 255, 0.2);
+  width: 100%;
+  overflow-x: auto;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.feed-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .tab-btn {
-  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -352,6 +384,7 @@ body {
   font-weight: 500;
   cursor: pointer;
   transition: all 0.3s ease;
+  flex-shrink: 0;
 }
 
 .tab-btn:hover {
@@ -364,13 +397,23 @@ body {
   box-shadow: var(--shadow-md);
 }
 
-/* Post Card */
+/* FIXED: Posts Feed - Single Column Layout */
+.posts-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+}
+
+/* FIXED: Post Card - Proper Single Column */
 .post-card {
   border-radius: var(--radius-xl);
   padding: 24px;
-  margin-bottom: 24px;
   transition: all 0.3s ease;
   border: 1px solid rgba(255, 255, 255, 0.3);
+  width: 100%;
+  display: block;
+  margin: 0;
 }
 
 .post-card:hover {
@@ -397,16 +440,40 @@ body {
   justify-content: space-between;
   align-items: flex-start;
   margin-bottom: 20px;
+  width: 100%;
 }
 
 .post-author {
   display: flex;
   gap: 16px;
   align-items: flex-start;
+  flex: 1;
+  min-width: 0; /* Prevent overflow */
+}
+
+/* FIXED: Author Avatar - Consistent Profile Photos */
+.author-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  flex-shrink: 0;
+  border: 3px solid white;
+  box-shadow: var(--shadow-lg);
+  position: relative;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+}
+
+.author-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .author-details {
   flex: 1;
+  min-width: 0; /* Prevent text overflow */
 }
 
 .author-name {
@@ -416,6 +483,7 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .you-badge {
@@ -424,6 +492,7 @@ body {
   border-radius: var(--radius-full);
   background: var(--primary-light);
   color: white;
+  white-space: nowrap;
 }
 
 .post-meta {
@@ -433,16 +502,19 @@ body {
   margin-top: 4px;
   font-size: 0.875rem;
   color: var(--gray-500);
+  flex-wrap: wrap;
 }
 
 .post-time {
   font-size: 0.75rem;
+  white-space: nowrap;
 }
 
 .post-visibility {
   display: flex;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
 }
 
 .post-menu-btn {
@@ -453,6 +525,8 @@ body {
   cursor: pointer;
   border-radius: var(--radius-full);
   transition: all 0.2s ease;
+  flex-shrink: 0;
+  margin-left: 8px;
 }
 
 .post-menu-btn:hover {
@@ -463,6 +537,7 @@ body {
 /* Post Content */
 .post-content {
   margin-bottom: 20px;
+  width: 100%;
 }
 
 .post-text {
@@ -472,6 +547,7 @@ body {
   margin-bottom: 20px;
   white-space: pre-wrap;
   word-break: break-word;
+  width: 100%;
 }
 
 .read-more-btn {
@@ -486,6 +562,7 @@ body {
   border-radius: var(--radius-full);
   cursor: pointer;
   transition: all 0.2s ease;
+  white-space: nowrap;
 }
 
 .read-more-btn:hover {
@@ -496,6 +573,7 @@ body {
   border-radius: var(--radius-lg);
   overflow: hidden;
   margin-top: 16px;
+  width: 100%;
 }
 
 .post-image {
@@ -504,10 +582,23 @@ body {
   object-fit: cover;
   transition: transform 0.3s ease;
   cursor: zoom-in;
+  display: block;
 }
 
 .post-image:hover {
   transform: scale(1.02);
+}
+
+.image-error {
+  width: 100%;
+  height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gray-100);
+  color: var(--gray-500);
+  border-radius: var(--radius-lg);
+  font-size: 0.875rem;
 }
 
 /* Post Stats */
@@ -518,6 +609,7 @@ body {
   border-top: 1px solid var(--gray-200);
   border-bottom: 1px solid var(--gray-200);
   margin-bottom: 16px;
+  flex-wrap: wrap;
 }
 
 .stat {
@@ -527,6 +619,7 @@ body {
   font-size: 0.875rem;
   color: var(--gray-600);
   font-weight: 500;
+  white-space: nowrap;
 }
 
 /* Post Actions Bar */
@@ -534,6 +627,7 @@ body {
   display: flex;
   gap: 4px;
   margin-bottom: 20px;
+  width: 100%;
 }
 
 .post-action-btn {
@@ -551,6 +645,8 @@ body {
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
+  min-width: 0; /* Allow buttons to shrink */
+  white-space: nowrap;
 }
 
 .post-action-btn:hover {
@@ -570,14 +666,17 @@ body {
 /* Add Comment Section */
 .add-comment-section {
   margin-bottom: 20px;
+  width: 100%;
 }
 
 .comment-input-wrapper {
   display: flex;
   gap: 12px;
   align-items: center;
+  width: 100%;
 }
 
+/* FIXED: Comment Avatar - Proper Small Profile Photos */
 .comment-avatar.small {
   width: 40px;
   height: 40px;
@@ -586,11 +685,33 @@ body {
   flex-shrink: 0;
   border: 2px solid white;
   box-shadow: var(--shadow-sm);
+  position: relative;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+}
+
+.comment-avatar.small img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.avatar-fallback.small {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: 600;
+  font-size: 0.875rem;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
 }
 
 .comment-input-container {
   flex: 1;
   position: relative;
+  min-width: 0;
 }
 
 .comment-input {
@@ -639,6 +760,7 @@ body {
 /* Comments Section */
 .comments-section {
   animation: slideUp 0.3s ease-out;
+  width: 100%;
 }
 
 .comment-item {
@@ -649,6 +771,7 @@ body {
   background: var(--gray-50);
   border-radius: var(--radius-lg);
   transition: all 0.2s ease;
+  width: 100%;
 }
 
 .comment-item:hover {
@@ -658,6 +781,7 @@ body {
 
 .comment-content {
   flex: 1;
+  min-width: 0;
 }
 
 .comment-header {
@@ -665,17 +789,21 @@ body {
   justify-content: space-between;
   align-items: flex-start;
   margin-bottom: 8px;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .comment-author {
   font-size: 0.875rem;
   font-weight: 600;
   color: var(--gray-900);
+  white-space: nowrap;
 }
 
 .comment-time {
   font-size: 0.75rem;
   color: var(--gray-500);
+  white-space: nowrap;
 }
 
 .comment-text {
@@ -683,6 +811,7 @@ body {
   line-height: 1.5;
   color: var(--gray-700);
   margin-bottom: 8px;
+  word-break: break-word;
 }
 
 .comment-actions {
@@ -701,6 +830,7 @@ body {
   border-radius: var(--radius-full);
   cursor: pointer;
   transition: all 0.2s ease;
+  white-space: nowrap;
 }
 
 .comment-like-btn:hover,
@@ -720,6 +850,7 @@ body {
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
+  white-space: nowrap;
 }
 
 .view-more-comments-btn:hover {
@@ -737,6 +868,7 @@ body {
   background: white;
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-lg);
+  width: 100%;
 }
 
 .spinner {
@@ -760,6 +892,7 @@ body {
   padding: 64px 32px;
   border-radius: var(--radius-xl);
   margin-top: 20px;
+  width: 100%;
 }
 
 .no-posts-icon {
@@ -836,10 +969,11 @@ body {
   }
 }
 
-/* Responsive Design */
+/* FIXED: Mobile Responsive Design */
 @media (max-width: 768px) {
   .feed-container {
     padding: 16px 12px;
+    width: 100%;
   }
   
   .header-content {
@@ -852,11 +986,26 @@ body {
   
   .create-post-card,
   .post-card {
-    padding: 20px;
+    padding: 20px 16px;
+    width: 100%;
+  }
+  
+  .post-form-header {
+    gap: 12px;
+  }
+  
+  .user-avatar,
+  .author-avatar {
+    width: 48px;
+    height: 48px;
+  }
+  
+  .avatar-fallback {
+    font-size: 1rem;
   }
   
   .feed-tabs {
-    overflow-x: auto;
+    gap: 4px;
     padding: 6px;
   }
   
@@ -873,41 +1022,157 @@ body {
   
   .action-icons {
     justify-content: center;
+    gap: 8px;
+  }
+  
+  .action-icon-btn {
+    padding: 8px 12px;
+    font-size: 0.8125rem;
   }
   
   .gradient-btn {
     width: 100%;
   }
-}
-
-@media (max-width: 480px) {
-  .post-form-header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-  
-  .user-avatar {
-    margin-bottom: 12px;
-  }
   
   .post-actions-bar {
-    flex-direction: column;
-    gap: 8px;
+    flex-direction: row;
+    gap: 2px;
   }
   
   .post-action-btn {
-    justify-content: flex-start;
-    padding: 10px 16px;
+    padding: 10px 8px;
+    font-size: 0.8125rem;
+  }
+  
+  .post-stats {
+    gap: 16px;
+  }
+  
+  .stat {
+    font-size: 0.8125rem;
+  }
+  
+  .comment-input-wrapper {
+    gap: 8px;
+  }
+  
+  .comment-avatar.small {
+    width: 36px;
+    height: 36px;
+  }
+  
+  .avatar-fallback.small {
+    font-size: 0.75rem;
+  }
+  
+  .comment-input {
+    padding: 10px 48px 10px 12px;
+    font-size: 0.8125rem;
+  }
+}
+
+/* Extra Small Phones */
+@media (max-width: 480px) {
+  .feed-container {
+    padding: 12px 8px;
+  }
+  
+  .create-post-card,
+  .post-card {
+    padding: 16px 12px;
+    border-radius: var(--radius-lg);
+  }
+  
+  .post-form-header {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+  
+  .user-avatar,
+  .author-avatar {
+    width: 40px;
+    height: 40px;
+    border-width: 2px;
+  }
+  
+  .post-input {
+    min-height: 100px;
+    padding: 12px;
+    font-size: 0.875rem;
+  }
+  
+  .visibility-select {
+    padding: 6px 12px;
+    font-size: 0.75rem;
+  }
+  
+  .tab-btn {
+    padding: 8px 12px;
+    font-size: 0.75rem;
+  }
+  
+  .tab-btn span {
+    display: none;
+  }
+  
+  .tab-btn .tab-icon,
+  .tab-btn svg {
+    display: block;
+    margin: 0;
+  }
+  
+  .author-name {
+    font-size: 0.875rem;
+  }
+  
+  .post-meta {
+    font-size: 0.75rem;
+  }
+  
+  .post-text {
+    font-size: 0.875rem;
+  }
+  
+  .post-action-btn span {
+    display: none;
+  }
+  
+  .post-action-btn svg {
+    margin: 0;
   }
   
   .comment-item {
-    flex-direction: column;
-    align-items: flex-start;
+    padding: 12px;
   }
   
-  .comment-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 4px;
+  .comment-avatar.small {
+    width: 32px;
+    height: 32px;
   }
+  
+  .comment-input {
+    font-size: 0.75rem;
+    padding: 8px 44px 8px 12px;
+  }
+  
+  .comment-submit-btn {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+/* Prevent horizontal scrolling */
+body {
+  overflow-x: hidden;
+}
+
+.feed-container {
+  overflow-x: hidden;
+}
+
+/* Ensure single column layout */
+.posts-feed > * {
+  width: 100%;
+  max-width: 100%;
+  flex: 0 0 auto;
 }
