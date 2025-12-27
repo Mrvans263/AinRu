@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
-import { Heart, MessageCircle, Share2, Image as ImageIcon, MapPin, Smile, Globe, Users, Lock, MoreVertical, Send, Clock, Zap, Sparkles, TrendingUp, Star, Users as UsersIcon, Award, Target } from 'lucide-react';
+import { Heart, MessageCircle, Share2, Image as ImageIcon, MapPin, Smile, Globe, Users, Lock, MoreVertical, Send, Clock, Zap, Sparkles, TrendingUp, Users as UsersIcon, Award } from 'lucide-react';
 import './Feed.css';
 
 const Feed = () => {
@@ -13,12 +13,8 @@ const Feed = () => {
   const [visibility, setVisibility] = useState('public');
   const [activeTab, setActiveTab] = useState('all');
   const [commentInputs, setCommentInputs] = useState({});
-  const [hoveredPost, setHoveredPost] = useState(null);
   const [isComposing, setIsComposing] = useState(false);
   const [stats, setStats] = useState({ totalPosts: 0, activeUsers: 0, trendingPosts: 0 });
-
-  const postInputRef = useRef(null);
-  const feedContainerRef = useRef(null);
 
   useEffect(() => {
     checkUser();
@@ -180,7 +176,7 @@ const Feed = () => {
         animationDelay: 0
       }, ...prev]);
 
-      // Animate the new post
+      // Show success message
       const successMsg = document.createElement('div');
       successMsg.className = 'post-success-message';
       successMsg.innerHTML = `
@@ -190,7 +186,7 @@ const Feed = () => {
       document.body.appendChild(successMsg);
       setTimeout(() => successMsg.remove(), 3000);
 
-      // Reset form with animation
+      // Reset form
       setTimeout(() => {
         setNewPost('');
         setImagePreview(null);
@@ -421,21 +417,11 @@ const Feed = () => {
     }
   };
 
-  const scrollToTop = () => {
-    feedContainerRef.current?.scrollTo({
-      top: 0,
-      behavior: 'smooth'
-    });
-  };
-
   if (loading && posts.length === 0) {
     return (
       <div className="feed-container">
         <div className="loading-container">
-          <div className="loading-spinner-animation">
-            <div className="spinner-ring"></div>
-            <div className="spinner-ring"></div>
-            <div className="spinner-ring"></div>
+          <div className="loading-spinner">
             <div className="spinner-ring"></div>
           </div>
           <p className="loading-text">Loading campus feed...</p>
@@ -445,25 +431,12 @@ const Feed = () => {
   }
 
   return (
-    <div className="feed-container" ref={feedContainerRef}>
+    <div className="feed-container">
       {/* Floating Elements */}
       <div className="floating-elements">
         <div className="floating-icon floating-icon-1">✨</div>
         <div className="floating-icon floating-icon-2">🌟</div>
         <div className="floating-icon floating-icon-3">🎯</div>
-        <div className="floating-icon floating-icon-4">🔥</div>
-      </div>
-
-      {/* Animated Particles Background */}
-      <div className="particles-container">
-        {[...Array(15)].map((_, i) => (
-          <div key={i} className="particle" style={{
-            '--delay': `${i * 0.2}s`,
-            '--size': `${Math.random() * 4 + 2}px`,
-            '--x': `${Math.random() * 100}%`,
-            '--y': `${Math.random() * 100}%`
-          }}></div>
-        ))}
       </div>
 
       <div className="feed-header">
@@ -480,7 +453,7 @@ const Feed = () => {
         
         {/* Animated Stats Bar */}
         <div className="stats-bar">
-          <div className="stat-card pulse-animation">
+          <div className="stat-card">
             <div className="stat-icon-wrapper">
               <TrendingUp size={20} />
             </div>
@@ -490,7 +463,7 @@ const Feed = () => {
             </div>
           </div>
           
-          <div className="stat-card pulse-animation" style={{ animationDelay: '0.2s' }}>
+          <div className="stat-card">
             <div className="stat-icon-wrapper">
               <UsersIcon size={20} />
             </div>
@@ -500,7 +473,7 @@ const Feed = () => {
             </div>
           </div>
           
-          <div className="stat-card pulse-animation" style={{ animationDelay: '0.4s' }}>
+          <div className="stat-card">
             <div className="stat-icon-wrapper">
               <Zap size={20} />
             </div>
@@ -515,7 +488,7 @@ const Feed = () => {
       {user && (
         <div className={`create-post-card glassmorphism ${isComposing ? 'pulsing' : ''}`}>
           <div className="post-form-header">
-            <div className="user-avatar floating-avatar">
+            <div className="user-avatar">
               {user?.user_metadata?.avatar_url ? (
                 <img 
                   src={user.user_metadata.avatar_url} 
@@ -529,11 +502,9 @@ const Feed = () => {
               <div className={`avatar-fallback ${user?.user_metadata?.avatar_url ? 'hidden' : ''}`}>
                 {getInitials(user?.user_metadata?.firstname, user?.user_metadata?.surname)}
               </div>
-              <div className="avatar-status-indicator"></div>
             </div>
             <div className="post-input-wrapper">
               <textarea
-                ref={postInputRef}
                 className="post-input"
                 placeholder="What's happening on campus?"
                 value={newPost}
@@ -563,7 +534,7 @@ const Feed = () => {
           </div>
 
           {imagePreview && (
-            <div className="image-preview-container scale-in">
+            <div className="image-preview-container">
               <img src={imagePreview} alt="Preview" className="image-preview" />
               <button 
                 type="button" 
@@ -580,7 +551,7 @@ const Feed = () => {
 
           <div className="post-actions">
             <div className="action-icons">
-              <label className="action-icon-btn hover-lift">
+              <label className="action-icon-btn">
                 <ImageIcon size={20} />
                 <span>Photo</span>
                 <input
@@ -590,42 +561,34 @@ const Feed = () => {
                   hidden
                 />
               </label>
-              <button type="button" className="action-icon-btn hover-lift">
+              <button type="button" className="action-icon-btn">
                 <Smile size={20} />
                 <span>Feeling</span>
               </button>
-              <button type="button" className="action-icon-btn hover-lift">
+              <button type="button" className="action-icon-btn">
                 <MapPin size={20} />
                 <span>Location</span>
-              </button>
-              <button type="button" className="action-icon-btn hover-lift">
-                <Sparkles size={20} />
-                <span>Activity</span>
               </button>
             </div>
             <button 
               type="submit" 
-              className={`post-submit-btn gradient-btn ${isComposing ? 'publishing' : ''}`}
+              className="post-submit-btn gradient-btn"
               onClick={handleCreatePost}
               disabled={!newPost.trim() && !imageFile}
             >
               <span className="btn-text">Post</span>
-              <span className="btn-sparkle">✨</span>
             </button>
           </div>
         </div>
       )}
 
-      <div className="feed-tabs slide-in">
+      <div className="feed-tabs">
         <button 
           className={`tab-btn ${activeTab === 'all' ? 'active' : ''}`}
           onClick={() => setActiveTab('all')}
         >
-          <div className="tab-icon-wrapper">
-            <Globe size={16} />
-          </div>
+          <Globe size={16} />
           <span>All Posts</span>
-          {activeTab === 'all' && <div className="active-indicator"></div>}
         </button>
         {user && (
           <>
@@ -633,21 +596,15 @@ const Feed = () => {
               className={`tab-btn ${activeTab === 'following' ? 'active' : ''}`}
               onClick={() => setActiveTab('following')}
             >
-              <div className="tab-icon-wrapper">
-                <Users size={16} />
-              </div>
+              <Users size={16} />
               <span>Following</span>
-              {activeTab === 'following' && <div className="active-indicator"></div>}
             </button>
             <button 
               className={`tab-btn ${activeTab === 'my' ? 'active' : ''}`}
               onClick={() => setActiveTab('my')}
             >
-              <div className="tab-icon-wrapper">
-                <Award size={16} />
-              </div>
+              <Award size={16} />
               <span>My Posts</span>
-              {activeTab === 'my' && <div className="active-indicator"></div>}
             </button>
           </>
         )}
@@ -655,12 +612,12 @@ const Feed = () => {
 
       <div className="posts-feed">
         {posts.length === 0 ? (
-          <div className="no-posts glassmorphism pulse-gentle">
-            <div className="no-posts-icon floating">📰</div>
+          <div className="no-posts glassmorphism">
+            <div className="no-posts-icon">📰</div>
             <h3>No posts yet</h3>
             <p>Be the first to share something with the campus!</p>
             {!user && (
-              <button className="login-prompt-btn hover-lift" onClick={() => window.location.href = '/login'}>
+              <button className="login-prompt-btn" onClick={() => window.location.href = '/login'}>
                 Login to post
               </button>
             )}
@@ -680,20 +637,12 @@ const Feed = () => {
               commentInput={commentInputs[post.id] || ''}
               onCommentInputChange={(value) => handleCommentInputChange(post.id, value)}
               onKeyPress={(e) => handleKeyPress(e, post.id)}
-              onMouseEnter={() => setHoveredPost(post.id)}
-              onMouseLeave={() => setHoveredPost(null)}
-              isHovered={hoveredPost === post.id}
               animationDelay={post.animationDelay}
               index={index}
             />
           ))
         )}
       </div>
-
-      {/* Scroll to Top Button */}
-      <button className="scroll-to-top hover-lift" onClick={scrollToTop}>
-        <Sparkles size={20} />
-      </button>
     </div>
   );
 };
@@ -710,26 +659,17 @@ const PostCard = ({
   commentInput,
   onCommentInputChange,
   onKeyPress,
-  onMouseEnter,
-  onMouseLeave,
-  isHovered,
   animationDelay,
   index
 }) => {
   const [isLiking, setIsLiking] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [likeAnimation, setLikeAnimation] = useState(false);
-  const cardRef = useRef(null);
 
   const handleLike = async () => {
     if (isLiking) return;
     setIsLiking(true);
     setLikeAnimation(true);
-    
-    // Create floating hearts animation
-    for (let i = 0; i < 5; i++) {
-      createFloatingHeart(cardRef.current);
-    }
     
     await onLike(post.id, post.userHasLiked);
     setIsLiking(false);
@@ -737,27 +677,8 @@ const PostCard = ({
     setTimeout(() => setLikeAnimation(false), 1000);
   };
 
-  const createFloatingHeart = (container) => {
-    const heart = document.createElement('div');
-    heart.className = 'floating-heart';
-    heart.innerHTML = '❤️';
-    heart.style.left = `${Math.random() * 100}%`;
-    container.appendChild(heart);
-    
-    setTimeout(() => {
-      heart.remove();
-    }, 1000);
-  };
-
   const handleSubmitComment = async () => {
     if (!commentInput.trim()) return;
-    
-    // Add comment animation
-    const commentBtn = document.querySelector(`.comment-submit-btn[data-post="${post.id}"]`);
-    if (commentBtn) {
-      commentBtn.classList.add('commenting');
-      setTimeout(() => commentBtn.classList.remove('commenting'), 500);
-    }
     
     await onComment(post.id, commentInput);
   };
@@ -769,18 +690,12 @@ const PostCard = ({
 
   return (
     <div 
-      ref={cardRef}
-      className={`post-card glassmorphism slide-up ${post.isNewPost ? 'new-post-highlight' : ''} ${isHovered ? 'hovered' : ''}`}
+      className={`post-card glassmorphism slide-up ${post.isNewPost ? 'new-post-highlight' : ''}`}
       style={{ animationDelay: `${animationDelay}s` }}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
     >
-      {/* Post Glow Effect */}
-      <div className="post-glow"></div>
-      
       <div className="post-header">
         <div className="post-author">
-          <div className="author-avatar floating-avatar">
+          <div className="author-avatar">
             {post.user?.profile_picture_url ? (
               <img 
                 src={post.user.profile_picture_url} 
@@ -794,13 +709,12 @@ const PostCard = ({
             <div className={`avatar-fallback ${post.user?.profile_picture_url ? 'hidden' : ''}`}>
               {getInitials(post.user?.firstname, post.user?.surname)}
             </div>
-            <div className="avatar-status-indicator"></div>
           </div>
           <div className="author-details">
             <div className="author-name">
               {post.user?.firstname || 'User'} {post.user?.surname || ''}
               {post.user_id === currentUser?.id && (
-                <span className="you-badge pulse-gentle">You</span>
+                <span className="you-badge">You</span>
               )}
             </div>
             <div className="post-meta">
@@ -811,17 +725,12 @@ const PostCard = ({
                 {post.visibility === 'friends' && <Users size={12} />}
                 {post.visibility === 'private' && <Lock size={12} />}
               </span>
-              {index < 3 && (
-                <span className="trending-badge pulse-animation">
-                  <Zap size={10} /> Trending
-                </span>
-              )}
             </div>
           </div>
         </div>
         
         {post.user_id === currentUser?.id && (
-          <button className="post-menu-btn hover-lift">
+          <button className="post-menu-btn">
             <MoreVertical size={20} />
           </button>
         )}
@@ -831,14 +740,14 @@ const PostCard = ({
         <p className="post-text">
           {displayContent}
           {needsExpansion && (
-            <button className="read-more-btn hover-lift" onClick={onToggleExpand}>
+            <button className="read-more-btn" onClick={onToggleExpand}>
               Read more
             </button>
           )}
         </p>
         
         {post.image_url && (
-          <div className="post-image-container scale-in">
+          <div className="post-image-container">
             <img 
               src={post.image_url} 
               alt="Post" 
@@ -849,7 +758,6 @@ const PostCard = ({
                 e.target.parentElement.innerHTML = '<div class="image-error">Image failed to load</div>';
               }}
             />
-            <div className="image-overlay"></div>
           </div>
         )}
       </div>
@@ -858,9 +766,6 @@ const PostCard = ({
         <div className="stat">
           <Heart size={14} className={likeAnimation ? 'pulse-heart' : ''} />
           <span>{post.like_count || 0} likes</span>
-          {post.like_count > 10 && (
-            <span className="hot-indicator pulse-animation">🔥 Hot</span>
-          )}
         </div>
         <div className="stat">
           <MessageCircle size={14} />
@@ -874,33 +779,32 @@ const PostCard = ({
 
       <div className="post-actions-bar">
         <button 
-          className={`post-action-btn hover-lift ${post.userHasLiked ? 'liked' : ''} ${likeAnimation ? 'animating' : ''}`}
+          className={`post-action-btn ${post.userHasLiked ? 'liked' : ''}`}
           onClick={handleLike}
           disabled={isLiking}
         >
-          <Heart size={18} fill={post.userHasLiked ? 'currentColor' : 'none'} className={likeAnimation ? 'heart-beat' : ''} />
+          <Heart size={18} fill={post.userHasLiked ? 'currentColor' : 'none'} />
           <span>{post.userHasLiked ? 'Liked' : 'Like'}</span>
-          {likeAnimation && <div className="like-ripple"></div>}
         </button>
         
         <button 
-          className="post-action-btn hover-lift"
+          className="post-action-btn"
           onClick={() => setShowComments(!showComments)}
         >
           <MessageCircle size={18} />
           <span>Comment</span>
         </button>
         
-        <button className="post-action-btn hover-lift">
+        <button className="post-action-btn">
           <Share2 size={18} />
           <span>Share</span>
         </button>
       </div>
 
       {currentUser && (
-        <div className="add-comment-section slide-in">
+        <div className="add-comment-section">
           <div className="comment-input-wrapper">
-            <div className="comment-avatar small floating-avatar">
+            <div className="comment-avatar small">
               {currentUser?.user_metadata?.avatar_url ? (
                 <img 
                   src={currentUser.user_metadata.avatar_url} 
@@ -928,10 +832,9 @@ const PostCard = ({
                 onKeyPress={(e) => onKeyPress(e)}
               />
               <button 
-                className="comment-submit-btn hover-lift"
+                className="comment-submit-btn"
                 onClick={handleSubmitComment}
                 disabled={!commentInput.trim()}
-                data-post={post.id}
               >
                 <Send size={18} />
               </button>
@@ -941,10 +844,10 @@ const PostCard = ({
       )}
 
       {showComments && post.comments && post.comments.length > 0 && (
-        <div className="comments-section slide-in">
+        <div className="comments-section">
           {post.comments.map((comment, i) => (
             <div key={comment.id} className="comment-item fade-in" style={{ animationDelay: `${i * 0.1}s` }}>
-              <div className="comment-avatar small floating-avatar">
+              <div className="comment-avatar small">
                 {comment.user?.profile_picture_url ? (
                   <img 
                     src={comment.user.profile_picture_url} 
@@ -970,15 +873,15 @@ const PostCard = ({
                 </div>
                 <p className="comment-text">{comment.content}</p>
                 <div className="comment-actions">
-                  <button className="comment-like-btn hover-lift">Like</button>
-                  <button className="comment-reply-btn hover-lift">Reply</button>
+                  <button className="comment-like-btn">Like</button>
+                  <button className="comment-reply-btn">Reply</button>
                 </div>
               </div>
             </div>
           ))}
           
           {post.comment_count > post.comments.length && (
-            <button className="view-more-comments-btn hover-lift">
+            <button className="view-more-comments-btn">
               View all {post.comment_count} comments
             </button>
           )}
