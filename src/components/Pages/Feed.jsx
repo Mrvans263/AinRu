@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
+import { Heart, MessageCircle, Share2, Image as ImageIcon, MapPin, Smile, Globe, Users, Lock, MoreVertical, Send, Clock } from 'lucide-react';
 import './Feed.css';
 
 const Feed = () => {
@@ -11,6 +12,7 @@ const Feed = () => {
   const [imageFile, setImageFile] = useState(null);
   const [visibility, setVisibility] = useState('public');
   const [activeTab, setActiveTab] = useState('all');
+  const [commentInputs, setCommentInputs] = useState({});
 
   useEffect(() => {
     checkUser();
@@ -77,10 +79,12 @@ const Feed = () => {
         ...post,
         userHasLiked: post.likes?.some(like => like.user_id === user?.id) || false,
         comments: post.comments?.slice(0, 3) || [],
-        showAllComments: false
+        showAllComments: false,
+        isExpanded: false
       }));
       
       setPosts(processedPosts);
+      setCommentInputs({});
     } catch (error) {
       console.error('Error fetching posts:', error);
     } finally {
@@ -135,19 +139,25 @@ const Feed = () => {
       if (error) throw error;
 
       setPosts(prev => [{
-  ...data,
-  userHasLiked: false,
-  likes: [],
-  comments: [],
-  showAllComments: false,
-  isNewPost: true // Add this flag
-}, ...prev]);
-
+        ...data,
+        userHasLiked: false,
+        likes: [],
+        comments: [],
+        showAllComments: false,
+        isNewPost: true
+      }, ...prev]);
 
       setNewPost('');
       setImagePreview(null);
       setImageFile(null);
       setVisibility('public');
+
+      // Show success message
+      const successMsg = document.createElement('div');
+      successMsg.className = 'post-success-message';
+      successMsg.textContent = 'Post published successfully!';
+      document.body.appendChild(successMsg);
+      setTimeout(() => successMsg.remove(), 3000);
 
     } catch (error) {
       console.error('Error creating post:', error);
@@ -157,7 +167,7 @@ const Feed = () => {
 
   const handleLikePost = async (postId, currentlyLiked) => {
     if (!user) {
-      alert('Please login to love posts');
+      alert('Please login to like posts');
       return;
     }
 
@@ -227,8 +237,8 @@ const Feed = () => {
       }));
 
     } catch (error) {
-      console.error('Error updating love:', error);
-      alert('Love action failed: ' + error.message);
+      console.error('Error updating like:', error);
+      alert('Like action failed: ' + error.message);
     }
   };
 
@@ -277,10 +287,17 @@ const Feed = () => {
           return {
             ...post,
             comment_count: newCommentCount,
-            comments: [data, ...(post.comments || [])]
+            comments: [data, ...(post.comments || [])],
+            showAllComments: true
           };
         }
         return post;
+      }));
+
+      // Clear the input for this post
+      setCommentInputs(prev => ({
+        ...prev,
+        [postId]: ''
       }));
 
     } catch (error) {
@@ -307,46 +324,63 @@ const Feed = () => {
     reader.readAsDataURL(file);
   };
 
- const formatTimeAgo = (dateString) => {
-  // Parse as UTC (Supabase stores in UTC)
-  const postDate = new Date(dateString + 'Z'); // Add 'Z' to force UTC
-  
-  const now = new Date();
-  const diffMs = now - postDate;
-  const diffSec = Math.floor(diffMs / 1000);
-  const diffMin = Math.floor(diffSec / 60);
-  const diffHour = Math.floor(diffMin / 60);
-  const diffDay = Math.floor(diffHour / 24);
-  
-  // For debugging
-  console.log('Time calculation:', {
-    input: dateString,
-    parsed: postDate.toISOString(),
-    now: now.toISOString(),
-    diffHours: diffHour,
-    diffMinutes: diffMin
-  });
-  
-  if (diffSec < 60) return 'just now';
-  if (diffMin < 60) return `${diffMin}m ago`;
-  if (diffHour < 24) return `${diffHour}h ago`;
-  if (diffDay < 7) return `${diffDay}d ago`;
-  
-  // For older posts, show local date
-  return postDate.toLocaleDateString('en-US', { 
-    month: 'short', 
-    day: 'numeric',
-    year: diffDay > 365 ? 'numeric' : undefined
-  });
-};
+  const formatTimeAgo = (dateString) => {
+    const postDate = new Date(dateString + 'Z');
+    const now = new Date();
+    const diffMs = now - postDate;
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHour = Math.floor(diffMin / 60);
+    const diffDay = Math.floor(diffHour / 24);
+    
+    if (diffSec < 60) return 'Just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    if (diffHour < 24) return `${diffHour}h ago`;
+    if (diffDay < 7) return `${diffDay}d ago`;
+    
+    return postDate.toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric',
+      year: diffDay > 365 ? 'numeric' : undefined
+    });
+  };
+
   const getInitials = (firstname, surname) => {
     return `${firstname?.[0] || ''}${surname?.[0] || ''}`.toUpperCase();
+  };
+
+  const togglePostExpand = (postId) => {
+    setPosts(prev => prev.map(post => 
+      post.id === postId 
+        ? { ...post, isExpanded: !post.isExpanded }
+        : post
+    ));
+  };
+
+  const handleCommentInputChange = (postId, value) => {
+    setCommentInputs(prev => ({
+      ...prev,
+      [postId]: value
+    }));
+  };
+
+  const handleKeyPress = (e, postId) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      const content = commentInputs[postId] || '';
+      if (content.trim()) {
+        handleAddComment(postId, content);
+      }
+    }
   };
 
   if (loading && posts.length === 0) {
     return (
       <div className="feed-container">
-        <div className="loading">Loading feed...</div>
+        <div className="loading-spinner">
+          <div className="spinner"></div>
+          <p>Loading feed...</p>
+        </div>
       </div>
     );
   }
@@ -354,86 +388,95 @@ const Feed = () => {
   return (
     <div className="feed-container">
       <div className="feed-header">
-        <h1>📰 Campus Feed</h1>
-        <p>Share updates, connect with students</p>
+        <div className="header-content">
+          <h1>Campus Feed</h1>
+          <p>Share updates, connect with students</p>
+        </div>
+        <div className="header-gradient"></div>
       </div>
 
       {user && (
-        <div className="create-post-card">
+        <div className="create-post-card glassmorphism">
           <div className="post-form-header">
             <div className="user-avatar">
               {user?.user_metadata?.avatar_url ? (
                 <img src={user.user_metadata.avatar_url} alt="Profile" />
               ) : (
-                <div className="avatar-fallback">
+                <div className="avatar-fallback gradient-bg">
                   {getInitials(user?.user_metadata?.firstname, user?.user_metadata?.surname)}
                 </div>
               )}
             </div>
-            <div className="user-info">
-              <div className="user-name">
-                {user?.user_metadata?.firstname || 'User'} {user?.user_metadata?.surname || ''}
+            <div className="post-input-wrapper">
+              <textarea
+                className="post-input"
+                placeholder="What's happening on campus?"
+                value={newPost}
+                onChange={(e) => setNewPost(e.target.value)}
+                rows="3"
+              />
+              <div className="post-options">
+                <div className="visibility-selector">
+                  <select 
+                    value={visibility}
+                    onChange={(e) => setVisibility(e.target.value)}
+                    className="visibility-select"
+                  >
+                    <option value="public"><Globe size={14} /> Public</option>
+                    <option value="friends"><Users size={14} /> Friends Only</option>
+                    <option value="private"><Lock size={14} /> Only Me</option>
+                  </select>
+                </div>
               </div>
-              <select 
-                className="visibility-select"
-                value={visibility}
-                onChange={(e) => setVisibility(e.target.value)}
-              >
-                <option value="public">🌍 Public</option>
-                <option value="friends">👥 Friends Only</option>
-                <option value="private">🔒 Only Me</option>
-              </select>
             </div>
           </div>
 
-          <form onSubmit={handleCreatePost}>
-            <textarea
-              className="post-input"
-              placeholder="What's on your mind?"
-              value={newPost}
-              onChange={(e) => setNewPost(e.target.value)}
-              rows="3"
-            />
-
-            {imagePreview && (
-              <div className="image-preview">
-                <img src={imagePreview} alt="Preview" />
-                <button 
-                  type="button" 
-                  className="remove-image"
-                  onClick={() => {
-                    setImagePreview(null);
-                    setImageFile(null);
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-            )}
-
-            <div className="post-actions">
-              <div className="action-buttons">
-                <label className="upload-btn">
-                  📷 Photo
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageUpload}
-                    hidden
-                  />
-                </label>
-                <button type="button" className="emoji-btn">😊 Feeling</button>
-                <button type="button" className="location-btn">📍 Location</button>
-              </div>
+          {imagePreview && (
+            <div className="image-preview-container">
+              <img src={imagePreview} alt="Preview" className="image-preview" />
               <button 
-                type="submit" 
-                className="post-btn"
-                disabled={!newPost.trim() && !imageFile}
+                type="button" 
+                className="remove-image-btn"
+                onClick={() => {
+                  setImagePreview(null);
+                  setImageFile(null);
+                }}
               >
-                Post
+                ×
               </button>
             </div>
-          </form>
+          )}
+
+          <div className="post-actions">
+            <div className="action-icons">
+              <label className="action-icon-btn">
+                <ImageIcon size={20} />
+                <span>Photo</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageUpload}
+                  hidden
+                />
+              </label>
+              <button type="button" className="action-icon-btn">
+                <Smile size={20} />
+                <span>Feeling</span>
+              </button>
+              <button type="button" className="action-icon-btn">
+                <MapPin size={20} />
+                <span>Location</span>
+              </button>
+            </div>
+            <button 
+              type="submit" 
+              className="post-submit-btn gradient-btn"
+              onClick={handleCreatePost}
+              disabled={!newPost.trim() && !imageFile}
+            >
+              Post
+            </button>
+          </div>
         </div>
       )}
 
@@ -442,7 +485,8 @@ const Feed = () => {
           className={`tab-btn ${activeTab === 'all' ? 'active' : ''}`}
           onClick={() => setActiveTab('all')}
         >
-          🌐 All Posts
+          <Globe size={16} />
+          <span>All Posts</span>
         </button>
         {user && (
           <>
@@ -450,13 +494,15 @@ const Feed = () => {
               className={`tab-btn ${activeTab === 'following' ? 'active' : ''}`}
               onClick={() => setActiveTab('following')}
             >
-              👥 Following
+              <Users size={16} />
+              <span>Following</span>
             </button>
             <button 
               className={`tab-btn ${activeTab === 'my' ? 'active' : ''}`}
               onClick={() => setActiveTab('my')}
             >
-              📝 My Posts
+              <span className="tab-icon">📝</span>
+              <span>My Posts</span>
             </button>
           </>
         )}
@@ -464,9 +510,15 @@ const Feed = () => {
 
       <div className="posts-feed">
         {posts.length === 0 ? (
-          <div className="no-posts">
+          <div className="no-posts glassmorphism">
+            <div className="no-posts-icon">📰</div>
             <h3>No posts yet</h3>
-            <p>Be the first to share something!</p>
+            <p>Be the first to share something with the campus!</p>
+            {!user && (
+              <button className="login-prompt-btn" onClick={() => window.location.href = '/login'}>
+                Login to post
+              </button>
+            )}
           </div>
         ) : (
           posts.map(post => (
@@ -474,10 +526,15 @@ const Feed = () => {
               key={post.id}
               post={post}
               currentUser={user}
-              onLove={handleLikePost}
+              onLike={handleLikePost}
               onComment={handleAddComment}
               formatTimeAgo={formatTimeAgo}
               getInitials={getInitials}
+              isExpanded={post.isExpanded}
+              onToggleExpand={() => togglePostExpand(post.id)}
+              commentInput={commentInputs[post.id] || ''}
+              onCommentInputChange={(value) => handleCommentInputChange(post.id, value)}
+              onKeyPress={(e) => handleKeyPress(e, post.id)}
             />
           ))
         )}
@@ -486,32 +543,44 @@ const Feed = () => {
   );
 };
 
-const PostCard = ({ post, currentUser, onLove, onComment, formatTimeAgo, getInitials }) => {
-  const [commentText, setCommentText] = useState('');
+const PostCard = ({ 
+  post, 
+  currentUser, 
+  onLike, 
+  onComment, 
+  formatTimeAgo, 
+  getInitials,
+  isExpanded,
+  onToggleExpand,
+  commentInput,
+  onCommentInputChange,
+  onKeyPress
+}) => {
+  const [isLiking, setIsLiking] = useState(false);
   const [showComments, setShowComments] = useState(false);
-  const [isLoving, setIsLoving] = useState(false);
 
-  const handleLove = async () => {
-    if (isLoving) return;
-    setIsLoving(true);
-    await onLove(post.id, post.userHasLiked);
-    setIsLoving(false);
+  const handleLike = async () => {
+    if (isLiking) return;
+    setIsLiking(true);
+    await onLike(post.id, post.userHasLiked);
+    setIsLiking(false);
   };
 
-  const handleSubmitComment = async (e) => {
-    e.preventDefault();
-    if (!commentText.trim()) return;
-    
-    await onComment(post.id, commentText);
-    setCommentText('');
-    setShowComments(true);
+  const handleSubmitComment = async () => {
+    if (!commentInput.trim()) return;
+    await onComment(post.id, commentInput);
   };
+
+  const needsExpansion = post.content && post.content.length > 300 && !isExpanded;
+  const displayContent = needsExpansion 
+    ? post.content.substring(0, 300) + '...' 
+    : post.content;
 
   return (
-    <div className={`post-card ${post.isNewPost ? 'new-post' : ''}`}>
+    <div className={`post-card glassmorphism ${post.isNewPost ? 'new-post-highlight' : ''}`}>
       <div className="post-header">
         <div className="post-author">
-          <div className="author-avatar">
+          <div className="author-avatar gradient-bg">
             {post.user?.profile_picture_url ? (
               <img src={post.user.profile_picture_url} alt={post.user.firstname} />
             ) : (
@@ -520,83 +589,101 @@ const PostCard = ({ post, currentUser, onLove, onComment, formatTimeAgo, getInit
               </div>
             )}
           </div>
-          <div className="author-info">
+          <div className="author-details">
             <div className="author-name">
               {post.user?.firstname || 'User'} {post.user?.surname || ''}
+              {post.user_id === currentUser?.id && (
+                <span className="you-badge">You</span>
+              )}
             </div>
             <div className="post-meta">
+              <Clock size={12} />
               <span className="post-time">{formatTimeAgo(post.created_at)}</span>
               <span className="post-visibility">
-                {post.visibility === 'public' && '🌍'}
-                {post.visibility === 'friends' && '👥'}
-                {post.visibility === 'private' && '🔒'}
+                {post.visibility === 'public' && <Globe size={12} />}
+                {post.visibility === 'friends' && <Users size={12} />}
+                {post.visibility === 'private' && <Lock size={12} />}
               </span>
             </div>
           </div>
         </div>
         
         {post.user_id === currentUser?.id && (
-          <button className="post-menu">⋯</button>
+          <button className="post-menu-btn">
+            <MoreVertical size={20} />
+          </button>
         )}
       </div>
 
       <div className="post-content">
-        <p>{post.content}</p>
+        <p className="post-text">
+          {displayContent}
+          {needsExpansion && (
+            <button className="read-more-btn" onClick={onToggleExpand}>
+              Read more
+            </button>
+          )}
+        </p>
         
         {post.image_url && (
-          <div className="post-image">
-            <img src={post.image_url} alt="Post" />
+          <div className="post-image-container">
+            <img 
+              src={post.image_url} 
+              alt="Post" 
+              className="post-image"
+              loading="lazy"
+            />
           </div>
         )}
       </div>
 
       <div className="post-stats">
-        <div className="stat-item">
-          <span className="stat-icon"></span>
-          <span className="stat-count">{post.like_count || 0}</span>
+        <div className="stat">
+          <Heart size={14} />
+          <span>{post.like_count || 0} likes</span>
         </div>
-        <div className="stat-item">
-          <span className="stat-icon"></span>
-          <span className="stat-count">{post.comment_count || 0}</span>
+        <div className="stat">
+          <MessageCircle size={14} />
+          <span>{post.comment_count || 0} comments</span>
         </div>
-        <div className="stat-item">
-          <span className="stat-icon"></span>
-          <span className="stat-count">{post.share_count || 0}</span>
+        <div className="stat">
+          <Share2 size={14} />
+          <span>{post.share_count || 0} shares</span>
         </div>
       </div>
 
       <div className="post-actions-bar">
         <button 
-          className={`post-action-btn ${post.userHasLiked ? 'loved' : ''}`}
-          onClick={handleLove}
-          disabled={isLoving}
+          className={`post-action-btn ${post.userHasLiked ? 'liked' : ''}`}
+          onClick={handleLike}
+          disabled={isLiking}
         >
-          <span className="action-icon">❤️</span>
-          <span className="action-text">{post.userHasLiked ? 'Loved' : 'Love'}</span>
+          <Heart size={18} fill={post.userHasLiked ? 'currentColor' : 'none'} />
+          <span>{post.userHasLiked ? 'Liked' : 'Like'}</span>
         </button>
         
         <button 
           className="post-action-btn"
           onClick={() => setShowComments(!showComments)}
         >
-          <span className="action-icon">💬</span>
-          <span className="action-text">Comment</span>
+          <MessageCircle size={18} />
+          <span>Comment</span>
         </button>
         
         <button className="post-action-btn">
-          <span className="action-icon">↪️</span>
-          <span className="action-text">Share</span>
+          <Share2 size={18} />
+          <span>Share</span>
         </button>
       </div>
 
-      <div className="comments-section">
-        {currentUser && (
-          <form className="add-comment-form" onSubmit={handleSubmitComment}>
-            <div className="comment-avatar">
+      {currentUser && (
+        <div className="add-comment-section">
+          <div className="comment-input-wrapper">
+            <div className="comment-avatar small">
               {currentUser?.user_metadata?.avatar_url ? (
                 <img src={currentUser.user_metadata.avatar_url} alt="You" />
               ) : (
-                <div className="avatar-fallback small">
+                <div className="avatar-fallback small gradient-bg">
                   {getInitials(
                     currentUser?.user_metadata?.firstname,
                     currentUser?.user_metadata?.surname
@@ -604,60 +691,65 @@ const PostCard = ({ post, currentUser, onLove, onComment, formatTimeAgo, getInit
                 </div>
               )}
             </div>
-            <div className="comment-input-group">
+            <div className="comment-input-container">
               <input
                 type="text"
                 className="comment-input"
                 placeholder="Write a comment..."
-                value={commentText}
-                onChange={(e) => setCommentText(e.target.value)}
+                value={commentInput}
+                onChange={(e) => onCommentInputChange(e.target.value)}
+                onKeyPress={(e) => onKeyPress(e)}
               />
-              <button type="submit" className="comment-submit" disabled={!commentText.trim()}>
-                Post
+              <button 
+                className="comment-submit-btn"
+                onClick={handleSubmitComment}
+                disabled={!commentInput.trim()}
+              >
+                <Send size={18} />
               </button>
             </div>
-          </form>
-        )}
+          </div>
+        </div>
+      )}
 
-        {showComments && post.comments && post.comments.length > 0 && (
-          <div className="comments-list">
-            {post.comments.map(comment => (
-              <div key={comment.id} className="comment-item">
-                <div className="comment-avatar small">
-                  {comment.user?.profile_picture_url ? (
-                    <img src={comment.user.profile_picture_url} alt={comment.user.firstname} />
-                  ) : (
-                    <div className="avatar-fallback small">
-                      {getInitials(comment.user?.firstname, comment.user?.surname)}
-                    </div>
-                  )}
+      {showComments && post.comments && post.comments.length > 0 && (
+        <div className="comments-section">
+          {post.comments.map(comment => (
+            <div key={comment.id} className="comment-item">
+              <div className="comment-avatar small">
+                {comment.user?.profile_picture_url ? (
+                  <img src={comment.user.profile_picture_url} alt={comment.user.firstname} />
+                ) : (
+                  <div className="avatar-fallback small gradient-bg">
+                    {getInitials(comment.user?.firstname, comment.user?.surname)}
+                  </div>
+                )}
+              </div>
+              <div className="comment-content">
+                <div className="comment-header">
+                  <span className="comment-author">
+                    {comment.user?.firstname || 'User'} {comment.user?.surname || ''}
+                  </span>
+                  <span className="comment-time">
+                    {formatTimeAgo(comment.created_at)}
+                  </span>
                 </div>
-                <div className="comment-content">
-                  <div className="comment-header">
-                    <span className="comment-author">
-                      {comment.user?.firstname || 'User'} {comment.user?.surname || ''}
-                    </span>
-                    <span className="comment-time">
-                      {formatTimeAgo(comment.created_at)}
-                    </span>
-                  </div>
-                  <p className="comment-text">{comment.content}</p>
-                  <div className="comment-actions">
-                    <button className="comment-like">Like</button>
-                    <button className="comment-reply">Reply</button>
-                  </div>
+                <p className="comment-text">{comment.content}</p>
+                <div className="comment-actions">
+                  <button className="comment-like-btn">Like</button>
+                  <button className="comment-reply-btn">Reply</button>
                 </div>
               </div>
-            ))}
-            
-            {post.comment_count > post.comments.length && (
-              <button className="view-more-comments">
-                View all {post.comment_count} comments
-              </button>
-            )}
-          </div>
-        )}
-      </div>
+            </div>
+          ))}
+          
+          {post.comment_count > post.comments.length && (
+            <button className="view-more-comments-btn">
+              View all {post.comment_count} comments
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 };
