@@ -121,31 +121,71 @@ const Services = () => {
     setFilterChanged(true);
   };
 
-  // Image upload function
-  const uploadImage = async (file) => {
+  // Image upload function - FIXED VERSION
+  const uploadImage = async (file, userId) => {
     try {
-      if (!file) return null;
+      console.log('📤 Starting image upload...', {
+        fileName: file?.name,
+        fileSize: file?.size,
+        fileType: file?.type,
+        userId
+      });
+      
+      if (!file) {
+        console.log('No file provided');
+        return null;
+      }
+      
+      if (!userId) {
+        throw new Error('User ID is required for image upload');
+      }
       
       if (file.size > 5 * 1024 * 1024) {
         throw new Error('File size must be less than 5MB');
       }
 
+      // Generate unique filename
       const fileExt = file.name.split('.').pop();
-      const fileName = `${user.id}-${Date.now()}.${fileExt}`;
+      const fileName = `${userId}-${Date.now()}.${fileExt}`;
       
-      const { error: uploadError } = await supabase.storage
+      console.log('Uploading to bucket: service-images');
+      console.log('Filename:', fileName);
+      
+      // Upload the file
+      const { data, error: uploadError } = await supabase.storage
         .from('service-images')
-        .upload(fileName, file);
+        .upload(fileName, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
 
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        console.error('Storage upload error:', uploadError);
+        
+        // Check bucket access
+        const { data: buckets } = await supabase.storage.listBuckets();
+        console.log('Available buckets:', buckets);
+        
+        throw uploadError;
+      }
 
-      const { data: { publicUrl } } = supabase.storage
+      console.log('Upload successful, data:', data);
+      
+      // Get public URL
+      const { data: urlData } = supabase.storage
         .from('service-images')
         .getPublicUrl(fileName);
-
-      return publicUrl;
+      
+      console.log('Generated public URL:', urlData.publicUrl);
+      
+      return urlData.publicUrl;
     } catch (error) {
-      console.error('Image upload failed:', error);
+      console.error('Image upload failed with details:', {
+        name: error.name,
+        message: error.message,
+        details: error.details,
+        hint: error.hint
+      });
       throw error;
     }
   };
@@ -177,6 +217,8 @@ const Services = () => {
         updated_at: new Date().toISOString()
       };
       
+      console.log('Insert data:', insertData);
+      
       const { data, error } = await supabase
         .from('services')
         .insert([insertData])
@@ -191,7 +233,7 @@ const Services = () => {
       return data;
     } catch (error) {
       console.error('Error creating service:', error);
-      setMessage({ type: 'error', text: 'Failed to create service' });
+      setMessage({ type: 'error', text: 'Failed to create service: ' + error.message });
       throw error;
     }
   };
@@ -268,6 +310,88 @@ const Services = () => {
     }
   };
 
+  // Test storage function
+  const testStorageSetup = async () => {
+    console.log('🔍 Testing storage setup...');
+    
+    try {
+      // 1. Get current user
+      if (!user) {
+        console.error('❌ User not authenticated. Please log in first.');
+        alert('Please log in first to test storage');
+        return;
+      }
+      
+      // 2. List buckets to confirm service-images exists
+      const { data: buckets, error: bucketsError } = await supabase.storage.listBuckets();
+      if (bucketsError) {
+        console.error('❌ Cannot list buckets:', bucketsError);
+        alert('Cannot list buckets: ' + bucketsError.message);
+        return;
+      }
+      
+      console.log('📦 Available buckets:', buckets.map(b => b.name));
+      const serviceBucket = buckets.find(b => b.name === 'service-images');
+      
+      if (!serviceBucket) {
+        console.error('❌ service-images bucket not found!');
+        alert('service-images bucket not found! Please create it in Supabase Dashboard → Storage');
+        return;
+      }
+      
+      console.log('✅ service-images bucket found:', serviceBucket);
+      
+      // 3. Test upload with a small text file
+      console.log('⬆️ Testing upload...');
+      const testContent = 'This is a test file for storage verification';
+      const testFile = new File([testContent], 'storage-test.txt', { 
+        type: 'text/plain' 
+      });
+      
+      const testFileName = `test-${user.id}-${Date.now()}.txt`;
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('service-images')
+        .upload(testFileName, testFile);
+      
+      if (uploadError) {
+        console.error('❌ Upload failed:', uploadError);
+        alert('Upload test failed: ' + uploadError.message + '\n\nCheck your storage policies in the dashboard.');
+        return;
+      }
+      
+      console.log('✅ Upload successful:', uploadData);
+      
+      // 4. Get public URL
+      const { data: urlData } = supabase.storage
+        .from('service-images')
+        .getPublicUrl(testFileName);
+      
+      console.log('🔗 Public URL:', urlData.publicUrl);
+      
+      // 5. Test that we can access the file
+      const response = await fetch(urlData.publicUrl);
+      if (response.ok) {
+        const text = await response.text();
+        console.log('✅ File accessible via URL. Content:', text);
+        alert('✅ Storage test PASSED!\n\nBucket: service-images\nUpload: ✓\nPublic URL: ✓\n\nYou can now upload service images!');
+      } else {
+        console.error('❌ Cannot access file via URL');
+        alert('Upload worked but cannot access file via URL. Check bucket is set to "Public"');
+      }
+      
+      // 6. Clean up test file
+      await supabase.storage
+        .from('service-images')
+        .remove([testFileName]);
+      
+      console.log('🧹 Test file cleaned up');
+      
+    } catch (err) {
+      console.error('❌ Storage test failed:', err);
+      alert('Storage test failed: ' + err.message);
+    }
+  };
+
   // Helper functions
   const formatPrice = (price, currency = 'RUB') => {
     const symbols = { 'RUB': '₽', 'USD': '$', 'EUR': '€', 'ZAR': 'R', 'ZWL': 'Z$' };
@@ -321,18 +445,36 @@ const Services = () => {
         <h1>🔧 AinRu Services</h1>
         <p>Find and offer services within our African community in Russia</p>
         
-        {user ? (
-          <button 
-            className="create-service-btn"
-            onClick={() => setShowCreateModal(true)}
-          >
-            + Offer a Service
-          </button>
-        ) : (
-          <div className="login-prompt">
-            <p>Log in to offer your services or contact providers</p>
-          </div>
-        )}
+        <div className="header-actions">
+          {user ? (
+            <button 
+              className="create-service-btn"
+              onClick={() => setShowCreateModal(true)}
+            >
+              + Offer a Service
+            </button>
+          ) : (
+            <div className="login-prompt">
+              <p>Log in to offer your services or contact providers</p>
+            </div>
+          )}
+          
+          {/* Storage Test Button - Temporary for debugging */}
+          {user && (
+            <button 
+              className="test-storage-btn"
+              onClick={testStorageSetup}
+              style={{
+                marginLeft: '10px',
+                background: '#6c757d',
+                fontSize: '12px',
+                padding: '5px 10px'
+              }}
+            >
+              Test Storage
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Message Display */}
@@ -534,6 +676,11 @@ const ServiceCard = ({
             className="service-image"
             onError={(e) => {
               e.target.style.display = 'none';
+              e.target.parentElement.innerHTML = `
+                <div class="image-error-placeholder">
+                  📷 Image not available
+                </div>
+              `;
             }}
           />
         </div>
@@ -669,7 +816,7 @@ const ServiceCard = ({
   );
 };
 
-// Create Service Modal Component
+// Create Service Modal Component - UPDATED with fixed image upload
 const CreateServiceModal = ({ user, categories, onClose, onCreate, uploadImage }) => {
   const [loading, setLoading] = useState(false);
   const [imagePreview, setImagePreview] = useState(null);
@@ -701,34 +848,41 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate, uploadImage }
       // Validation
       if (!form.title.trim()) {
         alert('Please enter a service title');
+        setLoading(false);
         return;
       }
       if (!form.description.trim()) {
         alert('Please enter a service description');
+        setLoading(false);
         return;
       }
       if (!form.price || parseFloat(form.price) <= 0) {
         alert('Please enter a valid price');
+        setLoading(false);
         return;
       }
       if (!form.category_id) {
         alert('Please select a category');
+        setLoading(false);
         return;
       }
 
       // Upload image if selected
       let imageUrl = null;
-      if (imageFile) {
+      if (imageFile && user?.id) {
         setUploadingImage(true);
         try {
-          imageUrl = await uploadImage(imageFile);
+          console.log('Uploading image for service creation...');
+          imageUrl = await uploadImage(imageFile, user.id);
+          console.log('Image uploaded successfully:', imageUrl);
         } catch (error) {
-          alert('Failed to upload image. Please try again.');
+          console.error('Image upload error:', error);
+          // Don't fail the whole submission if image upload fails
+          // Just continue without the image
+          imageUrl = null;
+        } finally {
           setUploadingImage(false);
-          setLoading(false);
-          return;
         }
-        setUploadingImage(false);
       }
 
       // Parse tags
@@ -754,11 +908,12 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate, uploadImage }
         image_url: imageUrl,
       };
 
+      console.log('Submitting service data:', serviceData);
       await onCreate(serviceData);
+      setLoading(false);
     } catch (error) {
       console.error('Error creating service:', error);
-      alert('Failed to create service. Please try again.');
-    } finally {
+      alert('Failed to create service: ' + error.message);
       setLoading(false);
     }
   };
@@ -1077,7 +1232,7 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate, uploadImage }
               Cancel
             </button>
             <button type="submit" className="btn-primary" disabled={loading || uploadingImage}>
-              {uploadingImage ? 'Uploading...' : loading ? 'Creating...' : 'Publish Service'}
+              {uploadingImage ? 'Uploading Image...' : loading ? 'Creating Service...' : 'Publish Service'}
             </button>
           </div>
         </form>
