@@ -1,4 +1,4 @@
-/* Services.css */
+/* Services.css - Matches your existing component styles */
 .services-container {
   max-width: 1200px;
   margin: 0 auto;
@@ -36,9 +36,6 @@
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .create-service-btn:hover {
@@ -51,6 +48,7 @@
   padding: 15px;
   border-radius: 10px;
   border: 1px solid #e5e7eb;
+  display: inline-block;
 }
 
 .login-prompt p {
@@ -318,21 +316,10 @@
   line-height: 1.6;
   font-size: 0.9375rem;
   flex: 1;
-}
-
-.read-more-btn {
-  background: none;
-  border: none;
-  color: #4f46e5;
-  font-weight: 500;
-  cursor: pointer;
-  padding: 0;
-  margin-left: 8px;
-  font-size: 0.875rem;
-}
-
-.read-more-btn:hover {
-  text-decoration: underline;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
 }
 
 /* Service Tags */
@@ -388,7 +375,6 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 12px;
 }
 
 .provider-avatar {
@@ -428,22 +414,6 @@
 
 .provider-university {
   font-size: 0.75rem;
-  color: #6b7280;
-}
-
-/* Service Rating */
-.service-rating {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.875rem;
-}
-
-.rating-stars {
-  color: #fbbf24;
-}
-
-.rating-value {
   color: #6b7280;
 }
 
@@ -552,13 +522,6 @@
   color: #9ca3af;
 }
 
-.service-date,
-.service-updated {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
 /* Modal Styles */
 .modal-overlay {
   position: fixed;
@@ -581,10 +544,6 @@
   width: 100%;
   max-height: 90vh;
   overflow-y: auto;
-}
-
-.large-modal {
-  max-width: 900px;
 }
 
 .modal-header {
@@ -701,6 +660,28 @@ form {
 .currency-select,
 .price-type-select {
   width: 120px;
+}
+
+.checkbox-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.875rem;
+  color: #4b5563;
+  cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
 }
 
 .form-hint {
@@ -821,3 +802,11 @@ form {
 .service-card {
   animation: fadeInUp 0.5s ease-out;
 }
+
+/* Animation delay for staggered cards */
+.service-card:nth-child(1) { animation-delay: 0.1s; }
+.service-card:nth-child(2) { animation-delay: 0.2s; }
+.service-card:nth-child(3) { animation-delay: 0.3s; }
+.service-card:nth-child(4) { animation-delay: 0.4s; }
+.service-card:nth-child(5) { animation-delay: 0.5s; }
+.service-card:nth-child(6) { animation-delay: 0.6s; }

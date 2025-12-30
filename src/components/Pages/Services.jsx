@@ -17,7 +17,7 @@ const Services = () => {
     minPrice: '',
     maxPrice: '',
     location: '',
-    serviceStatus: 'active',
+    status: 'active',
     sortBy: 'newest'
   });
   const [filterChanged, setFilterChanged] = useState(false);
@@ -43,12 +43,15 @@ const Services = () => {
   const fetchCategories = async () => {
     try {
       const { data, error } = await supabase
-        .from('service_categories')
+        .from('marketplace_categories')
         .select('*')
         .order('name');
       
       if (error) throw error;
       setCategories(data || []);
+      
+      // Fetch services after categories
+      fetchServices();
     } catch (error) {
       console.error('Error fetching categories:', error);
     }
@@ -61,14 +64,14 @@ const Services = () => {
         .from('services')
         .select(`
           *,
-          category:service_categories(name, icon),
+          category:marketplace_categories(name, icon),
           user:users(firstname, surname, email, phone, profile_picture_url, university)
         `)
         .order('created_at', { ascending: false });
 
-      // Apply filters
-      if (filters.serviceStatus !== 'all') {
-        query = query.eq('status', filters.serviceStatus);
+      // Apply filters (same as marketplace_listings pattern)
+      if (filters.status !== 'all') {
+        query = query.eq('status', filters.status);
       }
       if (filters.category) {
         query = query.eq('category_id', filters.category);
@@ -77,10 +80,10 @@ const Services = () => {
         query = query.eq('service_type', filters.serviceType);
       }
       if (filters.search) {
-        query = query.or(`title.ilike.%${filters.search}%,description.ilike.%${filters.search}%,tags.ilike.%${filters.search}%`);
+        query = query.or(`title.ilike.%${filters.search}%,description.ilike.%${filters.search}%,tags.cs.{${filters.search}}`);
       }
       if (filters.location) {
-        query = query.or(`location.ilike.%${filters.location}%,meeting_place.ilike.%${filters.location}%`);
+        query = query.ilike('location', `%${filters.location}%`);
       }
       if (filters.minPrice) {
         query = query.gte('price', parseFloat(filters.minPrice));
@@ -219,6 +222,7 @@ const Services = () => {
     }
   };
 
+  // Helper functions (same as your other components)
   const formatPrice = (price, currency = 'RUB') => {
     const symbols = {
       'RUB': '₽',
@@ -291,8 +295,8 @@ const Services = () => {
     <div className="services-container">
       {/* Header */}
       <div className="services-header">
-        <h1>🔧 Community Services</h1>
-        <p>Find and offer services within the AinRu community</p>
+        <h1>🔧 AinRu Services</h1>
+        <p>Find and offer services within our African community in Russia</p>
         
         {user ? (
           <button 
@@ -363,6 +367,8 @@ const Services = () => {
               <option value="transportation">🚗 Transportation</option>
               <option value="housing">🏠 Housing</option>
               <option value="food">🍕 Food</option>
+              <option value="legal">⚖️ Legal</option>
+              <option value="medical">🏥 Medical</option>
               <option value="tech">💻 Tech</option>
               <option value="other">🔧 Other</option>
             </select>
@@ -406,8 +412,8 @@ const Services = () => {
           <div className="filter-group">
             <label>Status</label>
             <select
-              value={filters.serviceStatus}
-              onChange={(e) => handleFilterChange('serviceStatus', e.target.value)}
+              value={filters.status}
+              onChange={(e) => handleFilterChange('status', e.target.value)}
               className="filter-select"
             >
               <option value="active">Active Services</option>
@@ -426,7 +432,6 @@ const Services = () => {
               <option value="newest">Newest First</option>
               <option value="price_low">Price: Low to High</option>
               <option value="price_high">Price: High to Low</option>
-              <option value="rating">Highest Rated</option>
             </select>
           </div>
         </div>
@@ -442,7 +447,7 @@ const Services = () => {
                 minPrice: '',
                 maxPrice: '',
                 location: '',
-                serviceStatus: 'active',
+                status: 'active',
                 sortBy: 'newest'
               });
               setFilterChanged(true);
@@ -515,7 +520,6 @@ const ServiceCard = ({
   formatDate
 }) => {
   const isOwnService = service.user_id === currentUser?.id;
-  const [expanded, setExpanded] = useState(false);
 
   return (
     <div className="service-card">
@@ -541,27 +545,15 @@ const ServiceCard = ({
 
       {/* Service Description */}
       <div className="service-description">
-        {service.description.length > 150 ? (
-          <>
-            {expanded ? service.description : `${service.description.substring(0, 150)}...`}
-            <button 
-              className="read-more-btn"
-              onClick={() => setExpanded(!expanded)}
-            >
-              {expanded ? 'Read Less' : 'Read More'}
-            </button>
-          </>
-        ) : (
-          service.description
-        )}
+        {service.description}
       </div>
 
       {/* Service Tags */}
-      {service.tags && (
+      {service.tags && service.tags.length > 0 && (
         <div className="service-tags">
-          {service.tags.split(',').map((tag, index) => (
+          {service.tags.map((tag, index) => (
             <span key={index} className="service-tag">
-              #{tag.trim()}
+              #{tag}
             </span>
           ))}
         </div>
@@ -603,6 +595,10 @@ const ServiceCard = ({
               src={service.user.profile_picture_url} 
               alt="Provider" 
               className="provider-avatar"
+              onError={(e) => {
+                e.target.style.display = 'none';
+                e.target.nextElementSibling?.style.display = 'flex';
+              }}
             />
           ) : (
             <div className="provider-avatar-initials">
@@ -620,19 +616,6 @@ const ServiceCard = ({
             )}
           </div>
         </div>
-        
-        {/* Rating */}
-        {service.average_rating && (
-          <div className="service-rating">
-            <div className="rating-stars">
-              {'⭐'.repeat(Math.floor(service.average_rating))}
-              {'☆'.repeat(5 - Math.floor(service.average_rating))}
-            </div>
-            <span className="rating-value">
-              {service.average_rating.toFixed(1)} ({service.review_count || 0} reviews)
-            </span>
-          </div>
-        )}
       </div>
 
       {/* Service Status */}
@@ -679,9 +662,6 @@ const ServiceCard = ({
       {/* Footer */}
       <div className="service-footer">
         <span className="service-date">Posted {formatDate(service.created_at)}</span>
-        {service.updated_at !== service.created_at && (
-          <span className="service-updated">Updated {formatDate(service.updated_at)}</span>
-        )}
       </div>
     </div>
   );
@@ -694,18 +674,18 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate }) => {
     title: '',
     description: '',
     category_id: '',
-    service_type: 'other',
+    service_type: 'academic',
     price: '',
     currency: 'RUB',
     price_type: 'hourly',
+    price_negotiable: false,
     location: '',
     meeting_place: '',
     availability: 'Flexible',
     experience_years: '',
-    tags: '',
+    tags: [],
     contact_method: 'whatsapp',
     contact_info: user?.email || '',
-    status: 'active'
   });
 
   const handleSubmit = async (e) => {
@@ -731,19 +711,23 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate }) => {
         return;
       }
 
+      // Parse tags
+      const tagsArray = form.tags.split(',').map(tag => tag.trim()).filter(tag => tag);
+
       const serviceData = {
         title: form.title.trim(),
         description: form.description.trim(),
-        category_id: form.category_id,
+        category_id: parseInt(form.category_id),
         service_type: form.service_type,
         price: parseFloat(form.price),
         currency: form.currency,
         price_type: form.price_type,
+        price_negotiable: form.price_negotiable,
         location: form.location || null,
         meeting_place: form.meeting_place || null,
         availability: form.availability || null,
         experience_years: form.experience_years ? parseInt(form.experience_years) : null,
-        tags: form.tags || null,
+        tags: tagsArray.length > 0 ? tagsArray : null,
         contact_method: form.contact_method,
         contact_info: form.contact_info,
       };
@@ -757,13 +741,16 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate }) => {
   };
 
   const handleChange = (e) => {
-    const { name, value } = e.target;
-    setForm(prev => ({ ...prev, [name]: value }));
+    const { name, value, type, checked } = e.target;
+    setForm(prev => ({ 
+      ...prev, 
+      [name]: type === 'checkbox' ? checked : value 
+    }));
   };
 
   return (
     <div className="modal-overlay">
-      <div className="modal-content large-modal">
+      <div className="modal-content">
         <div className="modal-header">
           <h2>🔧 Offer Your Service</h2>
           <button className="close-btn" onClick={onClose}>×</button>
@@ -772,21 +759,35 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate }) => {
         <form onSubmit={handleSubmit}>
           <div className="form-section">
             <h3>Basic Information</h3>
+            
+            <div className="form-group">
+              <label>Service Title *</label>
+              <input
+                type="text"
+                name="title"
+                value={form.title}
+                onChange={handleChange}
+                placeholder="e.g., Russian Language Tutoring"
+                required
+                maxLength={200}
+              />
+            </div>
+            
+            <div className="form-group">
+              <label>Description *</label>
+              <textarea
+                name="description"
+                value={form.description}
+                onChange={handleChange}
+                placeholder="Describe your service in detail. Include what you offer, your qualifications, and what clients can expect."
+                rows="4"
+                required
+                maxLength={2000}
+              />
+            </div>
+            
             <div className="form-columns">
               <div className="form-column">
-                <div className="form-group">
-                  <label>Service Title *</label>
-                  <input
-                    type="text"
-                    name="title"
-                    value={form.title}
-                    onChange={handleChange}
-                    placeholder="e.g., Russian Language Tutoring"
-                    required
-                    maxLength={100}
-                  />
-                </div>
-                
                 <div className="form-group">
                   <label>Category *</label>
                   <select
@@ -817,6 +818,8 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate }) => {
                     <option value="transportation">🚗 Transportation</option>
                     <option value="housing">🏠 Housing</option>
                     <option value="food">🍕 Food</option>
+                    <option value="legal">⚖️ Legal</option>
+                    <option value="medical">🏥 Medical</option>
                     <option value="tech">💻 Tech</option>
                     <option value="other">🔧 Other</option>
                   </select>
@@ -862,17 +865,17 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate }) => {
                       <option value="fixed">fixed price</option>
                     </select>
                   </div>
-                </div>
-                
-                <div className="form-group">
-                  <label>Location</label>
-                  <input
-                    type="text"
-                    name="location"
-                    value={form.location}
-                    onChange={handleChange}
-                    placeholder="e.g., Moscow, Online"
-                  />
+                  <div className="checkbox-group">
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        name="price_negotiable"
+                        checked={form.price_negotiable}
+                        onChange={handleChange}
+                      />
+                      Price is negotiable
+                    </label>
+                  </div>
                 </div>
                 
                 <div className="form-group">
@@ -891,19 +894,6 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate }) => {
             </div>
             
             <div className="form-group">
-              <label>Description *</label>
-              <textarea
-                name="description"
-                value={form.description}
-                onChange={handleChange}
-                placeholder="Describe your service in detail. Include what you offer, your qualifications, and what clients can expect."
-                rows="4"
-                required
-                maxLength={2000}
-              />
-            </div>
-            
-            <div className="form-group">
               <label>Tags (comma separated)</label>
               <input
                 type="text"
@@ -917,8 +907,33 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate }) => {
           </div>
           
           <div className="form-section">
-            <h3>Service Details</h3>
+            <h3>Location & Availability</h3>
+            
             <div className="form-columns">
+              <div className="form-column">
+                <div className="form-group">
+                  <label>Location</label>
+                  <input
+                    type="text"
+                    name="location"
+                    value={form.location}
+                    onChange={handleChange}
+                    placeholder="e.g., Moscow, Online"
+                  />
+                </div>
+                
+                <div className="form-group">
+                  <label>Meeting Place</label>
+                  <input
+                    type="text"
+                    name="meeting_place"
+                    value={form.meeting_place}
+                    onChange={handleChange}
+                    placeholder="e.g., University Campus, Coffee Shop, Online"
+                  />
+                </div>
+              </div>
+              
               <div className="form-column">
                 <div className="form-group">
                   <label>Availability</label>
@@ -930,19 +945,14 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate }) => {
                     placeholder="e.g., Weekdays 9am-5pm, Flexible"
                   />
                 </div>
-                
-                <div className="form-group">
-                  <label>Meeting Place</label>
-                  <input
-                    type="text"
-                    name="meeting_place"
-                    value={form.meeting_place}
-                    onChange={handleChange}
-                    placeholder="e.g., Online, University Campus, Coffee Shop"
-                  />
-                </div>
               </div>
-              
+            </div>
+          </div>
+          
+          <div className="form-section">
+            <h3>Contact Information</h3>
+            
+            <div className="form-columns">
               <div className="form-column">
                 <div className="form-group">
                   <label>Contact Method *</label>
@@ -959,7 +969,9 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate }) => {
                     <option value="in_app">In-app Messaging</option>
                   </select>
                 </div>
-                
+              </div>
+              
+              <div className="form-column">
                 <div className="form-group">
                   <label>Contact Information *</label>
                   <input
