@@ -299,7 +299,7 @@ const CompleteProfile = ({ user, onProfileComplete, onLogout }) => {
         <div className="auth-header">
           <div className="auth-logo">
             <div className="logo-icon">CC</div>
-            <h1>CampusConnect</h1>
+            <h1>AinRu</h1>
           </div>
           <h2 className="auth-title">Complete Your Profile</h2>
           <p className="auth-subtitle">Finish setting up your account to get started</p>
@@ -685,7 +685,7 @@ const CompleteProfile = ({ user, onProfileComplete, onLogout }) => {
 
         <div className="auth-footer">
           <p className="auth-text">
-            Complete your profile to access all CampusConnect features.
+            Complete your profile to access all AinRu features.
           </p>
         </div>
       </div>

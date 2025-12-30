@@ -103,8 +103,8 @@ const Navbar = ({ user, onLogout, activeTab, setActiveTab }) => {
         <div className="navbar-logo">
           <div className="logo-icon">CC</div>
           <div>
-            <h1 className="logo-text">CampusConnect</h1>
-            <p className="logo-subtitle">Student Community</p>
+            <h1 className="logo-text">AinRu</h1>
+            <p className="logo-subtitle">Africans in Russia</p>
           </div>
         </div>
 
