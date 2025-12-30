@@ -810,3 +810,240 @@ form {
 .service-card:nth-child(4) { animation-delay: 0.4s; }
 .service-card:nth-child(5) { animation-delay: 0.5s; }
 .service-card:nth-child(6) { animation-delay: 0.6s; }
+/* Service Image Styles */
+.service-image-container {
+  width: 100%;
+  height: 200px;
+  overflow: hidden;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.service-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s ease;
+}
+
+.service-card:hover .service-image {
+  transform: scale(1.05);
+}
+
+/* Image Upload Styles in Modal */
+.image-upload-section {
+  margin-bottom: 20px;
+}
+
+.image-upload-area {
+  border: 2px dashed #d1d5db;
+  border-radius: 12px;
+  padding: 40px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.3s ease;
+  background-color: #f9fafb;
+}
+
+.image-upload-area:hover {
+  border-color: #4f46e5;
+  background-color: #f3f4f6;
+}
+
+.image-input {
+  display: none;
+}
+
+.upload-label {
+  display: inline-block;
+  padding: 12px 24px;
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  color: white;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.upload-label:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+}
+
+.upload-hint {
+  font-size: 0.875rem;
+  color: #6b7280;
+  margin-top: 8px;
+}
+
+.image-preview-container {
+  position: relative;
+  width: 100%;
+  height: 200px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
+}
+
+.image-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.remove-image-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-color: rgba(239, 68, 68, 0.9);
+  color: white;
+  border: none;
+  font-size: 1.25rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s ease;
+}
+
+.remove-image-btn:hover {
+  background-color: rgba(220, 38, 38, 0.9);
+}
+
+/* Wide Price Input Styles */
+.wide-price-input-group {
+  width: 100%;
+}
+
+.price-input-with-preview {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.wide-price-input {
+  flex: 1;
+  padding: 14px 16px;
+  font-size: 1.125rem;
+  font-weight: 500;
+  border: 2px solid #d1d5db;
+  border-radius: 10px;
+  transition: all 0.2s ease;
+  width: 100%;
+}
+
+.wide-price-input:focus {
+  outline: none;
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+}
+
+.price-preview {
+  padding: 14px 20px;
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  color: white;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 1.125rem;
+  min-width: 150px;
+  text-align: center;
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.2);
+}
+
+.price-options-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.currency-select-wide {
+  flex: 1;
+  min-width: 200px;
+  padding: 12px 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  transition: border-color 0.2s ease;
+}
+
+.currency-select-wide:focus {
+  outline: none;
+  border-color: #4f46e5;
+}
+
+/* Checkbox group for negotiable price */
+.checkbox-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.875rem;
+  color: #4b5563;
+  cursor: pointer;
+  padding: 8px 12px;
+  background-color: #f9fafb;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  transition: all 0.2s ease;
+}
+
+.checkbox-label:hover {
+  background-color: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .price-input-with-preview {
+    flex-direction: column;
+  }
+  
+  .price-preview {
+    width: 100%;
+    min-width: auto;
+  }
+  
+  .price-options-row {
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .currency-select-wide {
+    width: 100%;
+  }
+  
+  .service-image-container {
+    height: 150px;
+  }
+}
+
+/* Animation for price preview */
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.price-preview {
+  animation: slideIn 0.3s ease-out;
+}

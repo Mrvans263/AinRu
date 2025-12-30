@@ -144,6 +144,7 @@ const Services = () => {
         contact_info: serviceData.contact_info,
         status: 'active',
         tags: Array.isArray(serviceData.tags) ? serviceData.tags : [],
+        image_url: serviceData.image_url || null, // ADDED: Optional image URL
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
@@ -257,7 +258,7 @@ const Services = () => {
     }
   };
 
-  // Helper functions (same as your other components)
+  // Helper functions
   const formatPrice = (price, currency = 'RUB') => {
     const symbols = {
       'RUB': '₽',
@@ -316,6 +317,35 @@ const Services = () => {
 
   const clearMessage = () => {
     setMessage({ type: '', text: '' });
+  };
+
+  // Image upload function
+  const uploadImage = async (file) => {
+    try {
+      if (!file) return null;
+      
+      if (file.size > 5 * 1024 * 1024) {
+        throw new Error('File size must be less than 5MB');
+      }
+
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
+      
+      const { error: uploadError } = await supabase.storage
+        .from('service-images')
+        .upload(fileName, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('service-images')
+        .getPublicUrl(fileName);
+
+      return publicUrl;
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      throw error;
+    }
   };
 
   if (loading && services.length === 0) {
@@ -536,6 +566,7 @@ const Services = () => {
           categories={categories}
           onClose={() => setShowCreateModal(false)}
           onCreate={handleCreateService}
+          uploadImage={uploadImage}
         />
       )}
     </div>
@@ -558,6 +589,20 @@ const ServiceCard = ({
 
   return (
     <div className="service-card">
+      {/* Service Image (Optional) */}
+      {service.image_url && (
+        <div className="service-image-container">
+          <img 
+            src={service.image_url} 
+            alt={service.title}
+            className="service-image"
+            onError={(e) => {
+              e.target.style.display = 'none';
+            }}
+          />
+        </div>
+      )}
+
       {/* Service Header */}
       <div className="service-header">
         <div className="service-type-icon">
@@ -709,9 +754,13 @@ const ServiceCard = ({
   );
 };
 
-// Create Service Modal Component
-const CreateServiceModal = ({ user, categories, onClose, onCreate }) => {
+// Create Service Modal Component with Image Upload and Wide Price Input
+const CreateServiceModal = ({ user, categories, onClose, onCreate, uploadImage }) => {
   const [loading, setLoading] = useState(false);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [imageFile, setImageFile] = useState(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  
   const [form, setForm] = useState({
     title: '',
     description: '',
@@ -752,6 +801,21 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate }) => {
         return;
       }
 
+      // Upload image if selected
+      let imageUrl = null;
+      if (imageFile) {
+        setUploadingImage(true);
+        try {
+          imageUrl = await uploadImage(imageFile);
+        } catch (error) {
+          alert('Failed to upload image. Please try again.');
+          setUploadingImage(false);
+          setLoading(false);
+          return;
+        }
+        setUploadingImage(false);
+      }
+
       // Parse tags
       const tagsArray = form.tags 
         ? form.tags.split(',').map(tag => tag.trim()).filter(tag => tag)
@@ -772,6 +836,7 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate }) => {
         tags: tagsArray,
         contact_method: form.contact_method,
         contact_info: form.contact_info,
+        image_url: imageUrl,
       };
 
       console.log('Submitting service data:', serviceData);
@@ -791,6 +856,38 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate }) => {
     }));
   };
 
+  const handleImageChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Image size must be less than 5MB');
+        return;
+      }
+      
+      setImageFile(file);
+      
+      // Create preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const removeImage = () => {
+    setImageFile(null);
+    setImagePreview(null);
+  };
+
+  // Calculate formatted price for preview
+  const formattedPrice = form.price 
+    ? `${getCurrencyFlag(form.currency)} ${parseFloat(form.price).toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      })}`
+    : '';
+
   return (
     <div className="modal-overlay">
       <div className="modal-content">
@@ -800,6 +897,39 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate }) => {
         </div>
         
         <form onSubmit={handleSubmit}>
+          {/* Image Upload Section */}
+          <div className="form-section">
+            <h3>Service Image (Optional)</h3>
+            <div className="image-upload-section">
+              {imagePreview ? (
+                <div className="image-preview-container">
+                  <img src={imagePreview} alt="Preview" className="image-preview" />
+                  <button 
+                    type="button" 
+                    className="remove-image-btn"
+                    onClick={removeImage}
+                  >
+                    ×
+                  </button>
+                </div>
+              ) : (
+                <div className="image-upload-area">
+                  <input
+                    type="file"
+                    id="service-image-upload"
+                    accept="image/*"
+                    onChange={handleImageChange}
+                    className="image-input"
+                  />
+                  <label htmlFor="service-image-upload" className="upload-label">
+                    📷 Upload Service Image
+                  </label>
+                  <p className="upload-hint">Optional. Max 5MB. Recommended: 800x600px</p>
+                </div>
+              )}
+            </div>
+          </div>
+
           <div className="form-section">
             <h3>Basic Information</h3>
             
@@ -870,43 +1000,53 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate }) => {
               </div>
               
               <div className="form-column">
+                {/* WIDE PRICE INPUT SECTION */}
                 <div className="form-group">
                   <label>Price *</label>
-                  <div className="price-input-group">
-                    <input
-                      type="number"
-                      name="price"
-                      value={form.price}
-                      onChange={handleChange}
-                      placeholder="0.00"
-                      step="0.01"
-                      min="0"
-                      required
-                      className="price-input"
-                    />
-                    <select
-                      name="currency"
-                      value={form.currency}
-                      onChange={handleChange}
-                      className="currency-select"
-                    >
-                      <option value="RUB">🇷🇺 RUB</option>
-                      <option value="USD">🇺🇸 USD</option>
-                      <option value="EUR">🇪🇺 EUR</option>
-                      <option value="ZAR">🇿🇦 ZAR</option>
-                      <option value="ZWL">🇿🇼 ZWL</option>
-                    </select>
-                  </div>
-                  <div className="checkbox-group">
-                    <label className="checkbox-label">
+                  <div className="wide-price-input-group">
+                    <div className="price-input-with-preview">
                       <input
-                        type="checkbox"
-                        name="price_negotiable"
-                        checked={form.price_negotiable}
+                        type="number"
+                        name="price"
+                        value={form.price}
                         onChange={handleChange}
+                        placeholder="0.00"
+                        step="0.01"
+                        min="0"
+                        required
+                        className="wide-price-input"
                       />
-                      Price is negotiable
-                    </label>
+                      {form.price && (
+                        <div className="price-preview">
+                          {formattedPrice}
+                        </div>
+                      )}
+                    </div>
+                    <div className="price-options-row">
+                      <select
+                        name="currency"
+                        value={form.currency}
+                        onChange={handleChange}
+                        className="currency-select-wide"
+                      >
+                        <option value="RUB">🇷🇺 Russian Ruble (RUB)</option>
+                        <option value="USD">🇺🇸 US Dollar (USD)</option>
+                        <option value="EUR">🇪🇺 Euro (EUR)</option>
+                        <option value="ZAR">🇿🇦 South African Rand (ZAR)</option>
+                        <option value="ZWL">🇿🇼 Zimbabwe Dollar (ZWL)</option>
+                      </select>
+                      <div className="checkbox-group">
+                        <label className="checkbox-label">
+                          <input
+                            type="checkbox"
+                            name="price_negotiable"
+                            checked={form.price_negotiable}
+                            onChange={handleChange}
+                          />
+                          Price is negotiable
+                        </label>
+                      </div>
+                    </div>
                   </div>
                 </div>
                 
@@ -1032,17 +1172,29 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate }) => {
           </div>
           
           <div className="form-actions">
-            <button type="button" className="btn-secondary" onClick={onClose} disabled={loading}>
+            <button type="button" className="btn-secondary" onClick={onClose} disabled={loading || uploadingImage}>
               Cancel
             </button>
-            <button type="submit" className="btn-primary" disabled={loading}>
-              {loading ? 'Creating...' : 'Publish Service'}
+            <button type="submit" className="btn-primary" disabled={loading || uploadingImage}>
+              {uploadingImage ? 'Uploading Image...' : loading ? 'Creating...' : 'Publish Service'}
             </button>
           </div>
         </form>
       </div>
     </div>
   );
+};
+
+// Helper function for currency flag (used in modal)
+const getCurrencyFlag = (currency) => {
+  const flags = {
+    'RUB': '🇷🇺',
+    'USD': '🇺🇸',
+    'EUR': '🇪🇺',
+    'ZAR': '🇿🇦',
+    'ZWL': '🇿🇼'
+  };
+  return flags[currency] || '💱';
 };
 
 export default Services;
