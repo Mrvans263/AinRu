@@ -93,7 +93,7 @@ const Navbar = ({ user, onLogout, activeTab, setActiveTab }) => {
     if (user?.user_metadata?.university) {
       return user.user_metadata.university;
     }
-    return 'Student';
+    return 'African in Russia';
   };
 
   return (
@@ -101,10 +101,11 @@ const Navbar = ({ user, onLogout, activeTab, setActiveTab }) => {
       <div className="navbar-container">
         {/* Logo */}
         <div className="navbar-logo">
-          <div className="logo-icon">CC</div>
+          <div className="logo-icon">AinRu</div>
           <div>
             <h1 className="logo-text">AinRu</h1>
             <p className="logo-subtitle">Africans in Russia</p>
+            <p className="logo-tagline">Foreign Hardships, Home Blessings</p>
           </div>
         </div>
 
@@ -129,6 +130,8 @@ const Navbar = ({ user, onLogout, activeTab, setActiveTab }) => {
               <button
                 onClick={() => setShowUserMenu(!showUserMenu)}
                 className="user-menu-trigger"
+                aria-label="User menu"
+                aria-expanded={showUserMenu}
               >
                 <div className="user-avatar">
                   {getUserAvatar() ? (
@@ -136,6 +139,10 @@ const Navbar = ({ user, onLogout, activeTab, setActiveTab }) => {
                       src={getUserAvatar()} 
                       alt="Profile" 
                       className="avatar-image"
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                        e.target.parentElement.textContent = getUserInitials();
+                      }}
                     />
                   ) : (
                     getUserInitials()
@@ -162,8 +169,9 @@ const Navbar = ({ user, onLogout, activeTab, setActiveTab }) => {
                   <div 
                     className="user-menu-backdrop"
                     onClick={() => setShowUserMenu(false)}
+                    role="presentation"
                   />
-                  <div className="user-menu-dropdown">
+                  <div className="user-menu-dropdown" role="menu">
                     <div className="user-menu-header">
                       <div className="user-avatar-lg">
                         {getUserAvatar() ? (
@@ -171,6 +179,10 @@ const Navbar = ({ user, onLogout, activeTab, setActiveTab }) => {
                             src={getUserAvatar()} 
                             alt="Profile" 
                             className="avatar-image"
+                            onError={(e) => {
+                              e.target.style.display = 'none';
+                              e.target.parentElement.textContent = getUserInitials();
+                            }}
                           />
                         ) : (
                           getUserInitials()
@@ -190,6 +202,7 @@ const Navbar = ({ user, onLogout, activeTab, setActiveTab }) => {
                           setShowUserMenu(false);
                         }}
                         className="user-menu-item"
+                        role="menuitem"
                       >
                         <span className="user-menu-icon">👤</span>
                         <span>My Profile</span>
@@ -205,6 +218,7 @@ const Navbar = ({ user, onLogout, activeTab, setActiveTab }) => {
                           setShowUserMenu(false);
                         }}
                         className="user-menu-item"
+                        role="menuitem"
                       >
                         <span className="user-menu-icon">💬</span>
                         <span>Messages</span>
@@ -220,6 +234,7 @@ const Navbar = ({ user, onLogout, activeTab, setActiveTab }) => {
                           setShowUserMenu(false);
                         }}
                         className="user-menu-item"
+                        role="menuitem"
                       >
                         <span className="user-menu-icon">⚙️</span>
                         <span>Settings</span>
@@ -230,6 +245,7 @@ const Navbar = ({ user, onLogout, activeTab, setActiveTab }) => {
                       <button 
                         onClick={onLogout}
                         className="user-menu-logout"
+                        role="menuitem"
                       >
                         <span className="logout-icon">🚪</span>
                         <span>Logout</span>
@@ -251,7 +267,7 @@ const Navbar = ({ user, onLogout, activeTab, setActiveTab }) => {
                 className="auth-btn auth-btn-signup"
                 onClick={() => window.location.href = '/?state=signup'}
               >
-                Sign Up
+                Join Community
               </button>
             </div>
           )}

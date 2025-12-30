@@ -16,7 +16,7 @@ const MobileNav = ({ user, onLogout, activeTab, setActiveTab }) => {
     {
       title: 'Discover',
       items: [
-        { id: 'feed', label: 'Campus Feed', icon: '📰' },
+        { id: 'feed', label: 'Community Feed', icon: '📰' },
         { id: 'marketplace', label: 'Marketplace', icon: '🛒' },
         { id: 'travel', label: 'Travel Deals', icon: '✈️' },
         { id: 'money', label: 'Money Deals', icon: '💰' },
@@ -27,7 +27,7 @@ const MobileNav = ({ user, onLogout, activeTab, setActiveTab }) => {
       title: 'Connect',
       items: [
         { id: 'friends', label: 'Friends', icon: '👥' },
-        { id: 'students', label: 'All Students', icon: '🎓' },
+        { id: 'community', label: 'All Members', icon: '🌍' },
         { id: 'messages', label: 'Messages', icon: '💬' },
         { id: 'study-groups', label: 'Study Groups', icon: '📚' },
       ]
@@ -35,10 +35,10 @@ const MobileNav = ({ user, onLogout, activeTab, setActiveTab }) => {
     {
       title: 'Opportunities',
       items: [
-        { id: 'jobs', label: 'Student Jobs', icon: '💼' },
+        { id: 'jobs', label: 'Job Board', icon: '💼' },
         { id: 'events', label: 'Events', icon: '📅' },
         { id: 'housing', label: 'Housing', icon: '🏠' },
-        { id: 'campus-eats', label: 'Campus Eats', icon: '🍕' },
+        { id: 'food', label: 'African Food', icon: '🍛' },
       ]
     },
     {
@@ -50,61 +50,113 @@ const MobileNav = ({ user, onLogout, activeTab, setActiveTab }) => {
     }
   ];
 
+  const getUserInitials = () => {
+    if (user?.user_metadata?.firstname) {
+      return user.user_metadata.firstname[0].toUpperCase();
+    }
+    if (user?.email) {
+      return user.email[0].toUpperCase();
+    }
+    return 'U';
+  };
+
+  const getUserName = () => {
+    if (user?.user_metadata?.firstname) {
+      return user.user_metadata.firstname;
+    }
+    if (user?.email) {
+      return user.email.split('@')[0];
+    }
+    return 'Member';
+  };
+
+  const getUserRole = () => {
+    if (user?.user_metadata?.university) {
+      return user.user_metadata.university;
+    }
+    return 'African in Russia';
+  };
+
   return (
     <>
       {/* Mobile Top Bar */}
-      <nav className="mobile-nav">
+      <nav className="mobile-nav" role="navigation" aria-label="Mobile navigation">
         <div className="mobile-nav-container">
           <div className="mobile-nav-brand">
-            <div className="logo-icon">CC</div>
-            <h1 className="mobile-logo-text">CampusConnect</h1>
+            <div className="logo-icon">AinRu</div>
+            <div>
+              <h1 className="mobile-logo-text">AinRu</h1>
+              <p className="mobile-logo-subtitle">Africans in Russia</p>
+            </div>
           </div>
 
           <button
             onClick={() => setIsMenuOpen(true)}
             className="mobile-menu-button"
+            aria-label="Open menu"
+            aria-expanded={isMenuOpen}
           >
-            <span className="menu-icon">☰</span>
+            <span className="menu-icon" aria-hidden="true">☰</span>
           </button>
         </div>
       </nav>
 
       {/* Mobile Menu Overlay */}
       {isMenuOpen && (
-        <div className="mobile-menu-overlay">
+        <div 
+          className="mobile-menu-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Main menu"
+        >
           <div className="mobile-menu-container">
             {/* Menu Header */}
             <div className="mobile-menu-header">
               <div className="mobile-menu-brand">
-                <div className="logo-icon">CC</div>
-                <h2>CampusConnect</h2>
+                <div className="logo-icon">AinRu</div>
+                <div>
+                  <h2>AinRu</h2>
+                  <p className="mobile-menu-subtitle">Africans in Russia</p>
+                </div>
               </div>
               <button
                 onClick={() => setIsMenuOpen(false)}
                 className="mobile-menu-close"
+                aria-label="Close menu"
               >
-                <span className="close-icon">✕</span>
+                <span className="close-icon" aria-hidden="true">✕</span>
               </button>
             </div>
 
             {/* User Info */}
             {user && (
               <div className="mobile-user-info">
-                <div className="mobile-user-avatar">
-                  {user.user_metadata?.firstname?.[0] || 'U'}
+                <div className="mobile-user-avatar" aria-hidden="true">
+                  {getUserInitials()}
                 </div>
                 <div>
-                  <h3 className="mobile-user-name">{user.user_metadata?.firstname || 'User'}</h3>
+                  <h3 className="mobile-user-name">{getUserName()}</h3>
                   <p className="mobile-user-email">{user.email}</p>
+                  <p className="mobile-user-role">{getUserRole()}</p>
                 </div>
               </div>
             )}
 
             {/* Menu Content */}
             <div className="mobile-menu-content">
-              {menuSections.map((section, index) => (
-                <div key={index} className="mobile-menu-section">
-                  <h3 className="mobile-menu-section-title">{section.title}</h3>
+              {menuSections.map((section, sectionIndex) => (
+                <div 
+                  key={`section-${sectionIndex}`} 
+                  className="mobile-menu-section"
+                  role="group"
+                  aria-labelledby={`section-heading-${sectionIndex}`}
+                >
+                  <h3 
+                    id={`section-heading-${sectionIndex}`}
+                    className="mobile-menu-section-title"
+                  >
+                    {section.title}
+                  </h3>
                   <div className="mobile-menu-items">
                     {section.items.map((item) => (
                       <button
@@ -114,8 +166,10 @@ const MobileNav = ({ user, onLogout, activeTab, setActiveTab }) => {
                           setIsMenuOpen(false);
                         }}
                         className={`mobile-menu-item ${activeTab === item.id ? 'mobile-menu-item-active' : ''}`}
+                        role="menuitem"
+                        aria-current={activeTab === item.id ? 'page' : undefined}
                       >
-                        <span className="mobile-menu-icon">{item.icon}</span>
+                        <span className="mobile-menu-icon" aria-hidden="true">{item.icon}</span>
                         <span className="mobile-menu-label">{item.label}</span>
                       </button>
                     ))}
@@ -133,9 +187,34 @@ const MobileNav = ({ user, onLogout, activeTab, setActiveTab }) => {
                     setIsMenuOpen(false);
                   }}
                   className="mobile-logout-button"
+                  role="menuitem"
                 >
-                  <span className="logout-icon">🚪</span>
+                  <span className="logout-icon" aria-hidden="true">🚪</span>
                   <span>Logout</span>
+                </button>
+              </div>
+            )}
+
+            {/* Login/Join Buttons for non-authenticated users */}
+            {!user && (
+              <div className="mobile-auth-buttons">
+                <button
+                  onClick={() => {
+                    window.location.href = '/';
+                    setIsMenuOpen(false);
+                  }}
+                  className="mobile-auth-btn mobile-auth-login"
+                >
+                  Login
+                </button>
+                <button
+                  onClick={() => {
+                    window.location.href = '/?state=signup';
+                    setIsMenuOpen(false);
+                  }}
+                  className="mobile-auth-btn mobile-auth-join"
+                >
+                  Join Community
                 </button>
               </div>
             )}
@@ -144,15 +223,18 @@ const MobileNav = ({ user, onLogout, activeTab, setActiveTab }) => {
       )}
 
       {/* Bottom Navigation */}
-      <div className="bottom-nav">
+      <div className="bottom-nav" role="navigation" aria-label="Bottom navigation">
         <div className="bottom-nav-container">
           {mobileNavItems.map((item) => (
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
               className={`bottom-nav-item ${activeTab === item.id ? 'bottom-nav-item-active' : ''}`}
+              role="tab"
+              aria-selected={activeTab === item.id}
+              aria-controls={item.id}
             >
-              <span className="bottom-nav-icon">{item.icon}</span>
+              <span className="bottom-nav-icon" aria-hidden="true">{item.icon}</span>
               <span className="bottom-nav-label">{item.label}</span>
             </button>
           ))}
