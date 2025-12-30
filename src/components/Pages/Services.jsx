@@ -592,14 +592,18 @@ const ServiceCard = ({
         <div className="provider-header">
           {service.user?.profile_picture_url ? (
             <img 
-              src={service.user.profile_picture_url} 
-              alt="Provider" 
-              className="provider-avatar"
-              onError={(e) => {
-                e.target.style.display = 'none';
-                e.target.nextElementSibling?.style.display = 'flex';
-              }}
-            />
+  src={service.user.profile_picture_url} 
+  alt="Provider" 
+  className="provider-avatar"
+  onError={(e) => {
+    const img = e.target;
+    img.style.display = 'none';
+    const avatarInitials = img.parentElement?.querySelector('.provider-avatar-initials');
+    if (avatarInitials) {
+      avatarInitials.style.display = 'flex';
+    }
+  }}
+/>
           ) : (
             <div className="provider-avatar-initials">
               {service.user?.firstname?.[0]?.toUpperCase() || 'P'}
