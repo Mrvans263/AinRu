@@ -80,7 +80,7 @@ const Services = () => {
         query = query.eq('service_type', filters.serviceType);
       }
       if (filters.search) {
-        query = query.or(`title.ilike.%${filters.search}%,description.ilike.%${filters.search}%,tags.cs.{${filters.search}}`);
+        query = query.or(`title.ilike.%${filters.search}%,description.ilike.%${filters.search}%`);
       }
       if (filters.location) {
         query = query.ilike('location', `%${filters.location}%`);
@@ -99,9 +99,6 @@ const Services = () => {
           break;
         case 'price_high':
           query = query.order('price', { ascending: false });
-          break;
-        case 'rating':
-          query = query.order('average_rating', { ascending: false });
           break;
         default:
           query = query.order('created_at', { ascending: false });
@@ -126,25 +123,60 @@ const Services = () => {
 
   const handleCreateService = async (serviceData) => {
     try {
+      console.log('Creating service with data:', serviceData);
+      
+      // Prepare data matching EXACT table structure
+      const insertData = {
+        user_id: user.id,
+        category_id: serviceData.category_id ? parseInt(serviceData.category_id) : null,
+        title: serviceData.title,
+        description: serviceData.description,
+        price: parseFloat(serviceData.price),
+        currency: serviceData.currency || 'RUB',
+        price_negotiable: serviceData.price_negotiable || false,
+        service_type: serviceData.service_type || 'academic',
+        condition: 'new', // Default value as per table structure
+        availability: serviceData.availability || null,
+        experience_years: serviceData.experience_years ? parseInt(serviceData.experience_years) : null,
+        meeting_place: serviceData.meeting_place || null,
+        location: serviceData.location || null,
+        contact_method: serviceData.contact_method || 'whatsapp',
+        contact_info: serviceData.contact_info,
+        status: 'active',
+        tags: Array.isArray(serviceData.tags) ? serviceData.tags : [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      
+      console.log('Inserting data:', insertData);
+      
       const { data, error } = await supabase
         .from('services')
-        .insert([{
-          ...serviceData,
-          user_id: user.id,
-          status: 'active'
-        }])
+        .insert([insertData])
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code
+        });
+        throw error;
+      }
       
+      console.log('Service created successfully:', data);
       setMessage({ type: 'success', text: 'Service created successfully!' });
       setShowCreateModal(false);
       await fetchServices();
       return data;
     } catch (error) {
       console.error('Error creating service:', error);
-      setMessage({ type: 'error', text: 'Failed to create service' });
+      setMessage({ 
+        type: 'error', 
+        text: `Failed to create service: ${error.message || 'Unknown error'}` 
+      });
       throw error;
     }
   };
@@ -153,7 +185,10 @@ const Services = () => {
     try {
       const { error } = await supabase
         .from('services')
-        .update(updates)
+        .update({
+          ...updates,
+          updated_at: new Date().toISOString()
+        })
         .eq('id', serviceId)
         .eq('user_id', user.id);
 
@@ -537,9 +572,7 @@ const ServiceCard = ({
         <div className="service-price">
           <span className="currency-flag">{getCurrencyFlag(service.currency || 'RUB')}</span>
           <span className="price-amount">{formatPrice(service.price, service.currency || 'RUB')}</span>
-          {service.price_type === 'hourly' && <span className="price-type">/hour</span>}
-          {service.price_type === 'daily' && <span className="price-type">/day</span>}
-          {service.price_type === 'project' && <span className="price-type">/project</span>}
+          {service.price_negotiable && <span className="negotiable-badge">Negotiable</span>}
         </div>
       </div>
 
@@ -590,25 +623,27 @@ const ServiceCard = ({
       {/* Provider Info */}
       <div className="provider-info">
         <div className="provider-header">
-          {service.user?.profile_picture_url ? (
-            <img 
-  src={service.user.profile_picture_url} 
-  alt="Provider" 
-  className="provider-avatar"
-  onError={(e) => {
-    const img = e.target;
-    img.style.display = 'none';
-    const avatarInitials = img.parentElement?.querySelector('.provider-avatar-initials');
-    if (avatarInitials) {
-      avatarInitials.style.display = 'flex';
-    }
-  }}
-/>
-          ) : (
-            <div className="provider-avatar-initials">
-              {service.user?.firstname?.[0]?.toUpperCase() || 'P'}
-            </div>
-          )}
+          <div className="avatar-container">
+            {service.user?.profile_picture_url ? (
+              <>
+                <img 
+                  src={service.user.profile_picture_url} 
+                  alt="Provider" 
+                  className="provider-avatar"
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                  }}
+                />
+                <div className="provider-avatar-initials">
+                  {service.user?.firstname?.[0]?.toUpperCase() || 'P'}
+                </div>
+              </>
+            ) : (
+              <div className="provider-avatar-initials">
+                {service.user?.firstname?.[0]?.toUpperCase() || 'P'}
+              </div>
+            )}
+          </div>
           <div className="provider-details">
             <div className="provider-name">
               👤 {service.user?.firstname} {service.user?.surname}
@@ -627,6 +662,7 @@ const ServiceCard = ({
         {service.status === 'active' && <span className="status-active">✅ Available</span>}
         {service.status === 'booked' && <span className="status-booked">📅 Booked</span>}
         {service.status === 'unavailable' && <span className="status-unavailable">⏸️ Unavailable</span>}
+        {service.status === 'deleted' && <span className="status-deleted">🗑️ Deleted</span>}
       </div>
 
       {/* Actions */}
@@ -653,12 +689,14 @@ const ServiceCard = ({
                 {service.status === 'active' ? '⏸️ Mark Unavailable' : '✅ Mark Available'}
               </button>
             )}
-            <button 
-              className="delete-btn"
-              onClick={() => onDelete(service.id)}
-            >
-              🗑️ Delete
-            </button>
+            {service.status !== 'deleted' && (
+              <button 
+                className="delete-btn"
+                onClick={() => onDelete(service.id)}
+              >
+                🗑️ Delete
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -681,13 +719,12 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate }) => {
     service_type: 'academic',
     price: '',
     currency: 'RUB',
-    price_type: 'hourly',
     price_negotiable: false,
     location: '',
     meeting_place: '',
     availability: 'Flexible',
     experience_years: '',
-    tags: [],
+    tags: '',
     contact_method: 'whatsapp',
     contact_info: user?.email || '',
   });
@@ -716,7 +753,9 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate }) => {
       }
 
       // Parse tags
-      const tagsArray = form.tags.split(',').map(tag => tag.trim()).filter(tag => tag);
+      const tagsArray = form.tags 
+        ? form.tags.split(',').map(tag => tag.trim()).filter(tag => tag)
+        : [];
 
       const serviceData = {
         title: form.title.trim(),
@@ -725,17 +764,17 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate }) => {
         service_type: form.service_type,
         price: parseFloat(form.price),
         currency: form.currency,
-        price_type: form.price_type,
         price_negotiable: form.price_negotiable,
         location: form.location || null,
         meeting_place: form.meeting_place || null,
         availability: form.availability || null,
         experience_years: form.experience_years ? parseInt(form.experience_years) : null,
-        tags: tagsArray.length > 0 ? tagsArray : null,
+        tags: tagsArray,
         contact_method: form.contact_method,
         contact_info: form.contact_info,
       };
 
+      console.log('Submitting service data:', serviceData);
       await onCreate(serviceData);
     } catch (error) {
       console.error('Error creating service:', error);
@@ -856,17 +895,6 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate }) => {
                       <option value="EUR">🇪🇺 EUR</option>
                       <option value="ZAR">🇿🇦 ZAR</option>
                       <option value="ZWL">🇿🇼 ZWL</option>
-                    </select>
-                    <select
-                      name="price_type"
-                      value={form.price_type}
-                      onChange={handleChange}
-                      className="price-type-select"
-                    >
-                      <option value="hourly">per hour</option>
-                      <option value="daily">per day</option>
-                      <option value="project">per project</option>
-                      <option value="fixed">fixed price</option>
                     </select>
                   </div>
                   <div className="checkbox-group">
