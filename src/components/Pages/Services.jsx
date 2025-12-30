@@ -69,7 +69,7 @@ const Services = () => {
         `)
         .order('created_at', { ascending: false });
 
-      // Apply filters (same as marketplace_listings pattern)
+      // Apply filters
       if (filters.status !== 'all') {
         query = query.eq('status', filters.status);
       }
@@ -121,11 +121,39 @@ const Services = () => {
     setFilterChanged(true);
   };
 
+  // Image upload function
+  const uploadImage = async (file) => {
+    try {
+      if (!file) return null;
+      
+      if (file.size > 5 * 1024 * 1024) {
+        throw new Error('File size must be less than 5MB');
+      }
+
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}-${Date.now()}.${fileExt}`;
+      
+      const { error: uploadError } = await supabase.storage
+        .from('service-images')
+        .upload(fileName, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('service-images')
+        .getPublicUrl(fileName);
+
+      return publicUrl;
+    } catch (error) {
+      console.error('Image upload failed:', error);
+      throw error;
+    }
+  };
+
   const handleCreateService = async (serviceData) => {
     try {
-      console.log('Creating service with data:', serviceData);
+      console.log('Creating service:', serviceData);
       
-      // Prepare data matching EXACT table structure
       const insertData = {
         user_id: user.id,
         category_id: serviceData.category_id ? parseInt(serviceData.category_id) : null,
@@ -135,7 +163,7 @@ const Services = () => {
         currency: serviceData.currency || 'RUB',
         price_negotiable: serviceData.price_negotiable || false,
         service_type: serviceData.service_type || 'academic',
-        condition: 'new', // Default value as per table structure
+        condition: 'new',
         availability: serviceData.availability || null,
         experience_years: serviceData.experience_years ? parseInt(serviceData.experience_years) : null,
         meeting_place: serviceData.meeting_place || null,
@@ -144,12 +172,10 @@ const Services = () => {
         contact_info: serviceData.contact_info,
         status: 'active',
         tags: Array.isArray(serviceData.tags) ? serviceData.tags : [],
-        image_url: serviceData.image_url || null, // ADDED: Optional image URL
+        image_url: serviceData.image_url || null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
-      
-      console.log('Inserting data:', insertData);
       
       const { data, error } = await supabase
         .from('services')
@@ -157,27 +183,15 @@ const Services = () => {
         .select()
         .single();
 
-      if (error) {
-        console.error('Supabase error:', {
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code
-        });
-        throw error;
-      }
+      if (error) throw error;
       
-      console.log('Service created successfully:', data);
       setMessage({ type: 'success', text: 'Service created successfully!' });
       setShowCreateModal(false);
       await fetchServices();
       return data;
     } catch (error) {
       console.error('Error creating service:', error);
-      setMessage({ 
-        type: 'error', 
-        text: `Failed to create service: ${error.message || 'Unknown error'}` 
-      });
+      setMessage({ type: 'error', text: 'Failed to create service' });
       throw error;
     }
   };
@@ -249,10 +263,6 @@ const Services = () => {
           window.location.href = `tel:${service.contact_info}`;
         }
         break;
-      case 'in_app':
-        // Navigate to messages with this user
-        window.location.href = `/messages?user=${service.user_id}`;
-        break;
       default:
         alert(`Contact ${providerName} at: ${service.contact_info}`);
     }
@@ -260,13 +270,7 @@ const Services = () => {
 
   // Helper functions
   const formatPrice = (price, currency = 'RUB') => {
-    const symbols = {
-      'RUB': '₽',
-      'USD': '$',
-      'EUR': '€',
-      'ZAR': 'R',
-      'ZWL': 'Z$'
-    };
+    const symbols = { 'RUB': '₽', 'USD': '$', 'EUR': '€', 'ZAR': 'R', 'ZWL': 'Z$' };
     const symbol = symbols[currency] || currency;
     return `${symbol} ${parseFloat(price).toLocaleString('en-US', {
       minimumFractionDigits: 2,
@@ -275,32 +279,15 @@ const Services = () => {
   };
 
   const getCurrencyFlag = (currency) => {
-    const flags = {
-      'RUB': '🇷🇺',
-      'USD': '🇺🇸',
-      'EUR': '🇪🇺',
-      'ZAR': '🇿🇦',
-      'ZWL': '🇿🇼'
-    };
+    const flags = { 'RUB': '🇷🇺', 'USD': '🇺🇸', 'EUR': '🇪🇺', 'ZAR': '🇿🇦', 'ZWL': '🇿🇼' };
     return flags[currency] || '💱';
   };
 
   const getServiceTypeIcon = (type) => {
     const icons = {
-      'academic': '📚',
-      'tutoring': '👨‍🏫',
-      'translation': '🔤',
-      'transportation': '🚗',
-      'housing': '🏠',
-      'food': '🍕',
-      'legal': '⚖️',
-      'medical': '🏥',
-      'beauty': '💅',
-      'fitness': '💪',
-      'tech': '💻',
-      'design': '🎨',
-      'writing': '✍️',
-      'consulting': '💼',
+      'academic': '📚', 'tutoring': '👨‍🏫', 'translation': '🔤', 'transportation': '🚗',
+      'housing': '🏠', 'food': '🍕', 'legal': '⚖️', 'medical': '🏥', 'beauty': '💅',
+      'fitness': '💪', 'tech': '💻', 'design': '🎨', 'writing': '✍️', 'consulting': '💼',
       'other': '🔧'
     };
     return icons[type] || '🔧';
@@ -317,35 +304,6 @@ const Services = () => {
 
   const clearMessage = () => {
     setMessage({ type: '', text: '' });
-  };
-
-  // Image upload function
-  const uploadImage = async (file) => {
-    try {
-      if (!file) return null;
-      
-      if (file.size > 5 * 1024 * 1024) {
-        throw new Error('File size must be less than 5MB');
-      }
-
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${user.id}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
-      
-      const { error: uploadError } = await supabase.storage
-        .from('service-images')
-        .upload(fileName, file);
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('service-images')
-        .getPublicUrl(fileName);
-
-      return publicUrl;
-    } catch (error) {
-      console.error('Error uploading image:', error);
-      throw error;
-    }
   };
 
   if (loading && services.length === 0) {
@@ -388,19 +346,17 @@ const Services = () => {
       {/* Filters */}
       <div className="filters-section">
         <div className="filters-grid">
-          {/* Search */}
           <div className="filter-group">
-            <label>Search Services</label>
+            <label>Search</label>
             <input
               type="text"
-              placeholder="Search by title, description, or tags..."
+              placeholder="Search services..."
               value={filters.search}
               onChange={(e) => handleFilterChange('search', e.target.value)}
               className="search-input"
             />
           </div>
 
-          {/* Category */}
           <div className="filter-group">
             <label>Category</label>
             <select
@@ -417,7 +373,6 @@ const Services = () => {
             </select>
           </div>
 
-          {/* Service Type */}
           <div className="filter-group">
             <label>Service Type</label>
             <select
@@ -432,14 +387,10 @@ const Services = () => {
               <option value="transportation">🚗 Transportation</option>
               <option value="housing">🏠 Housing</option>
               <option value="food">🍕 Food</option>
-              <option value="legal">⚖️ Legal</option>
-              <option value="medical">🏥 Medical</option>
-              <option value="tech">💻 Tech</option>
               <option value="other">🔧 Other</option>
             </select>
           </div>
 
-          {/* Location */}
           <div className="filter-group">
             <label>Location</label>
             <input
@@ -451,7 +402,6 @@ const Services = () => {
             />
           </div>
 
-          {/* Price Range */}
           <div className="filter-group">
             <label>Price Range</label>
             <div className="price-range-inputs">
@@ -473,20 +423,6 @@ const Services = () => {
             </div>
           </div>
 
-          {/* Status */}
-          <div className="filter-group">
-            <label>Status</label>
-            <select
-              value={filters.status}
-              onChange={(e) => handleFilterChange('status', e.target.value)}
-              className="filter-select"
-            >
-              <option value="active">Active Services</option>
-              <option value="all">All Services</option>
-            </select>
-          </div>
-
-          {/* Sort By */}
           <div className="filter-group">
             <label>Sort By</label>
             <select
@@ -626,17 +562,6 @@ const ServiceCard = ({
         {service.description}
       </div>
 
-      {/* Service Tags */}
-      {service.tags && service.tags.length > 0 && (
-        <div className="service-tags">
-          {service.tags.map((tag, index) => (
-            <span key={index} className="service-tag">
-              #{tag}
-            </span>
-          ))}
-        </div>
-      )}
-
       {/* Service Details */}
       <div className="service-details">
         {service.location && (
@@ -655,12 +580,6 @@ const ServiceCard = ({
           <div className="detail-item">
             <span className="detail-icon">📅</span>
             <span className="detail-text">{service.experience_years} years experience</span>
-          </div>
-        )}
-        {service.meeting_place && (
-          <div className="detail-item">
-            <span className="detail-icon">🏢</span>
-            <span className="detail-text">{service.meeting_place}</span>
           </div>
         )}
       </div>
@@ -707,7 +626,6 @@ const ServiceCard = ({
         {service.status === 'active' && <span className="status-active">✅ Available</span>}
         {service.status === 'booked' && <span className="status-booked">📅 Booked</span>}
         {service.status === 'unavailable' && <span className="status-unavailable">⏸️ Unavailable</span>}
-        {service.status === 'deleted' && <span className="status-deleted">🗑️ Deleted</span>}
       </div>
 
       {/* Actions */}
@@ -717,7 +635,6 @@ const ServiceCard = ({
             className="contact-btn"
             onClick={onContact}
             disabled={service.status !== 'active'}
-            title={service.status !== 'active' ? 'Service not available' : `Contact via ${service.contact_method || 'email'}`}
           >
             📞 Contact Provider
           </button>
@@ -734,14 +651,12 @@ const ServiceCard = ({
                 {service.status === 'active' ? '⏸️ Mark Unavailable' : '✅ Mark Available'}
               </button>
             )}
-            {service.status !== 'deleted' && (
-              <button 
-                className="delete-btn"
-                onClick={() => onDelete(service.id)}
-              >
-                🗑️ Delete
-              </button>
-            )}
+            <button 
+              className="delete-btn"
+              onClick={() => onDelete(service.id)}
+            >
+              🗑️ Delete
+            </button>
           </div>
         )}
       </div>
@@ -754,7 +669,7 @@ const ServiceCard = ({
   );
 };
 
-// Create Service Modal Component with Image Upload and Wide Price Input
+// Create Service Modal Component
 const CreateServiceModal = ({ user, categories, onClose, onCreate, uploadImage }) => {
   const [loading, setLoading] = useState(false);
   const [imagePreview, setImagePreview] = useState(null);
@@ -839,10 +754,10 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate, uploadImage }
         image_url: imageUrl,
       };
 
-      console.log('Submitting service data:', serviceData);
       await onCreate(serviceData);
     } catch (error) {
       console.error('Error creating service:', error);
+      alert('Failed to create service. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -881,6 +796,11 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate, uploadImage }
   };
 
   // Calculate formatted price for preview
+  const getCurrencyFlag = (currency) => {
+    const flags = { 'RUB': '🇷🇺', 'USD': '🇺🇸', 'EUR': '🇪🇺', 'ZAR': '🇿🇦', 'ZWL': '🇿🇼' };
+    return flags[currency] || '💱';
+  };
+
   const formattedPrice = form.price 
     ? `${getCurrencyFlag(form.currency)} ${parseFloat(form.price).toLocaleString('en-US', {
         minimumFractionDigits: 2,
@@ -897,7 +817,7 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate, uploadImage }
         </div>
         
         <form onSubmit={handleSubmit}>
-          {/* Image Upload Section */}
+          {/* Image Upload */}
           <div className="form-section">
             <h3>Service Image (Optional)</h3>
             <div className="image-upload-section">
@@ -924,7 +844,7 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate, uploadImage }
                   <label htmlFor="service-image-upload" className="upload-label">
                     📷 Upload Service Image
                   </label>
-                  <p className="upload-hint">Optional. Max 5MB. Recommended: 800x600px</p>
+                  <p className="upload-hint">Optional. Max 5MB</p>
                 </div>
               )}
             </div>
@@ -942,7 +862,6 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate, uploadImage }
                 onChange={handleChange}
                 placeholder="e.g., Russian Language Tutoring"
                 required
-                maxLength={200}
               />
             </div>
             
@@ -952,10 +871,9 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate, uploadImage }
                 name="description"
                 value={form.description}
                 onChange={handleChange}
-                placeholder="Describe your service in detail. Include what you offer, your qualifications, and what clients can expect."
+                placeholder="Describe your service..."
                 rows="4"
                 required
-                maxLength={2000}
               />
             </div>
             
@@ -991,16 +909,13 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate, uploadImage }
                     <option value="transportation">🚗 Transportation</option>
                     <option value="housing">🏠 Housing</option>
                     <option value="food">🍕 Food</option>
-                    <option value="legal">⚖️ Legal</option>
-                    <option value="medical">🏥 Medical</option>
-                    <option value="tech">💻 Tech</option>
                     <option value="other">🔧 Other</option>
                   </select>
                 </div>
               </div>
               
               <div className="form-column">
-                {/* WIDE PRICE INPUT SECTION */}
+                {/* Wide Price Input */}
                 <div className="form-group">
                   <label>Price *</label>
                   <div className="wide-price-input-group">
@@ -1029,11 +944,10 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate, uploadImage }
                         onChange={handleChange}
                         className="currency-select-wide"
                       >
-                        <option value="RUB">🇷🇺 Russian Ruble (RUB)</option>
-                        <option value="USD">🇺🇸 US Dollar (USD)</option>
-                        <option value="EUR">🇪🇺 Euro (EUR)</option>
-                        <option value="ZAR">🇿🇦 South African Rand (ZAR)</option>
-                        <option value="ZWL">🇿🇼 Zimbabwe Dollar (ZWL)</option>
+                        <option value="RUB">🇷🇺 RUB</option>
+                        <option value="USD">🇺🇸 USD</option>
+                        <option value="EUR">🇪🇺 EUR</option>
+                        <option value="ZAR">🇿🇦 ZAR</option>
                       </select>
                       <div className="checkbox-group">
                         <label className="checkbox-label">
@@ -1043,7 +957,7 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate, uploadImage }
                             checked={form.price_negotiable}
                             onChange={handleChange}
                           />
-                          Price is negotiable
+                          Price negotiable
                         </label>
                       </div>
                     </div>
@@ -1059,7 +973,6 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate, uploadImage }
                     onChange={handleChange}
                     placeholder="e.g., 2"
                     min="0"
-                    max="50"
                   />
                 </div>
               </div>
@@ -1074,7 +987,6 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate, uploadImage }
                 onChange={handleChange}
                 placeholder="e.g., tutoring, russian, language, online"
               />
-              <small className="form-hint">Help people find your service with relevant tags</small>
             </div>
           </div>
           
@@ -1101,7 +1013,7 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate, uploadImage }
                     name="meeting_place"
                     value={form.meeting_place}
                     onChange={handleChange}
-                    placeholder="e.g., University Campus, Coffee Shop, Online"
+                    placeholder="e.g., University Campus"
                   />
                 </div>
               </div>
@@ -1114,7 +1026,7 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate, uploadImage }
                     name="availability"
                     value={form.availability}
                     onChange={handleChange}
-                    placeholder="e.g., Weekdays 9am-5pm, Flexible"
+                    placeholder="e.g., Weekdays 9am-5pm"
                   />
                 </div>
               </div>
@@ -1137,8 +1049,7 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate, uploadImage }
                     <option value="whatsapp">WhatsApp</option>
                     <option value="telegram">Telegram</option>
                     <option value="email">Email</option>
-                    <option value="phone">Phone Call</option>
-                    <option value="in_app">In-app Messaging</option>
+                    <option value="phone">Phone</option>
                   </select>
                 </div>
               </div>
@@ -1152,20 +1063,10 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate, uploadImage }
                     value={form.contact_info}
                     onChange={handleChange}
                     placeholder={
-                      form.contact_method === 'email' ? 'your.email@example.com' :
-                      form.contact_method === 'whatsapp' || form.contact_method === 'phone' ? '+27 12 345 6789' :
-                      form.contact_method === 'telegram' ? '@username or phone number' :
-                      'Contact information'
+                      form.contact_method === 'email' ? 'your.email@example.com' : '+27 12 345 6789'
                     }
                     required
                   />
-                  <small className="form-hint">
-                    {form.contact_method === 'email' 
-                      ? 'Clients will contact you via email'
-                      : form.contact_method === 'in_app'
-                      ? 'Clients will message you within the app'
-                      : 'Include country code for phone numbers'}
-                  </small>
                 </div>
               </div>
             </div>
@@ -1176,25 +1077,13 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate, uploadImage }
               Cancel
             </button>
             <button type="submit" className="btn-primary" disabled={loading || uploadingImage}>
-              {uploadingImage ? 'Uploading Image...' : loading ? 'Creating...' : 'Publish Service'}
+              {uploadingImage ? 'Uploading...' : loading ? 'Creating...' : 'Publish Service'}
             </button>
           </div>
         </form>
       </div>
     </div>
   );
-};
-
-// Helper function for currency flag (used in modal)
-const getCurrencyFlag = (currency) => {
-  const flags = {
-    'RUB': '🇷🇺',
-    'USD': '🇺🇸',
-    'EUR': '🇪🇺',
-    'ZAR': '🇿🇦',
-    'ZWL': '🇿🇼'
-  };
-  return flags[currency] || '💱';
 };
 
 export default Services;
