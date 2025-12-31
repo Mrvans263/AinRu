@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
-import { Heart, MessageCircle, Share2, Image as ImageIcon, Globe, Users, Lock, MoreVertical, Send, Clock, TrendingUp, User, Award, BookOpen, GraduationCap, Building, MapPin, X } from 'lucide-react';
+import { Heart, MessageCircle, Share2, Image as ImageIcon, Globe, Users, Lock, MoreVertical, Send, Clock } from 'lucide-react';
 import './Feed.css';
 
 const Feed = () => {
@@ -16,81 +16,45 @@ const Feed = () => {
   const [isComposing, setIsComposing] = useState(false);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
-  const [stats, setStats] = useState({ totalPosts: 0, totalUsers: 0, activeUsers: 0 });
   const fileInputRef = useRef(null);
   const feedRef = useRef(null);
   const postsPerPage = 10;
 
-  // Load user session
   useEffect(() => {
-    const getUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        const { data: profile } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', session.user.id)
-          .single();
-        setUser(profile);
-      }
-    };
     getUser();
   }, []);
 
-  // Fetch posts when user or tab changes
   useEffect(() => {
-    if (user !== null) { // Changed to handle both logged in and not logged in
+    if (user !== null) {
       fetchPosts(0);
-      fetchStats();
     }
   }, [user, activeTab]);
 
-  // Fetch platform statistics
-  const fetchStats = async () => {
-    try {
-      // Total posts
-      const { count: totalPosts } = await supabase
-        .from('feed_posts')
-        .select('*', { count: 'exact', head: true });
-
-      // Total users
-      const { count: totalUsers } = await supabase
+  const getUser = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user) {
+      const { data: profile } = await supabase
         .from('users')
-        .select('*', { count: 'exact', head: true });
-
-      // Active users (posted in last 30 days)
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      
-      const { data: activePosts } = await supabase
-        .from('feed_posts')
-        .select('user_id')
-        .gte('created_at', thirtyDaysAgo.toISOString());
-
-      const activeUserIds = [...new Set(activePosts?.map(post => post.user_id) || [])];
-
-      setStats({
-        totalPosts: totalPosts || 0,
-        totalUsers: totalUsers || 0,
-        activeUsers: activeUserIds.length
-      });
-    } catch (error) {
-      console.error('Error fetching stats:', error);
+        .select('*')
+        .eq('id', session.user.id)
+        .single();
+      setUser(profile);
+    } else {
+      setUser(null);
     }
   };
 
-  // Fetch posts with pagination
   const fetchPosts = async (pageNum) => {
     setLoading(true);
     try {
       const from = pageNum * postsPerPage;
       
-      // Build base query with joins
+      // First, get the posts
       let query = supabase
         .from('feed_posts')
         .select(`
           *,
-          user:users!feed_posts_user_id_fkey (
+          users!feed_posts_user_id_fkey (
             id,
             firstname,
             surname,
@@ -99,26 +63,12 @@ const Feed = () => {
             program_field,
             is_student,
             year_of_study
-          ),
-          post_likes (
-            user_id
-          ),
-          post_comments (
-            id,
-            content,
-            created_at,
-            user_id,
-            user:users!post_comments_user_id_fkey (
-              firstname,
-              surname,
-              profile_picture_url
-            )
           )
         `)
         .order('created_at', { ascending: false })
         .range(from, from + postsPerPage - 1);
 
-      // Apply filters based on active tab
+      // Apply filters
       if (activeTab === 'my' && user) {
         query = query.eq('user_id', user.id);
       } else if (activeTab === 'following' && user) {
@@ -137,48 +87,88 @@ const Feed = () => {
         }
       }
 
-      // Apply visibility filter
+      // Visibility
       if (user) {
-        query = query.or(`visibility.eq.public,user_id.eq.${user.id},and(visibility.eq.friends,user_id.in.(select following_id from user_follows where follower_id.eq.${user.id}))`);
+        // For logged in users: public posts, own posts, or friends-only posts from people they follow
+        const { data: following } = await supabase
+          .from('user_follows')
+          .select('following_id')
+          .eq('follower_id', user.id);
+        
+        const followingIds = following?.map(f => f.following_id) || [];
+        
+        query = query.or(
+          `visibility.eq.public,user_id.eq.${user.id},and(visibility.eq.friends,user_id.in.(${followingIds.join(',')}))`
+        );
       } else {
         query = query.eq('visibility', 'public');
       }
 
-      const { data: postsData, error } = await query;
+      const { data: postsData, error: postsError } = await query;
 
-      if (error) throw error;
+      if (postsError) {
+        console.error('Posts error:', postsError);
+        throw postsError;
+      }
 
-      // Check if we have more posts
       if (!postsData || postsData.length < postsPerPage) {
         setHasMore(false);
       }
 
-      // Process posts data
-      const processedPosts = postsData?.map((post, index) => {
-        // Get unique likes count
-        const uniqueLikes = new Set(post.post_likes?.map(like => like.user_id) || []);
-        const userHasLiked = user ? uniqueLikes.has(user.id) : false;
-        
-        // Sort comments by date
-        const sortedComments = (post.post_comments || [])
-          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-          .slice(0, 3); // Only show 3 comments initially
+      if (!postsData) {
+        setPosts([]);
+        setLoading(false);
+        return;
+      }
 
-        return {
-          ...post,
-          userHasLiked,
-          like_count: uniqueLikes.size,
-          comments: sortedComments,
-          isExpanded: false,
-          showAllComments: false,
-          animationDelay: index * 0.05
-        };
-      }) || [];
+      // Get likes and comments for each post
+      const postsWithDetails = await Promise.all(
+        postsData.map(async (post) => {
+          // Get likes for this post
+          const { data: likesData } = await supabase
+            .from('post_likes')
+            .select('user_id')
+            .eq('post_id', post.id);
+
+          // Get comments for this post (limit to 3 for preview)
+          const { data: commentsData } = await supabase
+            .from('post_comments')
+            .select(`
+              *,
+              users!post_comments_user_id_fkey (
+                firstname,
+                surname,
+                profile_picture_url
+              )
+            `)
+            .eq('post_id', post.id)
+            .order('created_at', { ascending: true })
+            .limit(3);
+
+          const userHasLiked = user 
+            ? likesData?.some(like => like.user_id === user.id) 
+            : false;
+
+          return {
+            ...post,
+            user: post.users,
+            userHasLiked,
+            like_count: likesData?.length || 0,
+            comments: commentsData?.map(comment => ({
+              ...comment,
+              user: comment.users
+            })) || [],
+            isExpanded: false,
+            showAllComments: false,
+            animationDelay: 0
+          };
+        })
+      );
 
       if (pageNum === 0) {
-        setPosts(processedPosts);
+        setPosts(postsWithDetails);
       } else {
-        setPosts(prev => [...prev, ...processedPosts]);
+        setPosts(prev => [...prev, ...postsWithDetails]);
       }
 
     } catch (error) {
@@ -188,7 +178,6 @@ const Feed = () => {
     }
   };
 
-  // Handle infinite scroll
   useEffect(() => {
     const handleScroll = () => {
       if (!feedRef.current || loading || !hasMore) return;
@@ -208,7 +197,6 @@ const Feed = () => {
     }
   }, [loading, hasMore, page]);
 
-  // Create new post
   const handleCreatePost = async (e) => {
     e.preventDefault();
     if (!newPost.trim() && !imageFile) {
@@ -220,11 +208,10 @@ const Feed = () => {
       setIsComposing(true);
       let imageUrl = null;
 
-      // Upload image if provided
       if (imageFile) {
         const fileExt = imageFile.name.split('.').pop();
         const fileName = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
-        const filePath = `feed-images/${user.id}/${fileName}`;
+        const filePath = user ? `feed-images/${user.id}/${fileName}` : `feed-images/${fileName}`;
 
         const { error: uploadError } = await supabase.storage
           .from('feed-images')
@@ -239,7 +226,6 @@ const Feed = () => {
         imageUrl = publicUrl;
       }
 
-      // Insert post into database
       const { data: newPostData, error } = await supabase
         .from('feed_posts')
         .insert([{
@@ -253,7 +239,7 @@ const Feed = () => {
         }])
         .select(`
           *,
-          user:users!feed_posts_user_id_fkey (
+          users!feed_posts_user_id_fkey (
             id,
             firstname,
             surname,
@@ -268,28 +254,26 @@ const Feed = () => {
 
       if (error) throw error;
 
-      // Add to local state
-      setPosts(prev => [{
+      // Add the new post with proper structure
+      const processedPost = {
         ...newPostData,
+        user: newPostData.users,
         userHasLiked: false,
-        post_likes: [],
-        post_comments: [],
-        user: newPostData.user,
-        isNewPost: true,
-        animationDelay: 0
-      }, ...prev]);
+        like_count: 0,
+        comments: [],
+        isExpanded: false,
+        showAllComments: false,
+        animationDelay: 0,
+        isNewPost: true
+      };
 
-      // Show success message
+      setPosts(prev => [processedPost, ...prev]);
       showToast('Post published successfully!', 'success');
 
-      // Reset form
       setNewPost('');
       setImagePreview(null);
       setImageFile(null);
       setIsComposing(false);
-
-      // Refresh stats
-      fetchStats();
 
     } catch (error) {
       console.error('Error creating post:', error);
@@ -298,7 +282,6 @@ const Feed = () => {
     }
   };
 
-  // Handle like/unlike post
   const handleLikePost = async (postId, currentlyLiked) => {
     if (!user) {
       showToast('Please login to like posts', 'warning');
@@ -307,7 +290,6 @@ const Feed = () => {
 
     try {
       if (currentlyLiked) {
-        // Remove like
         const { error } = await supabase
           .from('post_likes')
           .delete()
@@ -316,15 +298,12 @@ const Feed = () => {
 
         if (error) throw error;
 
-        // Decrement like count
-        await supabase.rpc('decrement', {
-          table_name: 'feed_posts',
-          column_name: 'like_count',
-          id: postId
-        });
+        await supabase
+          .from('feed_posts')
+          .update({ like_count: supabase.raw('like_count - 1') })
+          .eq('id', postId);
 
       } else {
-        // Add like
         const { error } = await supabase
           .from('post_likes')
           .insert([{
@@ -334,27 +313,19 @@ const Feed = () => {
 
         if (error) throw error;
 
-        // Increment like count
-        await supabase.rpc('increment', {
-          table_name: 'feed_posts',
-          column_name: 'like_count',
-          id: postId
-        });
+        await supabase
+          .from('feed_posts')
+          .update({ like_count: supabase.raw('like_count + 1') })
+          .eq('id', postId);
       }
 
-      // Update local state
       setPosts(prev => prev.map(post => {
         if (post.id === postId) {
           const newLikeCount = currentlyLiked ? post.like_count - 1 : post.like_count + 1;
-          const updatedLikes = currentlyLiked
-            ? (post.post_likes || []).filter(like => like.user_id !== user.id)
-            : [...(post.post_likes || []), { user_id: user.id }];
-
           return {
             ...post,
             like_count: newLikeCount,
-            userHasLiked: !currentlyLiked,
-            post_likes: updatedLikes
+            userHasLiked: !currentlyLiked
           };
         }
         return post;
@@ -366,7 +337,6 @@ const Feed = () => {
     }
   };
 
-  // Add comment to post
   const handleAddComment = async (postId, content) => {
     if (!user) {
       showToast('Please login to comment', 'warning');
@@ -379,7 +349,6 @@ const Feed = () => {
     }
 
     try {
-      // Insert comment
       const { data: comment, error } = await supabase
         .from('post_comments')
         .insert([{
@@ -389,7 +358,7 @@ const Feed = () => {
         }])
         .select(`
           *,
-          user:users!post_comments_user_id_fkey (
+          users!post_comments_user_id_fkey (
             firstname,
             surname,
             profile_picture_url
@@ -399,28 +368,27 @@ const Feed = () => {
 
       if (error) throw error;
 
-      // Increment comment count
-      await supabase.rpc('increment', {
-        table_name: 'feed_posts',
-        column_name: 'comment_count',
-        id: postId
-      });
+      await supabase
+        .from('feed_posts')
+        .update({ comment_count: supabase.raw('comment_count + 1') })
+        .eq('id', postId);
 
-      // Update local state
+      const newComment = {
+        ...comment,
+        user: comment.users
+      };
+
       setPosts(prev => prev.map(post => {
         if (post.id === postId) {
-          const newCommentCount = post.comment_count + 1;
           return {
             ...post,
-            comment_count: newCommentCount,
-            comments: [comment, ...post.comments],
-            showAllComments: true
+            comment_count: (post.comment_count || 0) + 1,
+            comments: [...(post.comments || []), newComment]
           };
         }
         return post;
       }));
 
-      // Clear comment input
       setCommentInputs(prev => ({
         ...prev,
         [postId]: ''
@@ -434,18 +402,15 @@ const Feed = () => {
     }
   };
 
-  // Handle image upload
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Validate file size (50MB limit)
     if (file.size > 50 * 1024 * 1024) {
       showToast('Image size should be less than 50MB', 'warning');
       return;
     }
 
-    // Validate file type
     if (!file.type.startsWith('image/')) {
       showToast('Please upload an image file', 'warning');
       return;
@@ -460,7 +425,6 @@ const Feed = () => {
     reader.readAsDataURL(file);
   };
 
-  // Show toast notification
   const showToast = (message, type = 'info') => {
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
@@ -478,7 +442,6 @@ const Feed = () => {
     }, 3000);
   };
 
-  // Format time ago
   const formatTimeAgo = (dateString) => {
     const postDate = new Date(dateString);
     const now = new Date();
@@ -500,12 +463,10 @@ const Feed = () => {
     });
   };
 
-  // Get user initials for avatar
   const getInitials = (firstname, surname) => {
     return `${firstname?.[0] || ''}${surname?.[0] || ''}`.toUpperCase();
   };
 
-  // Toggle post content expansion
   const togglePostExpand = (postId) => {
     setPosts(prev => prev.map(post => 
       post.id === postId 
@@ -514,7 +475,6 @@ const Feed = () => {
     ));
   };
 
-  // Handle comment input change
   const handleCommentInputChange = (postId, value) => {
     setCommentInputs(prev => ({
       ...prev,
@@ -522,7 +482,6 @@ const Feed = () => {
     }));
   };
 
-  // Handle enter key in comment input
   const handleKeyPress = (e, postId) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -533,7 +492,6 @@ const Feed = () => {
     }
   };
 
-  // Render loading state
   if (loading && posts.length === 0) {
     return (
       <div className="feed-container">
@@ -549,32 +507,15 @@ const Feed = () => {
 
   return (
     <div className="feed-container" ref={feedRef}>
-      {/* Header */}
       <div className="feed-header">
         <div className="header-content">
           <h1 className="feed-title">
             <span className="title-main">Campus Feed</span>
             <span className="title-sub">African Students in Russia</span>
           </h1>
-          
-          <div className="header-stats">
-            <div className="stat-item">
-              <div className="stat-value">{stats.totalPosts}</div>
-              <div className="stat-label">Posts</div>
-            </div>
-            <div className="stat-item">
-              <div className="stat-value">{stats.totalUsers}</div>
-              <div className="stat-label">Students</div>
-            </div>
-            <div className="stat-item">
-              <div className="stat-value">{stats.activeUsers}</div>
-              <div className="stat-label">Active</div>
-            </div>
-          </div>
         </div>
       </div>
 
-      {/* Create Post Card */}
       {user && (
         <div className="create-post-card">
           <div className="post-form">
@@ -626,7 +567,7 @@ const Feed = () => {
                     setImageFile(null);
                   }}
                 >
-                  <X size={20} />
+                  ×
                 </button>
               </div>
             )}
@@ -657,7 +598,6 @@ const Feed = () => {
         </div>
       )}
 
-      {/* Feed Tabs */}
       <div className="feed-tabs">
         <button 
           className={`tab ${activeTab === 'all' ? 'active' : ''}`}
@@ -665,6 +605,7 @@ const Feed = () => {
             setActiveTab('all');
             setPage(0);
             setHasMore(true);
+            setPosts([]);
             fetchPosts(0);
           }}
         >
@@ -680,6 +621,7 @@ const Feed = () => {
                 setActiveTab('following');
                 setPage(0);
                 setHasMore(true);
+                setPosts([]);
                 fetchPosts(0);
               }}
             >
@@ -693,17 +635,16 @@ const Feed = () => {
                 setActiveTab('my');
                 setPage(0);
                 setHasMore(true);
+                setPosts([]);
                 fetchPosts(0);
               }}
             >
-              <User size={18} />
               <span>My Posts</span>
             </button>
           </>
         )}
       </div>
 
-      {/* Posts Feed */}
       <div className="posts-feed">
         {posts.length === 0 ? (
           <div className="empty-state">
@@ -760,7 +701,6 @@ const Feed = () => {
   );
 };
 
-// Post Card Component
 const PostCard = ({ 
   post, 
   currentUser, 
@@ -776,19 +716,10 @@ const PostCard = ({
   animationDelay,
   index
 }) => {
-  const [isLiking, setIsLiking] = useState(false);
   const [showComments, setShowComments] = useState(false);
-  const [likeAnimation, setLikeAnimation] = useState(false);
 
   const handleLike = async () => {
-    if (isLiking) return;
-    setIsLiking(true);
-    setLikeAnimation(true);
-    
     await onLike(post.id, post.userHasLiked);
-    setIsLiking(false);
-    
-    setTimeout(() => setLikeAnimation(false), 1000);
   };
 
   const handleSubmitComment = async () => {
@@ -833,7 +764,6 @@ const PostCard = ({
             <div className="author-details">
               {post.user?.university && (
                 <span className="author-university">
-                  <Building size={12} />
                   {post.user.university}
                 </span>
               )}
@@ -885,7 +815,7 @@ const PostCard = ({
 
       <div className="post-stats">
         <div className="stat">
-          <Heart size={14} className={likeAnimation ? 'liking' : ''} />
+          <Heart size={14} />
           <span>{post.like_count || 0} likes</span>
         </div>
         <div className="stat">
@@ -902,7 +832,6 @@ const PostCard = ({
         <button 
           className={`action-btn ${post.userHasLiked ? 'liked' : ''}`}
           onClick={handleLike}
-          disabled={isLiking}
         >
           <Heart size={18} fill={post.userHasLiked ? 'currentColor' : 'none'} />
           <span>{post.userHasLiked ? 'Liked' : 'Like'}</span>
