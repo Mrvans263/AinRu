@@ -19,10 +19,7 @@ import {
   Hash,
   Flag,
   X,
-  Video,
-  Calendar,
-  Award,
-  ThumbsUp
+  Award
 } from 'lucide-react';
 import './Feed.css';
 
@@ -37,19 +34,9 @@ const Feed = () => {
   const [activeTab, setActiveTab] = useState('all');
   const [commentInputs, setCommentInputs] = useState({});
   const [isPosting, setIsPosting] = useState(false);
-  const [filteredCategory, setFilteredCategory] = useState('all');
   
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
-
-  const categories = [
-    { id: 'all', name: 'All', icon: '🌍' },
-    { id: 'marketplace', name: 'Marketplace', icon: '🛒' },
-    { id: 'travel', name: 'Travel', icon: '✈️' },
-    { id: 'housing', name: 'Housing', icon: '🏠' },
-    { id: 'events', name: 'Events', icon: '🎉' },
-    { id: 'jobs', name: 'Jobs', icon: '💼' },
-  ];
 
   useEffect(() => {
     checkUser();
@@ -59,7 +46,7 @@ const Feed = () => {
     if (user) {
       fetchPosts();
     }
-  }, [user, activeTab, filteredCategory]);
+  }, [user, activeTab]);
 
   const checkUser = async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -75,38 +62,39 @@ const Feed = () => {
         .from('feed_posts')
         .select(`
           *,
-          user:users(firstname, surname, profile_picture_url, verified),
-          likes:post_likes(user_id),
-          comments:post_comments(
+          user:users(id, firstname, lastname, avatar_url),
+          post_likes(id, user_id),
+          post_comments(
             id,
             content,
             created_at,
-            user:users(firstname, surname, profile_picture_url, verified)
+            user:users(id, firstname, lastname, avatar_url)
           )
         `)
         .order('created_at', { ascending: false });
 
-      // Apply category filter
-      if (filteredCategory !== 'all') {
-        query = query.eq('category', filteredCategory);
-      }
-
       if (activeTab === 'my' && user) {
         query = query.eq('user_id', user.id);
       } else if (activeTab === 'following' && user) {
-        const { data: following } = await supabase
-          .from('user_follows')
-          .select('following_id')
-          .eq('follower_id', user.id);
+        // If you have a followers table, uncomment this:
+        // const { data: following } = await supabase
+        //   .from('user_follows')
+        //   .select('following_id')
+        //   .eq('follower_id', user.id);
 
-        if (following?.length > 0) {
-          const followingIds = following.map(f => f.following_id);
-          query = query.in('user_id', followingIds);
-        } else {
-          setPosts([]);
-          setLoading(false);
-          return;
-        }
+        // if (following?.length > 0) {
+        //   const followingIds = following.map(f => f.following_id);
+        //   query = query.in('user_id', followingIds);
+        // } else {
+        //   setPosts([]);
+        //   setLoading(false);
+        //   return;
+        // }
+        
+        // For now, show all posts if following tab is not implemented
+        setPosts([]);
+        setLoading(false);
+        return;
       }
 
       if (user) {
@@ -121,9 +109,13 @@ const Feed = () => {
       
       const processedPosts = (data || []).map((post) => ({
         ...post,
-        userHasLiked: post.likes?.some(like => like.user_id === user?.id) || false,
-        comment_count: post.comments?.length || 0,
-        comments: post.comments?.slice(0, 3) || [],
+        userHasLiked: post.post_likes?.some(like => like.user_id === user?.id) || false,
+        like_count: post.like_count || 0,
+        comment_count: post.comment_count || 0,
+        comments: post.post_comments?.slice(0, 3) || [],
+        showAllComments: false,
+        // Extract user details from the nested object
+        user: post.user || null
       }));
       
       setPosts(processedPosts);
@@ -133,11 +125,14 @@ const Feed = () => {
     } finally {
       setLoading(false);
     }
-  }, [user, activeTab, filteredCategory]);
+  }, [user, activeTab]);
 
   const handleCreatePost = async (e) => {
     e.preventDefault();
-    if (!newPost.trim() && !imageFile) return;
+    if (!newPost.trim() && !imageFile) {
+      alert('Please write something or add an image');
+      return;
+    }
 
     setIsPosting(true);
     
@@ -167,15 +162,13 @@ const Feed = () => {
           user_id: user.id,
           content: newPost.trim(),
           image_url: imageUrl,
-          category: filteredCategory,
           visibility: visibility,
           like_count: 0,
-          comment_count: 0,
-          tags: extractHashtags(newPost)
+          comment_count: 0
         }])
         .select(`
           *,
-          user:users(firstname, surname, profile_picture_url, verified)
+          user:users(id, firstname, lastname, avatar_url)
         `)
         .single();
 
@@ -184,57 +177,91 @@ const Feed = () => {
       setPosts(prev => [{
         ...data,
         userHasLiked: false,
-        likes: [],
+        post_likes: [],
+        post_comments: [],
         comments: [],
         comment_count: 0,
-        isNew: true
+        isNew: true,
+        user: data.user || null
       }, ...prev]);
 
       // Reset form
       setNewPost('');
       setImagePreview(null);
       setImageFile(null);
+      setVisibility('public');
       
     } catch (error) {
       console.error('Error creating post:', error);
+      alert('Failed to create post: ' + error.message);
     } finally {
       setIsPosting(false);
     }
   };
 
-  const extractHashtags = (text) => {
-    const matches = text?.match(/#[a-zA-Z0-9_]+/g) || [];
-    return matches.map(tag => tag.toLowerCase());
-  };
-
   const handleLikePost = async (postId, currentlyLiked) => {
-    if (!user) return;
+    if (!user) {
+      alert('Please login to like posts');
+      return;
+    }
 
     try {
       if (currentlyLiked) {
-        await supabase
+        // Remove like
+        const { error } = await supabase
           .from('post_likes')
           .delete()
           .eq('post_id', postId)
           .eq('user_id', user.id);
 
-        await supabase.rpc('decrement_like_count', { post_id: postId });
-      } else {
+        if (error) throw error;
+
+        // Update like count
+        const { data: currentPost } = await supabase
+          .from('feed_posts')
+          .select('like_count')
+          .eq('id', postId)
+          .single();
+
+        const newLikeCount = Math.max(0, (currentPost?.like_count || 0) - 1);
+        
         await supabase
+          .from('feed_posts')
+          .update({ like_count: newLikeCount })
+          .eq('id', postId);
+
+      } else {
+        // Add like
+        const { error } = await supabase
           .from('post_likes')
           .insert([{
             post_id: postId,
             user_id: user.id
           }]);
 
-        await supabase.rpc('increment_like_count', { post_id: postId });
+        if (error) throw error;
+
+        // Update like count
+        const { data: currentPost } = await supabase
+          .from('feed_posts')
+          .select('like_count')
+          .eq('id', postId)
+          .single();
+
+        const newLikeCount = (currentPost?.like_count || 0) + 1;
+        
+        await supabase
+          .from('feed_posts')
+          .update({ like_count: newLikeCount })
+          .eq('id', postId);
       }
 
+      // Update local state
       setPosts(prev => prev.map(post => {
         if (post.id === postId) {
           const newLikeCount = currentlyLiked ? 
-            Math.max(0, post.like_count - 1) : 
-            post.like_count + 1;
+            Math.max(0, (post.like_count || 0) - 1) : 
+            (post.like_count || 0) + 1;
           
           return {
             ...post,
@@ -247,11 +274,20 @@ const Feed = () => {
 
     } catch (error) {
       console.error('Error updating like:', error);
+      alert('Like action failed: ' + error.message);
     }
   };
 
   const handleAddComment = async (postId, content) => {
-    if (!user || !content.trim()) return;
+    if (!user) {
+      alert('Please login to comment');
+      return;
+    }
+
+    if (!content.trim()) {
+      alert('Please write a comment');
+      return;
+    }
 
     try {
       const { data, error } = await supabase
@@ -263,25 +299,40 @@ const Feed = () => {
         }])
         .select(`
           *,
-          user:users(firstname, surname, profile_picture_url, verified)
+          user:users(id, firstname, lastname, avatar_url)
         `)
         .single();
 
       if (error) throw error;
 
-      await supabase.rpc('increment_comment_count', { post_id: postId });
+      // Update comment count
+      const { data: currentPost } = await supabase
+        .from('feed_posts')
+        .select('comment_count')
+        .eq('id', postId)
+        .single();
 
+      const newCommentCount = (currentPost?.comment_count || 0) + 1;
+      
+      await supabase
+        .from('feed_posts')
+        .update({ comment_count: newCommentCount })
+        .eq('id', postId);
+
+      // Update local state
       setPosts(prev => prev.map(post => {
         if (post.id === postId) {
           return {
             ...post,
-            comment_count: (post.comment_count || 0) + 1,
-            comments: [data, ...(post.comments || [])]
+            comment_count: newCommentCount,
+            comments: [data, ...(post.comments || [])],
+            showAllComments: true
           };
         }
         return post;
       }));
 
+      // Clear the input for this post
       setCommentInputs(prev => ({
         ...prev,
         [postId]: ''
@@ -289,6 +340,7 @@ const Feed = () => {
 
     } catch (error) {
       console.error('Error adding comment:', error);
+      alert('Failed to add comment: ' + error.message);
     }
   };
 
@@ -296,8 +348,8 @@ const Feed = () => {
     const file = e.target.files[0];
     if (!file) return;
 
-    if (file.size > 10 * 1024 * 1024) {
-      alert('Image size should be less than 10MB');
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Image size should be less than 5MB');
       return;
     }
 
@@ -320,18 +372,36 @@ const Feed = () => {
     const diffDay = Math.floor(diffHour / 24);
     
     if (diffSec < 60) return 'Just now';
-    if (diffMin < 60) return `${diffMin}m`;
-    if (diffHour < 24) return `${diffHour}h`;
-    if (diffDay < 7) return `${diffDay}d`;
+    if (diffMin < 60) return `${diffMin}m ago`;
+    if (diffHour < 24) return `${diffHour}h ago`;
+    if (diffDay < 7) return `${diffDay}d ago`;
     
     return postDate.toLocaleDateString('en-US', { 
       month: 'short', 
-      day: 'numeric'
+      day: 'numeric',
+      year: diffDay > 365 ? 'numeric' : undefined
     });
   };
 
-  const getInitials = (firstname, surname) => {
-    return `${firstname?.[0] || ''}${surname?.[0] || ''}`.toUpperCase();
+  const getInitials = (firstname, lastname) => {
+    return `${firstname?.[0] || ''}${lastname?.[0] || ''}`.toUpperCase();
+  };
+
+  const handleCommentInputChange = (postId, value) => {
+    setCommentInputs(prev => ({
+      ...prev,
+      [postId]: value
+    }));
+  };
+
+  const handleKeyPress = (e, postId) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      const content = commentInputs[postId] || '';
+      if (content.trim()) {
+        handleAddComment(postId, content);
+      }
+    }
   };
 
   if (loading && posts.length === 0) {
@@ -371,7 +441,7 @@ const Feed = () => {
               <div className="avatar-fallback">
                 {getInitials(
                   user?.user_metadata?.firstname,
-                  user?.user_metadata?.surname
+                  user?.user_metadata?.lastname || user?.user_metadata?.surname
                 )}
               </div>
             </div>
@@ -395,11 +465,6 @@ const Feed = () => {
                   >
                     <ImageIcon size={18} />
                     <span>Media</span>
-                  </button>
-                  
-                  <button className="action-btn">
-                    <MapPin size={18} />
-                    <span>Location</span>
                   </button>
                   
                   <select 
@@ -454,28 +519,12 @@ const Feed = () => {
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*,video/*"
+            accept="image/*"
             onChange={handleImageUpload}
             className="hidden-input"
           />
         </div>
       )}
-
-      {/* Category Filter */}
-      <div className="category-filter">
-        <div className="category-scroll">
-          {categories.map(cat => (
-            <button
-              key={cat.id}
-              className={`category-btn ${filteredCategory === cat.id ? 'active' : ''}`}
-              onClick={() => setFilteredCategory(cat.id)}
-            >
-              <span className="category-icon">{cat.icon}</span>
-              <span>{cat.name}</span>
-            </button>
-          ))}
-        </div>
-      </div>
 
       {/* Feed Navigation */}
       <div className="feed-navigation">
@@ -485,7 +534,7 @@ const Feed = () => {
             onClick={() => setActiveTab('all')}
           >
             <Globe size={18} />
-            <span>For You</span>
+            <span>All Posts</span>
           </button>
           
           {user && (
@@ -507,14 +556,6 @@ const Feed = () => {
               </button>
             </>
           )}
-          
-          <button 
-            className={`nav-tab ${activeTab === 'trending' ? 'active' : ''}`}
-            onClick={() => setActiveTab('trending')}
-          >
-            <TrendingUp size={18} />
-            <span>Trending</span>
-          </button>
         </div>
       </div>
 
@@ -545,16 +586,8 @@ const Feed = () => {
               formatTimeAgo={formatTimeAgo}
               getInitials={getInitials}
               commentInput={commentInputs[post.id] || ''}
-              onCommentInputChange={(value) => setCommentInputs(prev => ({
-                ...prev,
-                [post.id]: value
-              }))}
-              onKeyPress={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleAddComment(post.id, commentInputs[post.id] || '');
-                }
-              }}
+              onCommentInputChange={(value) => handleCommentInputChange(post.id, value)}
+              onKeyPress={(e) => handleKeyPress(e, post.id)}
             />
           ))
         )}
@@ -590,22 +623,15 @@ const PostCard = ({
     await onComment(post.id, commentInput);
   };
 
-  const extractTags = (content) => {
-    const matches = content?.match(/#[a-zA-Z0-9_]+/g) || [];
-    return matches.slice(0, 3);
-  };
-
-  const tags = extractTags(post.content);
-
   return (
     <div className={`post-card ${post.isNew ? 'new-post' : ''}`}>
       {/* Post Header */}
       <div className="post-header">
         <div className="post-author">
           <div className="author-avatar">
-            {post.user?.profile_picture_url ? (
+            {post.user?.avatar_url ? (
               <img 
-                src={post.user.profile_picture_url} 
+                src={post.user.avatar_url} 
                 alt={post.user.firstname}
                 onError={(e) => {
                   e.target.style.display = 'none';
@@ -614,15 +640,14 @@ const PostCard = ({
               />
             ) : null}
             <div className="avatar-fallback">
-              {getInitials(post.user?.firstname, post.user?.surname)}
+              {getInitials(post.user?.firstname, post.user?.lastname || post.user?.surname)}
             </div>
-            {post.user?.verified && <span className="verified-badge">✓</span>}
           </div>
           
           <div className="author-info">
             <div className="author-name">
               <span className="name">
-                {post.user?.firstname || 'User'} {post.user?.surname || ''}
+                {post.user?.firstname || 'User'} {post.user?.lastname || ''}
               </span>
               {post.user_id === currentUser?.id && (
                 <span className="you-badge">You</span>
@@ -655,7 +680,6 @@ const PostCard = ({
             <div className="dropdown-menu">
               {post.user_id === currentUser?.id && (
                 <button className="dropdown-item delete">
-                  <X size={16} />
                   Delete post
                 </button>
               )}
@@ -672,17 +696,6 @@ const PostCard = ({
       <div className="post-content">
         <p className="post-text">{post.content}</p>
         
-        {tags.length > 0 && (
-          <div className="post-tags">
-            {tags.map(tag => (
-              <span key={tag} className="post-tag">
-                <Hash size={12} />
-                {tag}
-              </span>
-            ))}
-          </div>
-        )}
-        
         {post.image_url && (
           <div className="post-media">
             <img 
@@ -690,6 +703,10 @@ const PostCard = ({
               alt="Post content"
               loading="lazy"
               className="post-image"
+              onError={(e) => {
+                e.target.style.display = 'none';
+                e.target.parentElement.innerHTML = '<div class="image-error">Image failed to load</div>';
+              }}
             />
           </div>
         )}
@@ -698,7 +715,7 @@ const PostCard = ({
       {/* Post Stats */}
       <div className="post-stats-bar">
         <div className="stat-item">
-          <ThumbsUp size={14} />
+          <Heart size={14} />
           <span>{post.like_count || 0} likes</span>
         </div>
         <div className="stat-item">
@@ -730,11 +747,6 @@ const PostCard = ({
           <Share2 size={18} />
           <span>Share</span>
         </button>
-        
-        <button className="action-btn">
-          <Bookmark size={18} />
-          <span>Save</span>
-        </button>
       </div>
 
       {/* Comment Input */}
@@ -755,7 +767,7 @@ const PostCard = ({
               <div className="avatar-fallback small">
                 {getInitials(
                   currentUser?.user_metadata?.firstname,
-                  currentUser?.user_metadata?.surname
+                  currentUser?.user_metadata?.lastname || currentUser?.user_metadata?.surname
                 )}
               </div>
             </div>
@@ -787,9 +799,9 @@ const PostCard = ({
           {post.comments.map((comment) => (
             <div key={comment.id} className="comment">
               <div className="comment-avatar small">
-                {comment.user?.profile_picture_url ? (
+                {comment.user?.avatar_url ? (
                   <img 
-                    src={comment.user.profile_picture_url} 
+                    src={comment.user.avatar_url} 
                     alt={comment.user.firstname}
                     onError={(e) => {
                       e.target.style.display = 'none';
@@ -798,17 +810,14 @@ const PostCard = ({
                   />
                 ) : null}
                 <div className="avatar-fallback small">
-                  {getInitials(comment.user?.firstname, comment.user?.surname)}
+                  {getInitials(comment.user?.firstname, comment.user?.lastname || comment.user?.surname)}
                 </div>
               </div>
               
               <div className="comment-content">
                 <div className="comment-header">
                   <span className="comment-author">
-                    {comment.user?.firstname} {comment.user?.surname}
-                    {comment.user?.verified && (
-                      <span className="verified-badge small">✓</span>
-                    )}
+                    {comment.user?.firstname} {comment.user?.lastname}
                   </span>
                   <span className="comment-time">
                     {formatTimeAgo(comment.created_at)}
