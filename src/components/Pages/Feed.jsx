@@ -1,7 +1,23 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
-import { Heart, MessageCircle, Share2, Image as ImageIcon, MapPin, Smile, Globe, Users, Lock, MoreVertical, Send, Clock, Zap, Sparkles, TrendingUp, Users as UsersIcon, Award } from 'lucide-react';
-import './Feed.css';
+import { 
+  Heart, 
+  MessageCircle, 
+  Share2, 
+  Image as ImageIcon, 
+  MapPin, 
+  Globe, 
+  Users, 
+  Lock, 
+  MoreVertical, 
+  Send, 
+  Clock, 
+  TrendingUp, 
+  Users as UsersIcon,
+  Award,
+  X,
+  Loader2
+} from 'lucide-react';
 
 const Feed = () => {
   const [user, setUser] = useState(null);
@@ -13,8 +29,7 @@ const Feed = () => {
   const [visibility, setVisibility] = useState('public');
   const [activeTab, setActiveTab] = useState('all');
   const [commentInputs, setCommentInputs] = useState({});
-  const [isComposing, setIsComposing] = useState(false);
-  const [stats, setStats] = useState({ totalPosts: 0, activeUsers: 0, trendingPosts: 0 });
+  const [isPosting, setIsPosting] = useState(false);
 
   useEffect(() => {
     checkUser();
@@ -23,7 +38,6 @@ const Feed = () => {
   useEffect(() => {
     if (user) {
       fetchPosts();
-      fetchStats();
     }
   }, [user, activeTab]);
 
@@ -32,29 +46,7 @@ const Feed = () => {
     setUser(session?.user || null);
   };
 
-  const fetchStats = async () => {
-    try {
-      const { data: postsData } = await supabase
-        .from('feed_posts')
-        .select('id')
-        .gte('created_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString());
-
-      const { data: usersData } = await supabase
-        .from('users')
-        .select('id')
-        .limit(100);
-
-      setStats({
-        totalPosts: postsData?.length || 0,
-        activeUsers: usersData?.length || 0,
-        trendingPosts: Math.floor((postsData?.length || 0) / 3)
-      });
-    } catch (error) {
-      console.error('Error fetching stats:', error);
-    }
-  };
-
-  const fetchPosts = async () => {
+  const fetchPosts = useCallback(async () => {
     setLoading(true);
     try {
       let query = supabase
@@ -80,7 +72,7 @@ const Feed = () => {
           .select('following_id')
           .eq('follower_id', user.id);
 
-        if (following && following.length > 0) {
+        if (following?.length > 0) {
           const followingIds = following.map(f => f.following_id);
           query = query.in('user_id', followingIds);
         } else {
@@ -100,13 +92,11 @@ const Feed = () => {
       
       if (error) throw error;
       
-      const processedPosts = (data || []).map((post, index) => ({
+      const processedPosts = (data || []).map((post) => ({
         ...post,
         userHasLiked: post.likes?.some(like => like.user_id === user?.id) || false,
         comments: post.comments?.slice(0, 3) || [],
-        showAllComments: false,
-        isExpanded: false,
-        animationDelay: index * 0.1
+        showAllComments: false
       }));
       
       setPosts(processedPosts);
@@ -116,18 +106,15 @@ const Feed = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user, activeTab]);
 
   const handleCreatePost = async (e) => {
     e.preventDefault();
-    if (!newPost.trim() && !imageFile) {
-      alert('Please write something or add an image');
-      return;
-    }
+    if (!newPost.trim() && !imageFile) return;
 
+    setIsPosting(true);
+    
     try {
-      setIsComposing(true);
-      
       let imageUrl = null;
       
       if (imageFile) {
@@ -172,93 +159,43 @@ const Feed = () => {
         likes: [],
         comments: [],
         showAllComments: false,
-        isNewPost: true,
-        animationDelay: 0
+        isNew: true
       }, ...prev]);
 
-      // Show success message
-      const successMsg = document.createElement('div');
-      successMsg.className = 'post-success-message';
-      successMsg.innerHTML = `
-        <div class="success-icon">🎉</div>
-        <div class="success-text">Post published successfully!</div>
-      `;
-      document.body.appendChild(successMsg);
-      setTimeout(() => successMsg.remove(), 3000);
-
-      // Reset form
-      setTimeout(() => {
-        setNewPost('');
-        setImagePreview(null);
-        setImageFile(null);
-        setVisibility('public');
-        setIsComposing(false);
-      }, 500);
-
-      // Update stats
-      setStats(prev => ({
-        ...prev,
-        totalPosts: prev.totalPosts + 1
-      }));
-
+      setNewPost('');
+      setImagePreview(null);
+      setImageFile(null);
+      setVisibility('public');
+      
     } catch (error) {
       console.error('Error creating post:', error);
-      alert('Failed to create post: ' + error.message);
-      setIsComposing(false);
+    } finally {
+      setIsPosting(false);
     }
   };
 
   const handleLikePost = async (postId, currentlyLiked) => {
-    if (!user) {
-      alert('Please login to like posts');
-      return;
-    }
+    if (!user) return;
 
     try {
       if (currentlyLiked) {
-        const { error } = await supabase
+        await supabase
           .from('post_likes')
           .delete()
           .eq('post_id', postId)
           .eq('user_id', user.id);
 
-        if (error) throw error;
-
-        const { data: currentPost } = await supabase
-          .from('feed_posts')
-          .select('like_count')
-          .eq('id', postId)
-          .single();
-
-        const newLikeCount = Math.max(0, (currentPost?.like_count || 0) - 1);
-        
-        await supabase
-          .from('feed_posts')
-          .update({ like_count: newLikeCount })
-          .eq('id', postId);
+        await supabase.rpc('decrement_like_count', { post_id: postId });
 
       } else {
-        const { error } = await supabase
+        await supabase
           .from('post_likes')
           .insert([{
             post_id: postId,
             user_id: user.id
           }]);
 
-        if (error) throw error;
-
-        const { data: currentPost } = await supabase
-          .from('feed_posts')
-          .select('like_count')
-          .eq('id', postId)
-          .single();
-
-        const newLikeCount = (currentPost?.like_count || 0) + 1;
-        
-        await supabase
-          .from('feed_posts')
-          .update({ like_count: newLikeCount })
-          .eq('id', postId);
+        await supabase.rpc('increment_like_count', { post_id: postId });
       }
 
       setPosts(prev => prev.map(post => {
@@ -270,10 +207,7 @@ const Feed = () => {
           return {
             ...post,
             like_count: newLikeCount,
-            userHasLiked: !currentlyLiked,
-            likes: currentlyLiked 
-              ? (post.likes || []).filter(like => like.user_id !== user.id)
-              : [...(post.likes || []), { user_id: user.id }]
+            userHasLiked: !currentlyLiked
           };
         }
         return post;
@@ -281,20 +215,11 @@ const Feed = () => {
 
     } catch (error) {
       console.error('Error updating like:', error);
-      alert('Like action failed: ' + error.message);
     }
   };
 
   const handleAddComment = async (postId, content) => {
-    if (!user) {
-      alert('Please login to comment');
-      return;
-    }
-
-    if (!content.trim()) {
-      alert('Please write a comment');
-      return;
-    }
+    if (!user || !content.trim()) return;
 
     try {
       const { data, error } = await supabase
@@ -312,32 +237,19 @@ const Feed = () => {
 
       if (error) throw error;
 
-      const { data: currentPost } = await supabase
-        .from('feed_posts')
-        .select('comment_count')
-        .eq('id', postId)
-        .single();
-
-      const newCommentCount = (currentPost?.comment_count || 0) + 1;
-      
-      await supabase
-        .from('feed_posts')
-        .update({ comment_count: newCommentCount })
-        .eq('id', postId);
+      await supabase.rpc('increment_comment_count', { post_id: postId });
 
       setPosts(prev => prev.map(post => {
         if (post.id === postId) {
           return {
             ...post,
-            comment_count: newCommentCount,
-            comments: [data, ...(post.comments || [])],
-            showAllComments: true
+            comment_count: (post.comment_count || 0) + 1,
+            comments: [data, ...(post.comments || [])]
           };
         }
         return post;
       }));
 
-      // Clear the input for this post
       setCommentInputs(prev => ({
         ...prev,
         [postId]: ''
@@ -345,7 +257,6 @@ const Feed = () => {
 
     } catch (error) {
       console.error('Error adding comment:', error);
-      alert('Failed to add comment: ' + error.message);
     }
   };
 
@@ -392,14 +303,6 @@ const Feed = () => {
     return `${firstname?.[0] || ''}${surname?.[0] || ''}`.toUpperCase();
   };
 
-  const togglePostExpand = (postId) => {
-    setPosts(prev => prev.map(post => 
-      post.id === postId 
-        ? { ...post, isExpanded: !post.isExpanded }
-        : post
-    ));
-  };
-
   const handleCommentInputChange = (postId, value) => {
     setCommentInputs(prev => ({
       ...prev,
@@ -419,211 +322,165 @@ const Feed = () => {
 
   if (loading && posts.length === 0) {
     return (
-      <div className="feed-container">
-        <div className="loading-container">
-          <div className="loading-spinner">
-            <div className="spinner-ring"></div>
-          </div>
-          <p className="loading-text">Loading campus feed...</p>
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 animate-spin mx-auto text-gray-400" />
+          <p className="mt-2 text-gray-500">Loading feed...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="feed-container">
-      {/* Floating Elements */}
-      <div className="floating-elements">
-        <div className="floating-icon floating-icon-1">✨</div>
-        <div className="floating-icon floating-icon-2">🌟</div>
-        <div className="floating-icon floating-icon-3">🎯</div>
+    <div className="max-w-2xl mx-auto px-4 py-6">
+      {/* Header */}
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold text-gray-900">Campus Feed</h1>
+        <p className="text-gray-600 mt-1">Connect with your campus community</p>
       </div>
 
-      <div className="feed-header">
-        <div className="header-content">
-          <div className="header-title-wrapper">
-            <h1 className="header-title">
-              <span className="title-text">Campus</span>
-              <span className="title-highlight">Feed</span>
-            </h1>
-            <div className="title-sparkle">✨</div>
-          </div>
-          <p className="header-subtitle">Share updates, connect with students</p>
-        </div>
-        
-        {/* Animated Stats Bar */}
-        <div className="stats-bar">
-          <div className="stat-card">
-            <div className="stat-icon-wrapper">
-              <TrendingUp size={20} />
-            </div>
-            <div className="stat-content">
-              <div className="stat-value">{stats.totalPosts}+</div>
-              <div className="stat-label">Posts This Week</div>
-            </div>
-          </div>
-          
-          <div className="stat-card">
-            <div className="stat-icon-wrapper">
-              <UsersIcon size={20} />
-            </div>
-            <div className="stat-content">
-              <div className="stat-value">{stats.activeUsers}+</div>
-              <div className="stat-label">Active Students</div>
-            </div>
-          </div>
-          
-          <div className="stat-card">
-            <div className="stat-icon-wrapper">
-              <Zap size={20} />
-            </div>
-            <div className="stat-content">
-              <div className="stat-value">{stats.trendingPosts}</div>
-              <div className="stat-label">Trending Now</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
+      {/* Create Post */}
       {user && (
-        <div className={`create-post-card glassmorphism ${isComposing ? 'pulsing' : ''}`}>
-          <div className="post-form-header">
-            <div className="user-avatar">
-              {user?.user_metadata?.avatar_url ? (
-                <img 
-                  src={user.user_metadata.avatar_url} 
-                  alt="Profile" 
-                  onError={(e) => {
-                    e.target.style.display = 'none';
-                    e.target.parentElement.querySelector('.avatar-fallback').style.display = 'flex';
-                  }}
-                />
-              ) : null}
-              <div className={`avatar-fallback ${user?.user_metadata?.avatar_url ? 'hidden' : ''}`}>
-                {getInitials(user?.user_metadata?.firstname, user?.user_metadata?.surname)}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-6">
+          <div className="flex gap-4">
+            <div className="flex-shrink-0">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-semibold">
+                {getInitials(
+                  user?.user_metadata?.firstname,
+                  user?.user_metadata?.surname
+                )}
               </div>
             </div>
-            <div className="post-input-wrapper">
+            
+            <div className="flex-1">
               <textarea
-                className="post-input"
+                className="w-full border-0 focus:ring-0 resize-none text-gray-900 placeholder-gray-500 text-base"
                 placeholder="What's happening on campus?"
                 value={newPost}
                 onChange={(e) => setNewPost(e.target.value)}
                 rows="3"
               />
-              <div className="character-count">
-                <span className={`count ${newPost.length > 400 ? 'warning' : ''}`}>
-                  {newPost.length}
-                </span>
-                <span>/500</span>
-              </div>
-              <div className="post-options">
-                <div className="visibility-selector">
+              
+              {imagePreview && (
+                <div className="relative mt-3 rounded-lg overflow-hidden">
+                  <img 
+                    src={imagePreview} 
+                    alt="Preview" 
+                    className="w-full max-h-96 object-cover"
+                  />
+                  <button
+                    type="button"
+                    className="absolute top-2 right-2 w-8 h-8 bg-black/50 hover:bg-black/70 rounded-full flex items-center justify-center text-white"
+                    onClick={() => {
+                      setImagePreview(null);
+                      setImageFile(null);
+                    }}
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
+                <div className="flex items-center gap-2">
+                  <label className="cursor-pointer p-2 text-gray-500 hover:text-gray-700 rounded-lg hover:bg-gray-100">
+                    <ImageIcon size={20} />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      className="hidden"
+                    />
+                  </label>
+                  
                   <select 
                     value={visibility}
                     onChange={(e) => setVisibility(e.target.value)}
-                    className="visibility-select"
+                    className="text-sm border-0 bg-gray-50 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="public"><Globe size={14} /> Public</option>
-                    <option value="friends"><Users size={14} /> Friends Only</option>
-                    <option value="private"><Lock size={14} /> Only Me</option>
+                    <option value="public"><Globe size={14} className="inline mr-1" /> Public</option>
+                    <option value="friends"><Users size={14} className="inline mr-1" /> Friends</option>
+                    <option value="private"><Lock size={14} className="inline mr-1" /> Private</option>
                   </select>
                 </div>
+
+                <button
+                  onClick={handleCreatePost}
+                  disabled={(!newPost.trim() && !imageFile) || isPosting}
+                  className="px-5 py-2 bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-lg font-medium hover:from-blue-700 hover:to-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {isPosting ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Posting...
+                    </>
+                  ) : (
+                    'Post'
+                  )}
+                </button>
               </div>
             </div>
-          </div>
-
-          {imagePreview && (
-            <div className="image-preview-container">
-              <img src={imagePreview} alt="Preview" className="image-preview" />
-              <button 
-                type="button" 
-                className="remove-image-btn"
-                onClick={() => {
-                  setImagePreview(null);
-                  setImageFile(null);
-                }}
-              >
-                ×
-              </button>
-            </div>
-          )}
-
-          <div className="post-actions">
-            <div className="action-icons">
-              <label className="action-icon-btn">
-                <ImageIcon size={20} />
-                <span>Photo</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageUpload}
-                  hidden
-                />
-              </label>
-              <button type="button" className="action-icon-btn">
-                <Smile size={20} />
-                <span>Feeling</span>
-              </button>
-              <button type="button" className="action-icon-btn">
-                <MapPin size={20} />
-                <span>Location</span>
-              </button>
-            </div>
-            <button 
-              type="submit" 
-              className="post-submit-btn gradient-btn"
-              onClick={handleCreatePost}
-              disabled={!newPost.trim() && !imageFile}
-            >
-              <span className="btn-text">Post</span>
-            </button>
           </div>
         </div>
       )}
 
-      <div className="feed-tabs">
-        <button 
-          className={`tab-btn ${activeTab === 'all' ? 'active' : ''}`}
+      {/* Tabs */}
+      <div className="flex gap-2 mb-6">
+        <button
+          className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+            activeTab === 'all' 
+              ? 'bg-blue-50 text-blue-600 border border-blue-100' 
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+          }`}
           onClick={() => setActiveTab('all')}
         >
-          <Globe size={16} />
-          <span>All Posts</span>
+          All
         </button>
+        
         {user && (
           <>
-            <button 
-              className={`tab-btn ${activeTab === 'following' ? 'active' : ''}`}
+            <button
+              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                activeTab === 'following' 
+                  ? 'bg-blue-50 text-blue-600 border border-blue-100' 
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+              }`}
               onClick={() => setActiveTab('following')}
             >
-              <Users size={16} />
-              <span>Following</span>
+              Following
             </button>
-            <button 
-              className={`tab-btn ${activeTab === 'my' ? 'active' : ''}`}
+            <button
+              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                activeTab === 'my' 
+                  ? 'bg-blue-50 text-blue-600 border border-blue-100' 
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+              }`}
               onClick={() => setActiveTab('my')}
             >
-              <Award size={16} />
-              <span>My Posts</span>
+              My Posts
             </button>
           </>
         )}
       </div>
 
-      <div className="posts-feed">
+      {/* Feed */}
+      <div className="space-y-4">
         {posts.length === 0 ? (
-          <div className="no-posts glassmorphism">
-            <div className="no-posts-icon">📰</div>
-            <h3>No posts yet</h3>
-            <p>Be the first to share something with the campus!</p>
+          <div className="text-center py-12 bg-white rounded-xl border border-gray-200">
+            <div className="text-gray-400 mb-3">📰</div>
+            <h3 className="text-gray-900 font-medium mb-1">No posts yet</h3>
+            <p className="text-gray-500 text-sm mb-4">Be the first to share something!</p>
             {!user && (
-              <button className="login-prompt-btn" onClick={() => window.location.href = '/login'}>
-                Login to post
+              <button 
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                onClick={() => window.location.href = '/login'}
+              >
+                Sign in to post
               </button>
             )}
           </div>
         ) : (
-          posts.map((post, index) => (
+          posts.map((post) => (
             <PostCard
               key={post.id}
               post={post}
@@ -632,13 +489,9 @@ const Feed = () => {
               onComment={handleAddComment}
               formatTimeAgo={formatTimeAgo}
               getInitials={getInitials}
-              isExpanded={post.isExpanded}
-              onToggleExpand={() => togglePostExpand(post.id)}
               commentInput={commentInputs[post.id] || ''}
               onCommentInputChange={(value) => handleCommentInputChange(post.id, value)}
               onKeyPress={(e) => handleKeyPress(e, post.id)}
-              animationDelay={post.animationDelay}
-              index={index}
             />
           ))
         )}
@@ -654,234 +507,224 @@ const PostCard = ({
   onComment, 
   formatTimeAgo, 
   getInitials,
-  isExpanded,
-  onToggleExpand,
   commentInput,
   onCommentInputChange,
-  onKeyPress,
-  animationDelay,
-  index
+  onKeyPress
 }) => {
   const [isLiking, setIsLiking] = useState(false);
   const [showComments, setShowComments] = useState(false);
-  const [likeAnimation, setLikeAnimation] = useState(false);
 
   const handleLike = async () => {
     if (isLiking) return;
     setIsLiking(true);
-    setLikeAnimation(true);
-    
     await onLike(post.id, post.userHasLiked);
     setIsLiking(false);
-    
-    setTimeout(() => setLikeAnimation(false), 1000);
   };
 
   const handleSubmitComment = async () => {
     if (!commentInput.trim()) return;
-    
     await onComment(post.id, commentInput);
   };
 
-  const needsExpansion = post.content && post.content.length > 300 && !isExpanded;
-  const displayContent = needsExpansion 
-    ? post.content.substring(0, 300) + '...' 
-    : post.content;
-
   return (
-    <div 
-      className={`post-card glassmorphism slide-up ${post.isNewPost ? 'new-post-highlight' : ''}`}
-      style={{ animationDelay: `${animationDelay}s` }}
-    >
-      <div className="post-header">
-        <div className="post-author">
-          <div className="author-avatar">
-            {post.user?.profile_picture_url ? (
-              <img 
-                src={post.user.profile_picture_url} 
-                alt={post.user.firstname}
-                onError={(e) => {
-                  e.target.style.display = 'none';
-                  e.target.parentElement.querySelector('.avatar-fallback').style.display = 'flex';
-                }}
-              />
-            ) : null}
-            <div className={`avatar-fallback ${post.user?.profile_picture_url ? 'hidden' : ''}`}>
-              {getInitials(post.user?.firstname, post.user?.surname)}
+    <div className={`bg-white rounded-xl border border-gray-200 overflow-hidden ${post.isNew ? 'border-blue-300' : ''}`}>
+      {/* Header */}
+      <div className="p-5">
+        <div className="flex items-start justify-between">
+          <div className="flex items-start gap-3">
+            <div className="flex-shrink-0">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-semibold">
+                {post.user?.profile_picture_url ? (
+                  <img 
+                    src={post.user.profile_picture_url} 
+                    alt={post.user.firstname}
+                    className="w-full h-full rounded-full object-cover"
+                  />
+                ) : (
+                  getInitials(post.user?.firstname, post.user?.surname)
+                )}
+              </div>
+            </div>
+            
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-gray-900">
+                  {post.user?.firstname || 'User'} {post.user?.surname || ''}
+                </span>
+                {post.user_id === currentUser?.id && (
+                  <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded-full">
+                    You
+                  </span>
+                )}
+                <span className="text-gray-500 text-sm flex items-center gap-1">
+                  <Clock size={12} />
+                  {formatTimeAgo(post.created_at)}
+                </span>
+              </div>
+              
+              <div className="flex items-center gap-2 mt-1">
+                {post.visibility === 'public' && (
+                  <span className="text-xs text-gray-500 flex items-center gap-1">
+                    <Globe size={12} /> Public
+                  </span>
+                )}
+                {post.visibility === 'friends' && (
+                  <span className="text-xs text-gray-500 flex items-center gap-1">
+                    <Users size={12} /> Friends only
+                  </span>
+                )}
+                {post.visibility === 'private' && (
+                  <span className="text-xs text-gray-500 flex items-center gap-1">
+                    <Lock size={12} /> Private
+                  </span>
+                )}
+              </div>
             </div>
           </div>
-          <div className="author-details">
-            <div className="author-name">
-              {post.user?.firstname || 'User'} {post.user?.surname || ''}
-              {post.user_id === currentUser?.id && (
-                <span className="you-badge">You</span>
-              )}
-            </div>
-            <div className="post-meta">
-              <Clock size={12} />
-              <span className="post-time">{formatTimeAgo(post.created_at)}</span>
-              <span className="post-visibility">
-                {post.visibility === 'public' && <Globe size={12} />}
-                {post.visibility === 'friends' && <Users size={12} />}
-                {post.visibility === 'private' && <Lock size={12} />}
-              </span>
-            </div>
-          </div>
-        </div>
-        
-        {post.user_id === currentUser?.id && (
-          <button className="post-menu-btn">
-            <MoreVertical size={20} />
-          </button>
-        )}
-      </div>
 
-      <div className="post-content">
-        <p className="post-text">
-          {displayContent}
-          {needsExpansion && (
-            <button className="read-more-btn" onClick={onToggleExpand}>
-              Read more
+          {post.user_id === currentUser?.id && (
+            <button className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100">
+              <MoreVertical size={20} />
             </button>
           )}
-        </p>
-        
-        {post.image_url && (
-          <div className="post-image-container">
-            <img 
-              src={post.image_url} 
-              alt="Post" 
-              className="post-image"
-              loading="lazy"
-              onError={(e) => {
-                e.target.style.display = 'none';
-                e.target.parentElement.innerHTML = '<div class="image-error">Image failed to load</div>';
-              }}
-            />
+        </div>
+
+        {/* Content */}
+        <div className="mt-4">
+          <p className="text-gray-800 whitespace-pre-wrap">{post.content}</p>
+          
+          {post.image_url && (
+            <div className="mt-4 rounded-lg overflow-hidden">
+              <img 
+                src={post.image_url} 
+                alt="Post content" 
+                className="w-full max-h-[500px] object-cover"
+                loading="lazy"
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Stats */}
+        <div className="flex items-center gap-6 mt-4 pt-4 border-t border-gray-100 text-sm text-gray-500">
+          <div className="flex items-center gap-1">
+            <Heart size={14} className={post.userHasLiked ? 'fill-red-500 text-red-500' : ''} />
+            <span>{post.like_count || 0}</span>
           </div>
-        )}
+          <div className="flex items-center gap-1">
+            <MessageCircle size={14} />
+            <span>{post.comment_count || 0}</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <Share2 size={14} />
+            <span>{post.share_count || 0}</span>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="grid grid-cols-3 gap-1 mt-4 pt-4 border-t border-gray-100">
+          <button
+            onClick={handleLike}
+            disabled={isLiking}
+            className={`flex items-center justify-center gap-2 py-2 rounded-lg transition-colors font-medium ${
+              post.userHasLiked 
+                ? 'text-red-600 bg-red-50 hover:bg-red-100' 
+                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+            }`}
+          >
+            <Heart size={18} fill={post.userHasLiked ? 'currentColor' : 'none'} />
+            Like
+          </button>
+          
+          <button
+            onClick={() => setShowComments(!showComments)}
+            className="flex items-center justify-center gap-2 py-2 rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-50 font-medium"
+          >
+            <MessageCircle size={18} />
+            Comment
+          </button>
+          
+          <button className="flex items-center justify-center gap-2 py-2 rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-50 font-medium">
+            <Share2 size={18} />
+            Share
+          </button>
+        </div>
       </div>
 
-      <div className="post-stats">
-        <div className="stat">
-          <Heart size={14} className={likeAnimation ? 'pulse-heart' : ''} />
-          <span>{post.like_count || 0} likes</span>
-        </div>
-        <div className="stat">
-          <MessageCircle size={14} />
-          <span>{post.comment_count || 0} comments</span>
-        </div>
-        <div className="stat">
-          <Share2 size={14} />
-          <span>{post.share_count || 0} shares</span>
-        </div>
-      </div>
-
-      <div className="post-actions-bar">
-        <button 
-          className={`post-action-btn ${post.userHasLiked ? 'liked' : ''}`}
-          onClick={handleLike}
-          disabled={isLiking}
-        >
-          <Heart size={18} fill={post.userHasLiked ? 'currentColor' : 'none'} />
-          <span>{post.userHasLiked ? 'Liked' : 'Like'}</span>
-        </button>
-        
-        <button 
-          className="post-action-btn"
-          onClick={() => setShowComments(!showComments)}
-        >
-          <MessageCircle size={18} />
-          <span>Comment</span>
-        </button>
-        
-        <button className="post-action-btn">
-          <Share2 size={18} />
-          <span>Share</span>
-        </button>
-      </div>
-
+      {/* Comment Input */}
       {currentUser && (
-        <div className="add-comment-section">
-          <div className="comment-input-wrapper">
-            <div className="comment-avatar small">
-              {currentUser?.user_metadata?.avatar_url ? (
-                <img 
-                  src={currentUser.user_metadata.avatar_url} 
-                  alt="You"
-                  onError={(e) => {
-                    e.target.style.display = 'none';
-                    e.target.parentElement.querySelector('.avatar-fallback').style.display = 'flex';
-                  }}
-                />
-              ) : null}
-              <div className={`avatar-fallback small ${currentUser?.user_metadata?.avatar_url ? 'hidden' : ''}`}>
+        <div className="border-t border-gray-100 p-5">
+          <div className="flex gap-3">
+            <div className="flex-shrink-0">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-sm font-semibold">
                 {getInitials(
                   currentUser?.user_metadata?.firstname,
                   currentUser?.user_metadata?.surname
                 )}
               </div>
             </div>
-            <div className="comment-input-container">
-              <input
-                type="text"
-                className="comment-input"
-                placeholder="Write a comment..."
-                value={commentInput}
-                onChange={(e) => onCommentInputChange(e.target.value)}
-                onKeyPress={(e) => onKeyPress(e)}
-              />
-              <button 
-                className="comment-submit-btn"
-                onClick={handleSubmitComment}
-                disabled={!commentInput.trim()}
-              >
-                <Send size={18} />
-              </button>
+            
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Write a comment..."
+                  value={commentInput}
+                  onChange={(e) => onCommentInputChange(e.target.value)}
+                  onKeyPress={(e) => onKeyPress(e)}
+                />
+                
+                <button
+                  onClick={handleSubmitComment}
+                  disabled={!commentInput.trim()}
+                  className="p-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Send size={20} />
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
+      {/* Comments */}
       {showComments && post.comments && post.comments.length > 0 && (
-        <div className="comments-section">
-          {post.comments.map((comment, i) => (
-            <div key={comment.id} className="comment-item fade-in" style={{ animationDelay: `${i * 0.1}s` }}>
-              <div className="comment-avatar small">
-                {comment.user?.profile_picture_url ? (
-                  <img 
-                    src={comment.user.profile_picture_url} 
-                    alt={comment.user.firstname}
-                    onError={(e) => {
-                      e.target.style.display = 'none';
-                      e.target.parentElement.querySelector('.avatar-fallback').style.display = 'flex';
-                    }}
-                  />
-                ) : null}
-                <div className={`avatar-fallback small ${comment.user?.profile_picture_url ? 'hidden' : ''}`}>
-                  {getInitials(comment.user?.firstname, comment.user?.surname)}
+        <div className="border-t border-gray-100">
+          {post.comments.map((comment) => (
+            <div key={comment.id} className="p-5 hover:bg-gray-50 transition-colors">
+              <div className="flex gap-3">
+                <div className="flex-shrink-0">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-sm font-semibold">
+                    {comment.user?.profile_picture_url ? (
+                      <img 
+                        src={comment.user.profile_picture_url} 
+                        alt={comment.user.firstname}
+                        className="w-full h-full rounded-full object-cover"
+                      />
+                    ) : (
+                      getInitials(comment.user?.firstname, comment.user?.surname)
+                    )}
+                  </div>
                 </div>
-              </div>
-              <div className="comment-content">
-                <div className="comment-header">
-                  <span className="comment-author">
-                    {comment.user?.firstname || 'User'} {comment.user?.surname || ''}
-                  </span>
-                  <span className="comment-time">
-                    {formatTimeAgo(comment.created_at)}
-                  </span>
-                </div>
-                <p className="comment-text">{comment.content}</p>
-                <div className="comment-actions">
-                  <button className="comment-like-btn">Like</button>
-                  <button className="comment-reply-btn">Reply</button>
+                
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-gray-900">
+                      {comment.user?.firstname || 'User'} {comment.user?.surname || ''}
+                    </span>
+                    <span className="text-gray-500 text-xs">
+                      {formatTimeAgo(comment.created_at)}
+                    </span>
+                  </div>
+                  <p className="text-gray-800 mt-1">{comment.content}</p>
                 </div>
               </div>
             </div>
           ))}
           
           {post.comment_count > post.comments.length && (
-            <button className="view-more-comments-btn">
+            <button className="w-full text-center py-3 text-sm text-blue-600 hover:text-blue-700 hover:bg-gray-50 border-t border-gray-100">
               View all {post.comment_count} comments
             </button>
           )}
