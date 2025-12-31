@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
 import { 
   Heart, 
@@ -12,12 +12,26 @@ import {
   MoreVertical, 
   Send, 
   Clock, 
-  TrendingUp, 
-  Users as UsersIcon,
-  Award,
+  TrendingUp,
+  Bookmark,
+  Eye,
+  ChevronDown,
+  Filter,
+  Hash,
+  UserPlus,
+  Flag,
+  MoreHorizontal,
   X,
-  Loader2
+  Video,
+  Music,
+  Calendar,
+  TrendingUp as TrendingUpIcon,
+  ThumbsUp,
+  Zap,
+  Award,
+  Sparkles
 } from 'lucide-react';
+import './Feed.css';
 
 const Feed = () => {
   const [user, setUser] = useState(null);
@@ -30,20 +44,74 @@ const Feed = () => {
   const [activeTab, setActiveTab] = useState('all');
   const [commentInputs, setCommentInputs] = useState({});
   const [isPosting, setIsPosting] = useState(false);
+  const [showTrendingTags, setShowTrendingTags] = useState(false);
+  const [trendingTags, setTrendingTags] = useState([]);
+  const [filteredCategory, setFilteredCategory] = useState('all');
+  const [suggestedUsers, setSuggestedUsers] = useState([]);
+  const [postStats, setPostStats] = useState({ views: 0, engagement: 0 });
+  const [showAdvancedPost, setShowAdvancedPost] = useState(false);
+  const [selectedTag, setSelectedTag] = useState('');
+  const [postType, setPostType] = useState('discussion');
+  
+  const fileInputRef = useRef(null);
+  const textareaRef = useRef(null);
+
+  const categories = [
+    { id: 'all', name: 'All Posts', icon: '🌍' },
+    { id: 'marketplace', name: 'Marketplace', icon: '🛒' },
+    { id: 'travel', name: 'Travel Deals', icon: '✈️' },
+    { id: 'housing', name: 'Housing', icon: '🏠' },
+    { id: 'events', name: 'Events', icon: '🎉' },
+    { id: 'education', name: 'Education', icon: '🎓' },
+    { id: 'jobs', name: 'Jobs', icon: '💼' },
+  ];
 
   useEffect(() => {
     checkUser();
+    fetchTrendingTags();
   }, []);
 
   useEffect(() => {
     if (user) {
       fetchPosts();
+      fetchSuggestedUsers();
     }
-  }, [user, activeTab]);
+  }, [user, activeTab, filteredCategory]);
 
   const checkUser = async () => {
     const { data: { session } } = await supabase.auth.getSession();
-    setUser(session?.user || null);
+    if (session?.user) {
+      setUser(session.user);
+    }
+  };
+
+  const fetchTrendingTags = async () => {
+    try {
+      const { data } = await supabase
+        .from('feed_posts')
+        .select('content')
+        .limit(100);
+
+      if (data) {
+        // Extract hashtags from posts
+        const tags = {};
+        data.forEach(post => {
+          const matches = post.content?.match(/#[a-zA-Z0-9_]+/g) || [];
+          matches.forEach(tag => {
+            tags[tag] = (tags[tag] || 0) + 1;
+          });
+        });
+
+        const trending = Object.entries(tags)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 8)
+          .map(([tag, count]) => ({ tag, count }));
+
+        setTrendingTags(trending);
+      }
+    } catch (error) {
+      console.error('Error fetching trending tags:', error);
+    }
   };
 
   const fetchPosts = useCallback(async () => {
@@ -53,16 +121,23 @@ const Feed = () => {
         .from('feed_posts')
         .select(`
           *,
-          user:users(firstname, surname, profile_picture_url),
+          user:users(firstname, surname, profile_picture_url, verified),
           likes:post_likes(user_id),
           comments:post_comments(
             id,
             content,
             created_at,
-            user:users(firstname, surname, profile_picture_url)
-          )
+            user:users(firstname, surname, profile_picture_url, verified)
+          ),
+          saves:saved_posts(user_id),
+          views:post_views(user_id)
         `)
         .order('created_at', { ascending: false });
+
+      // Apply category filter
+      if (filteredCategory !== 'all') {
+        query = query.eq('category', filteredCategory);
+      }
 
       if (activeTab === 'my' && user) {
         query = query.eq('user_id', user.id);
@@ -95,6 +170,9 @@ const Feed = () => {
       const processedPosts = (data || []).map((post) => ({
         ...post,
         userHasLiked: post.likes?.some(like => like.user_id === user?.id) || false,
+        userHasSaved: post.saves?.some(save => save.user_id === user?.id) || false,
+        comment_count: post.comments?.length || 0,
+        view_count: post.views?.length || 0,
         comments: post.comments?.slice(0, 3) || [],
         showAllComments: false
       }));
@@ -106,7 +184,22 @@ const Feed = () => {
     } finally {
       setLoading(false);
     }
-  }, [user, activeTab]);
+  }, [user, activeTab, filteredCategory]);
+
+  const fetchSuggestedUsers = async () => {
+    try {
+      const { data } = await supabase
+        .from('users')
+        .select('id, firstname, surname, profile_picture_url, verified, bio')
+        .neq('id', user?.id)
+        .limit(5)
+        .order('created_at', { ascending: false });
+
+      setSuggestedUsers(data || []);
+    } catch (error) {
+      console.error('Error fetching suggested users:', error);
+    }
+  };
 
   const handleCreatePost = async (e) => {
     e.preventDefault();
@@ -140,38 +233,57 @@ const Feed = () => {
           user_id: user.id,
           content: newPost.trim(),
           image_url: imageUrl,
+          category: postType === 'discussion' ? filteredCategory : postType,
           visibility: visibility,
           like_count: 0,
           comment_count: 0,
-          share_count: 0
+          tags: extractHashtags(newPost)
         }])
         .select(`
           *,
-          user:users(firstname, surname, profile_picture_url)
+          user:users(firstname, surname, profile_picture_url, verified)
         `)
         .single();
 
       if (error) throw error;
 
+      // Add view for the creator
+      await supabase
+        .from('post_views')
+        .insert([{ post_id: data.id, user_id: user.id }]);
+
       setPosts(prev => [{
         ...data,
         userHasLiked: false,
+        userHasSaved: false,
         likes: [],
+        saves: [],
+        views: [{ user_id: user.id }],
         comments: [],
-        showAllComments: false,
+        view_count: 1,
         isNew: true
       }, ...prev]);
 
+      // Update trending tags
+      fetchTrendingTags();
+
+      // Reset form
       setNewPost('');
       setImagePreview(null);
       setImageFile(null);
-      setVisibility('public');
+      setSelectedTag('');
+      setShowAdvancedPost(false);
       
     } catch (error) {
       console.error('Error creating post:', error);
     } finally {
       setIsPosting(false);
     }
+  };
+
+  const extractHashtags = (text) => {
+    const matches = text?.match(/#[a-zA-Z0-9_]+/g) || [];
+    return matches.map(tag => tag.toLowerCase());
   };
 
   const handleLikePost = async (postId, currentlyLiked) => {
@@ -186,7 +298,6 @@ const Feed = () => {
           .eq('user_id', user.id);
 
         await supabase.rpc('decrement_like_count', { post_id: postId });
-
       } else {
         await supabase
           .from('post_likes')
@@ -218,6 +329,40 @@ const Feed = () => {
     }
   };
 
+  const handleSavePost = async (postId, currentlySaved) => {
+    if (!user) return;
+
+    try {
+      if (currentlySaved) {
+        await supabase
+          .from('saved_posts')
+          .delete()
+          .eq('post_id', postId)
+          .eq('user_id', user.id);
+      } else {
+        await supabase
+          .from('saved_posts')
+          .insert([{
+            post_id: postId,
+            user_id: user.id
+          }]);
+      }
+
+      setPosts(prev => prev.map(post => {
+        if (post.id === postId) {
+          return {
+            ...post,
+            userHasSaved: !currentlySaved
+          };
+        }
+        return post;
+      }));
+
+    } catch (error) {
+      console.error('Error saving post:', error);
+    }
+  };
+
   const handleAddComment = async (postId, content) => {
     if (!user || !content.trim()) return;
 
@@ -231,7 +376,7 @@ const Feed = () => {
         }])
         .select(`
           *,
-          user:users(firstname, surname, profile_picture_url)
+          user:users(firstname, surname, profile_picture_url, verified)
         `)
         .single();
 
@@ -264,8 +409,8 @@ const Feed = () => {
     const file = e.target.files[0];
     if (!file) return;
 
-    if (file.size > 5 * 1024 * 1024) {
-      alert('Image size should be less than 5MB');
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Image size should be less than 10MB');
       return;
     }
 
@@ -288,14 +433,14 @@ const Feed = () => {
     const diffDay = Math.floor(diffHour / 24);
     
     if (diffSec < 60) return 'Just now';
-    if (diffMin < 60) return `${diffMin}m ago`;
-    if (diffHour < 24) return `${diffHour}h ago`;
-    if (diffDay < 7) return `${diffDay}d ago`;
+    if (diffMin < 60) return `${diffMin}m`;
+    if (diffHour < 24) return `${diffHour}h`;
+    if (diffDay < 7) return `${diffDay}d`;
+    if (diffDay < 30) return `${Math.floor(diffDay / 7)}w`;
     
     return postDate.toLocaleDateString('en-US', { 
       month: 'short', 
-      day: 'numeric',
-      year: diffDay > 365 ? 'numeric' : undefined
+      day: 'numeric'
     });
   };
 
@@ -303,199 +448,423 @@ const Feed = () => {
     return `${firstname?.[0] || ''}${surname?.[0] || ''}`.toUpperCase();
   };
 
-  const handleCommentInputChange = (postId, value) => {
-    setCommentInputs(prev => ({
-      ...prev,
-      [postId]: value
-    }));
-  };
-
-  const handleKeyPress = (e, postId) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      const content = commentInputs[postId] || '';
-      if (content.trim()) {
-        handleAddComment(postId, content);
-      }
+  const handleTagClick = (tag) => {
+    setSelectedTag(tag);
+    setNewPost(prev => prev + ` ${tag} `);
+    if (textareaRef.current) {
+      textareaRef.current.focus();
     }
   };
 
+  const PostStats = ({ post }) => (
+    <div className="post-stats">
+      <div className="stat-item">
+        <Eye size={12} />
+        <span>{post.view_count || 0}</span>
+      </div>
+      <div className="stat-item">
+        <Heart size={12} />
+        <span>{post.like_count || 0}</span>
+      </div>
+      <div className="stat-item">
+        <MessageCircle size={12} />
+        <span>{post.comment_count || 0}</span>
+      </div>
+      {post.engagement_rate > 0 && (
+        <div className="stat-item">
+          <TrendingUp size={12} />
+          <span>{post.engagement_rate}%</span>
+        </div>
+      )}
+    </div>
+  );
+
   if (loading && posts.length === 0) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin mx-auto text-gray-400" />
-          <p className="mt-2 text-gray-500">Loading feed...</p>
-        </div>
+      <div className="feed-loading">
+        <div className="loading-spinner"></div>
+        <p>Loading community updates...</p>
       </div>
     );
   }
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-6">
-      {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Campus Feed</h1>
-        <p className="text-gray-600 mt-1">Connect with your campus community</p>
-      </div>
+    <div className="feed-container">
+      {/* Left Sidebar - Desktop */}
+      <aside className="feed-sidebar">
+        <div className="sidebar-section">
+          <h3>Categories</h3>
+          <div className="category-list">
+            {categories.map(cat => (
+              <button
+                key={cat.id}
+                className={`category-btn ${filteredCategory === cat.id ? 'active' : ''}`}
+                onClick={() => setFilteredCategory(cat.id)}
+              >
+                <span className="category-icon">{cat.icon}</span>
+                <span>{cat.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
 
-      {/* Create Post */}
-      {user && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-6">
-          <div className="flex gap-4">
-            <div className="flex-shrink-0">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-semibold">
-                {getInitials(
-                  user?.user_metadata?.firstname,
-                  user?.user_metadata?.surname
-                )}
-              </div>
+        {trendingTags.length > 0 && (
+          <div className="sidebar-section">
+            <div className="section-header">
+              <h3>Trending Tags</h3>
+              <TrendingUpIcon size={16} />
             </div>
-            
-            <div className="flex-1">
-              <textarea
-                className="w-full border-0 focus:ring-0 resize-none text-gray-900 placeholder-gray-500 text-base"
-                placeholder="What's happening on campus?"
-                value={newPost}
-                onChange={(e) => setNewPost(e.target.value)}
-                rows="3"
-              />
-              
-              {imagePreview && (
-                <div className="relative mt-3 rounded-lg overflow-hidden">
-                  <img 
-                    src={imagePreview} 
-                    alt="Preview" 
-                    className="w-full max-h-96 object-cover"
-                  />
-                  <button
-                    type="button"
-                    className="absolute top-2 right-2 w-8 h-8 bg-black/50 hover:bg-black/70 rounded-full flex items-center justify-center text-white"
-                    onClick={() => {
-                      setImagePreview(null);
-                      setImageFile(null);
-                    }}
-                  >
-                    <X size={16} />
+            <div className="trending-tags">
+              {trendingTags.map(({ tag, count }) => (
+                <button
+                  key={tag}
+                  className="tag-item"
+                  onClick={() => handleTagClick(tag)}
+                >
+                  <Hash size={12} />
+                  <span className="tag-name">{tag}</span>
+                  <span className="tag-count">{count}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {user && suggestedUsers.length > 0 && (
+          <div className="sidebar-section">
+            <h3>Suggested Connections</h3>
+            <div className="suggested-users">
+              {suggestedUsers.map(user => (
+                <div key={user.id} className="suggested-user">
+                  <div className="user-avatar">
+                    {user.profile_picture_url ? (
+                      <img src={user.profile_picture_url} alt={user.firstname} />
+                    ) : (
+                      <div className="avatar-fallback">
+                        {getInitials(user.firstname, user.surname)}
+                      </div>
+                    )}
+                    {user.verified && <span className="verified-badge">✓</span>}
+                  </div>
+                  <div className="user-info">
+                    <span className="user-name">
+                      {user.firstname} {user.surname}
+                    </span>
+                    <span className="user-bio">{user.bio || 'AinRu Member'}</span>
+                  </div>
+                  <button className="follow-btn">
+                    <UserPlus size={14} />
                   </button>
                 </div>
-              )}
+              ))}
+            </div>
+          </div>
+        )}
+      </aside>
 
-              <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
-                <div className="flex items-center gap-2">
-                  <label className="cursor-pointer p-2 text-gray-500 hover:text-gray-700 rounded-lg hover:bg-gray-100">
-                    <ImageIcon size={20} />
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleImageUpload}
-                      className="hidden"
-                    />
-                  </label>
-                  
-                  <select 
-                    value={visibility}
-                    onChange={(e) => setVisibility(e.target.value)}
-                    className="text-sm border-0 bg-gray-50 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="public"><Globe size={14} className="inline mr-1" /> Public</option>
-                    <option value="friends"><Users size={14} className="inline mr-1" /> Friends</option>
-                    <option value="private"><Lock size={14} className="inline mr-1" /> Private</option>
-                  </select>
-                </div>
-
-                <button
-                  onClick={handleCreatePost}
-                  disabled={(!newPost.trim() && !imageFile) || isPosting}
-                  className="px-5 py-2 bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-lg font-medium hover:from-blue-700 hover:to-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  {isPosting ? (
-                    <>
-                      <Loader2 size={16} className="animate-spin" />
-                      Posting...
-                    </>
-                  ) : (
-                    'Post'
-                  )}
-                </button>
+      {/* Main Feed Content */}
+      <main className="feed-main">
+        <div className="feed-header">
+          <div className="header-content">
+            <h1>
+              <span className="gradient-text">AinRu</span> Community Feed
+            </h1>
+            <p>Connect, share, and engage with Africans in Russia</p>
+          </div>
+          
+          <div className="header-stats">
+            <div className="stat-card">
+              <div className="stat-icon">👥</div>
+              <div className="stat-content">
+                <span className="stat-value">{posts.length}</span>
+                <span className="stat-label">Active Posts</span>
+              </div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-icon">🔥</div>
+              <div className="stat-content">
+                <span className="stat-value">{trendingTags.length}</span>
+                <span className="stat-label">Trending Topics</span>
               </div>
             </div>
           </div>
         </div>
-      )}
 
-      {/* Tabs */}
-      <div className="flex gap-2 mb-6">
-        <button
-          className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-            activeTab === 'all' 
-              ? 'bg-blue-50 text-blue-600 border border-blue-100' 
-              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-          }`}
-          onClick={() => setActiveTab('all')}
-        >
-          All
-        </button>
-        
+        {/* Create Post */}
         {user && (
-          <>
-            <button
-              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                activeTab === 'following' 
-                  ? 'bg-blue-50 text-blue-600 border border-blue-100' 
-                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-              }`}
-              onClick={() => setActiveTab('following')}
-            >
-              Following
-            </button>
-            <button
-              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                activeTab === 'my' 
-                  ? 'bg-blue-50 text-blue-600 border border-blue-100' 
-                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-              }`}
-              onClick={() => setActiveTab('my')}
-            >
-              My Posts
-            </button>
-          </>
-        )}
-      </div>
+          <div className="create-post-card">
+            <div className="post-form-header">
+              <div className="user-avatar">
+                {user?.user_metadata?.avatar_url ? (
+                  <img src={user.user_metadata.avatar_url} alt="Profile" />
+                ) : (
+                  <div className="avatar-fallback">
+                    {getInitials(
+                      user?.user_metadata?.firstname,
+                      user?.user_metadata?.surname
+                    )}
+                  </div>
+                )}
+              </div>
+              
+              <div className="post-input-wrapper">
+                <textarea
+                  ref={textareaRef}
+                  className="post-input"
+                  placeholder="What's happening in your world? Share updates, ask questions, or post opportunities..."
+                  value={newPost}
+                  onChange={(e) => setNewPost(e.target.value)}
+                  rows="3"
+                />
+                
+                <div className="post-options-row">
+                  <div className="post-actions">
+                    <button 
+                      className="action-btn"
+                      onClick={() => fileInputRef.current?.click()}
+                      type="button"
+                    >
+                      <ImageIcon size={18} />
+                      <span>Photo/Video</span>
+                    </button>
+                    
+                    <div className="visibility-selector">
+                      <select 
+                        value={visibility}
+                        onChange={(e) => setVisibility(e.target.value)}
+                        className="visibility-select"
+                      >
+                        <option value="public"><Globe size={14} /> Public</option>
+                        <option value="friends"><Users size={14} /> Connections</option>
+                        <option value="private"><Lock size={14} /> Private</option>
+                      </select>
+                    </div>
+                    
+                    <button 
+                      className="action-btn"
+                      onClick={() => setShowAdvancedPost(!showAdvancedPost)}
+                    >
+                      <MoreHorizontal size={18} />
+                      <span>Advanced</span>
+                    </button>
+                  </div>
+                  
+                  <div className="post-submit">
+                    <div className="character-count">
+                      {newPost.length}/500
+                    </div>
+                    <button
+                      onClick={handleCreatePost}
+                      disabled={(!newPost.trim() && !imageFile) || isPosting}
+                      className="submit-btn"
+                    >
+                      {isPosting ? (
+                        <>
+                          <div className="spinner-small"></div>
+                          Posting...
+                        </>
+                      ) : (
+                        'Post'
+                      )}
+                    </button>
+                  </div>
+                </div>
 
-      {/* Feed */}
-      <div className="space-y-4">
-        {posts.length === 0 ? (
-          <div className="text-center py-12 bg-white rounded-xl border border-gray-200">
-            <div className="text-gray-400 mb-3">📰</div>
-            <h3 className="text-gray-900 font-medium mb-1">No posts yet</h3>
-            <p className="text-gray-500 text-sm mb-4">Be the first to share something!</p>
-            {!user && (
-              <button 
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                onClick={() => window.location.href = '/login'}
-              >
-                Sign in to post
-              </button>
-            )}
-          </div>
-        ) : (
-          posts.map((post) => (
-            <PostCard
-              key={post.id}
-              post={post}
-              currentUser={user}
-              onLike={handleLikePost}
-              onComment={handleAddComment}
-              formatTimeAgo={formatTimeAgo}
-              getInitials={getInitials}
-              commentInput={commentInputs[post.id] || ''}
-              onCommentInputChange={(value) => handleCommentInputChange(post.id, value)}
-              onKeyPress={(e) => handleKeyPress(e, post.id)}
+                {showAdvancedPost && (
+                  <div className="advanced-options">
+                    <div className="post-type-selector">
+                      <label>Post Type:</label>
+                      <select 
+                        value={postType}
+                        onChange={(e) => setPostType(e.target.value)}
+                      >
+                        <option value="discussion">Discussion</option>
+                        <option value="marketplace">Marketplace</option>
+                        <option value="travel">Travel</option>
+                        <option value="housing">Housing</option>
+                        <option value="event">Event</option>
+                        <option value="question">Question</option>
+                        <option value="announcement">Announcement</option>
+                      </select>
+                    </div>
+                    
+                    {selectedTag && (
+                      <div className="selected-tag">
+                        <span>Tag: {selectedTag}</span>
+                        <button onClick={() => setSelectedTag('')}>
+                          <X size={14} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {imagePreview && (
+                  <div className="image-preview">
+                    <img src={imagePreview} alt="Preview" />
+                    <button 
+                      className="remove-image"
+                      onClick={() => {
+                        setImagePreview(null);
+                        setImageFile(null);
+                      }}
+                    >
+                      <X size={20} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,video/*"
+              onChange={handleImageUpload}
+              className="hidden-input"
             />
-          ))
+          </div>
         )}
-      </div>
+
+        {/* Feed Navigation */}
+        <div className="feed-navigation">
+          <div className="nav-tabs">
+            <button 
+              className={`nav-tab ${activeTab === 'all' ? 'active' : ''}`}
+              onClick={() => setActiveTab('all')}
+            >
+              <Globe size={18} />
+              <span>For You</span>
+            </button>
+            
+            {user && (
+              <>
+                <button 
+                  className={`nav-tab ${activeTab === 'following' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('following')}
+                >
+                  <Users size={18} />
+                  <span>Following</span>
+                </button>
+                
+                <button 
+                  className={`nav-tab ${activeTab === 'my' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('my')}
+                >
+                  <Award size={18} />
+                  <span>My Posts</span>
+                </button>
+              </>
+            )}
+            
+            <button 
+              className={`nav-tab ${activeTab === 'trending' ? 'active' : ''}`}
+              onClick={() => setActiveTab('trending')}
+            >
+              <TrendingUp size={18} />
+              <span>Trending</span>
+            </button>
+          </div>
+          
+          <div className="sort-controls">
+            <select className="sort-select">
+              <option>Most Recent</option>
+              <option>Most Liked</option>
+              <option>Most Comments</option>
+              <option>Trending</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Posts Feed */}
+        <div className="posts-grid">
+          {posts.length === 0 ? (
+            <div className="empty-feed">
+              <div className="empty-icon">📰</div>
+              <h3>No posts yet in this category</h3>
+              <p>Be the first to share something with the community!</p>
+              {!user && (
+                <button 
+                  className="auth-cta"
+                  onClick={() => window.location.href = '/login'}
+                >
+                  Join AinRu to Post
+                </button>
+              )}
+            </div>
+          ) : (
+            posts.map((post) => (
+              <PostCard
+                key={post.id}
+                post={post}
+                currentUser={user}
+                onLike={handleLikePost}
+                onSave={handleSavePost}
+                onComment={handleAddComment}
+                formatTimeAgo={formatTimeAgo}
+                getInitials={getInitials}
+                commentInput={commentInputs[post.id] || ''}
+                onCommentInputChange={(value) => handleCommentInputChange(post.id, value)}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleAddComment(post.id, commentInputs[post.id] || '');
+                  }
+                }}
+              />
+            ))
+          )}
+        </div>
+      </main>
+
+      {/* Right Sidebar */}
+      <aside className="feed-sidebar-right">
+        <div className="community-highlights">
+          <h3>Community Highlights</h3>
+          
+          <div className="highlight-card">
+            <div className="highlight-icon">🏆</div>
+            <div className="highlight-content">
+              <h4>Top Contributors</h4>
+              <p>See who's most active this week</p>
+            </div>
+          </div>
+          
+          <div className="highlight-card">
+            <div className="highlight-icon">🎯</div>
+            <div className="highlight-content">
+              <h4>Weekly Challenge</h4>
+              <p>Share your Russian winter experiences</p>
+            </div>
+          </div>
+          
+          <div className="highlight-card">
+            <div className="highlight-icon">📅</div>
+            <div className="highlight-content">
+              <h4>Upcoming Events</h4>
+              <p>African Diaspora Meetup - This Saturday</p>
+            </div>
+          </div>
+        </div>
+
+        {user && (
+          <div className="quick-actions">
+            <h3>Quick Actions</h3>
+            <button className="quick-action-btn">
+              <Calendar size={18} />
+              <span>Create Event</span>
+            </button>
+            <button className="quick-action-btn">
+              <MapPin size={18} />
+              <span>Share Location</span>
+            </button>
+            <button className="quick-action-btn">
+              <Video size={18} />
+              <span>Go Live</span>
+            </button>
+          </div>
+        )}
+      </aside>
     </div>
   );
 };
@@ -504,6 +873,7 @@ const PostCard = ({
   post, 
   currentUser, 
   onLike, 
+  onSave, 
   onComment, 
   formatTimeAgo, 
   getInitials,
@@ -511,8 +881,10 @@ const PostCard = ({
   onCommentInputChange,
   onKeyPress
 }) => {
-  const [isLiking, setIsLiking] = useState(false);
   const [showComments, setShowComments] = useState(false);
+  const [showOptions, setShowOptions] = useState(false);
+  const [isLiking, setIsLiking] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const handleLike = async () => {
     if (isLiking) return;
@@ -521,213 +893,261 @@ const PostCard = ({
     setIsLiking(false);
   };
 
+  const handleSave = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    await onSave(post.id, post.userHasSaved);
+    setIsSaving(false);
+  };
+
   const handleSubmitComment = async () => {
     if (!commentInput.trim()) return;
     await onComment(post.id, commentInput);
   };
 
+  const extractTags = (content) => {
+    const matches = content?.match(/#[a-zA-Z0-9_]+/g) || [];
+    return matches.slice(0, 3);
+  };
+
+  const tags = extractTags(post.content);
+
   return (
-    <div className={`bg-white rounded-xl border border-gray-200 overflow-hidden ${post.isNew ? 'border-blue-300' : ''}`}>
-      {/* Header */}
-      <div className="p-5">
-        <div className="flex items-start justify-between">
-          <div className="flex items-start gap-3">
-            <div className="flex-shrink-0">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-semibold">
-                {post.user?.profile_picture_url ? (
-                  <img 
-                    src={post.user.profile_picture_url} 
-                    alt={post.user.firstname}
-                    className="w-full h-full rounded-full object-cover"
-                  />
-                ) : (
-                  getInitials(post.user?.firstname, post.user?.surname)
-                )}
+    <div className={`post-card ${post.isNew ? 'new-post' : ''}`}>
+      <div className="post-header">
+        <div className="post-author">
+          <div className="author-avatar">
+            {post.user?.profile_picture_url ? (
+              <img 
+                src={post.user.profile_picture_url} 
+                alt={post.user.firstname}
+              />
+            ) : (
+              <div className="avatar-fallback">
+                {getInitials(post.user?.firstname, post.user?.surname)}
               </div>
+            )}
+            {post.user?.verified && <span className="verified-badge">✓</span>}
+          </div>
+          
+          <div className="author-info">
+            <div className="author-name">
+              <span className="name">
+                {post.user?.firstname || 'User'} {post.user?.surname || ''}
+              </span>
+              {post.user_id === currentUser?.id && (
+                <span className="you-badge">You</span>
+              )}
             </div>
             
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-gray-900">
-                  {post.user?.firstname || 'User'} {post.user?.surname || ''}
-                </span>
-                {post.user_id === currentUser?.id && (
-                  <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded-full">
-                    You
-                  </span>
-                )}
-                <span className="text-gray-500 text-sm flex items-center gap-1">
-                  <Clock size={12} />
-                  {formatTimeAgo(post.created_at)}
-                </span>
-              </div>
-              
-              <div className="flex items-center gap-2 mt-1">
-                {post.visibility === 'public' && (
-                  <span className="text-xs text-gray-500 flex items-center gap-1">
-                    <Globe size={12} /> Public
-                  </span>
-                )}
-                {post.visibility === 'friends' && (
-                  <span className="text-xs text-gray-500 flex items-center gap-1">
-                    <Users size={12} /> Friends only
-                  </span>
-                )}
-                {post.visibility === 'private' && (
-                  <span className="text-xs text-gray-500 flex items-center gap-1">
-                    <Lock size={12} /> Private
-                  </span>
-                )}
-              </div>
+            <div className="post-meta">
+              <span className="post-time">
+                <Clock size={12} />
+                {formatTimeAgo(post.created_at)}
+              </span>
+              <span className="post-visibility">
+                {post.visibility === 'public' && <Globe size={12} />}
+                {post.visibility === 'friends' && <Users size={12} />}
+                {post.visibility === 'private' && <Lock size={12} />}
+              </span>
             </div>
           </div>
-
-          {post.user_id === currentUser?.id && (
-            <button className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100">
-              <MoreVertical size={20} />
-            </button>
-          )}
         </div>
 
-        {/* Content */}
-        <div className="mt-4">
-          <p className="text-gray-800 whitespace-pre-wrap">{post.content}</p>
+        <div className="post-actions-menu">
+          <button 
+            className="post-menu-btn"
+            onClick={() => setShowOptions(!showOptions)}
+          >
+            <MoreVertical size={20} />
+          </button>
           
-          {post.image_url && (
-            <div className="mt-4 rounded-lg overflow-hidden">
-              <img 
-                src={post.image_url} 
-                alt="Post content" 
-                className="w-full max-h-[500px] object-cover"
-                loading="lazy"
-              />
+          {showOptions && (
+            <div className="dropdown-menu">
+              <button className="dropdown-item">
+                <Bookmark size={16} />
+                Save post
+              </button>
+              <button className="dropdown-item">
+                <Flag size={16} />
+                Report post
+              </button>
+              {post.user_id === currentUser?.id && (
+                <button className="dropdown-item delete">
+                  <X size={16} />
+                  Delete post
+                </button>
+              )}
             </div>
           )}
         </div>
+      </div>
 
-        {/* Stats */}
-        <div className="flex items-center gap-6 mt-4 pt-4 border-t border-gray-100 text-sm text-gray-500">
-          <div className="flex items-center gap-1">
-            <Heart size={14} className={post.userHasLiked ? 'fill-red-500 text-red-500' : ''} />
-            <span>{post.like_count || 0}</span>
+      <div className="post-content">
+        <p className="post-text">{post.content}</p>
+        
+        {tags.length > 0 && (
+          <div className="post-tags">
+            {tags.map(tag => (
+              <span key={tag} className="post-tag">
+                <Hash size={12} />
+                {tag}
+              </span>
+            ))}
           </div>
-          <div className="flex items-center gap-1">
+        )}
+        
+        {post.image_url && (
+          <div className="post-media">
+            <img 
+              src={post.image_url} 
+              alt="Post content"
+              loading="lazy"
+              className="post-image"
+            />
+          </div>
+        )}
+      </div>
+
+      <div className="post-stats-bar">
+        <div className="stats-left">
+          <div className="stat-item">
+            <Eye size={14} />
+            <span>{post.view_count || 0} views</span>
+          </div>
+          <div className="stat-item">
+            <Heart size={14} />
+            <span>{post.like_count || 0} likes</span>
+          </div>
+          <div className="stat-item">
             <MessageCircle size={14} />
-            <span>{post.comment_count || 0}</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <Share2 size={14} />
-            <span>{post.share_count || 0}</span>
+            <span>{post.comment_count || 0} comments</span>
           </div>
         </div>
+        
+        <div className="stats-right">
+          {post.category && (
+            <span className="post-category">
+              {post.category === 'marketplace' && '🛒'}
+              {post.category === 'travel' && '✈️'}
+              {post.category === 'housing' && '🏠'}
+              {post.category === 'events' && '🎉'}
+              {post.category === 'education' && '🎓'}
+              {post.category === 'jobs' && '💼'}
+              {post.category}
+            </span>
+          )}
+        </div>
+      </div>
 
-        {/* Actions */}
-        <div className="grid grid-cols-3 gap-1 mt-4 pt-4 border-t border-gray-100">
-          <button
-            onClick={handleLike}
-            disabled={isLiking}
-            className={`flex items-center justify-center gap-2 py-2 rounded-lg transition-colors font-medium ${
-              post.userHasLiked 
-                ? 'text-red-600 bg-red-50 hover:bg-red-100' 
-                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-            }`}
-          >
-            <Heart size={18} fill={post.userHasLiked ? 'currentColor' : 'none'} />
-            Like
-          </button>
-          
-          <button
-            onClick={() => setShowComments(!showComments)}
-            className="flex items-center justify-center gap-2 py-2 rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-50 font-medium"
-          >
-            <MessageCircle size={18} />
-            Comment
-          </button>
-          
-          <button className="flex items-center justify-center gap-2 py-2 rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-50 font-medium">
-            <Share2 size={18} />
-            Share
-          </button>
-        </div>
+      <div className="post-actions">
+        <button 
+          className={`action-btn ${post.userHasLiked ? 'active' : ''}`}
+          onClick={handleLike}
+          disabled={isLiking}
+        >
+          <Heart size={18} fill={post.userHasLiked ? 'currentColor' : 'none'} />
+          <span>Like</span>
+        </button>
+        
+        <button 
+          className="action-btn"
+          onClick={() => setShowComments(!showComments)}
+        >
+          <MessageCircle size={18} />
+          <span>Comment</span>
+        </button>
+        
+        <button className="action-btn">
+          <Share2 size={18} />
+          <span>Share</span>
+        </button>
+        
+        <button 
+          className={`action-btn ${post.userHasSaved ? 'active' : ''}`}
+          onClick={handleSave}
+          disabled={isSaving}
+        >
+          <Bookmark size={18} fill={post.userHasSaved ? 'currentColor' : 'none'} />
+          <span>Save</span>
+        </button>
       </div>
 
       {/* Comment Input */}
       {currentUser && (
-        <div className="border-t border-gray-100 p-5">
-          <div className="flex gap-3">
-            <div className="flex-shrink-0">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-sm font-semibold">
-                {getInitials(
-                  currentUser?.user_metadata?.firstname,
-                  currentUser?.user_metadata?.surname
-                )}
-              </div>
+        <div className="comment-input-section">
+          <div className="comment-input-wrapper">
+            <div className="comment-avatar">
+              {currentUser?.user_metadata?.avatar_url ? (
+                <img 
+                  src={currentUser.user_metadata.avatar_url} 
+                  alt="You"
+                />
+              ) : (
+                <div className="avatar-fallback small">
+                  {getInitials(
+                    currentUser?.user_metadata?.firstname,
+                    currentUser?.user_metadata?.surname
+                  )}
+                </div>
+              )}
             </div>
             
-            <div className="flex-1">
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Write a comment..."
-                  value={commentInput}
-                  onChange={(e) => onCommentInputChange(e.target.value)}
-                  onKeyPress={(e) => onKeyPress(e)}
-                />
-                
-                <button
-                  onClick={handleSubmitComment}
-                  disabled={!commentInput.trim()}
-                  className="p-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Send size={20} />
-                </button>
-              </div>
+            <div className="comment-input-container">
+              <input
+                type="text"
+                className="comment-input"
+                placeholder="Write a comment..."
+                value={commentInput}
+                onChange={(e) => onCommentInputChange(e.target.value)}
+                onKeyPress={onKeyPress}
+              />
+              <button 
+                className="comment-submit"
+                onClick={handleSubmitComment}
+                disabled={!commentInput.trim()}
+              >
+                <Send size={16} />
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Comments */}
+      {/* Comments Section */}
       {showComments && post.comments && post.comments.length > 0 && (
-        <div className="border-t border-gray-100">
+        <div className="comments-section">
           {post.comments.map((comment) => (
-            <div key={comment.id} className="p-5 hover:bg-gray-50 transition-colors">
-              <div className="flex gap-3">
-                <div className="flex-shrink-0">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-sm font-semibold">
-                    {comment.user?.profile_picture_url ? (
-                      <img 
-                        src={comment.user.profile_picture_url} 
-                        alt={comment.user.firstname}
-                        className="w-full h-full rounded-full object-cover"
-                      />
-                    ) : (
-                      getInitials(comment.user?.firstname, comment.user?.surname)
+            <div key={comment.id} className="comment">
+              <div className="comment-avatar small">
+                {comment.user?.profile_picture_url ? (
+                  <img 
+                    src={comment.user.profile_picture_url} 
+                    alt={comment.user.firstname}
+                  />
+                ) : (
+                  <div className="avatar-fallback small">
+                    {getInitials(comment.user?.firstname, comment.user?.surname)}
+                  </div>
+                )}
+              </div>
+              
+              <div className="comment-content">
+                <div className="comment-header">
+                  <span className="comment-author">
+                    {comment.user?.firstname} {comment.user?.surname}
+                    {comment.user?.verified && (
+                      <span className="verified-badge small">✓</span>
                     )}
-                  </div>
+                  </span>
+                  <span className="comment-time">
+                    {formatTimeAgo(comment.created_at)}
+                  </span>
                 </div>
-                
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-gray-900">
-                      {comment.user?.firstname || 'User'} {comment.user?.surname || ''}
-                    </span>
-                    <span className="text-gray-500 text-xs">
-                      {formatTimeAgo(comment.created_at)}
-                    </span>
-                  </div>
-                  <p className="text-gray-800 mt-1">{comment.content}</p>
-                </div>
+                <p className="comment-text">{comment.content}</p>
               </div>
             </div>
           ))}
-          
-          {post.comment_count > post.comments.length && (
-            <button className="w-full text-center py-3 text-sm text-blue-600 hover:text-blue-700 hover:bg-gray-50 border-t border-gray-100">
-              View all {post.comment_count} comments
-            </button>
-          )}
         </div>
       )}
     </div>
