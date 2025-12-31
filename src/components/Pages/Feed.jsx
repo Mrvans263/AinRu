@@ -1,384 +1,407 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { 
-  supabase, 
-  checkAuth, 
-  uploadToStorage,
-  subscribeToRealtime
-} from '../../lib/supabase';
-import {
-  Heart,
-  MessageCircle,
-  Share2,
-  Image as ImageIcon,
-  Globe,
-  Users,
-  Lock,
-  MoreVertical,
-  Send,
-  Clock,
-  Bookmark,
-  Eye,
-  Filter,
-  Hash,
-  Flag,
-  X,
-  Award,
-  TrendingUp,
-  Zap,
-  Sparkles,
-  Bell,
-  UserPlus,
-  Video,
-  FileText,
-  MapPin,
-  Smile,
-  Gif,
-  BarChart,
-  Edit3,
-  Trash2,
-  ExternalLink,
-  Copy,
-  Check,
-  Volume2,
-  VolumeX
-} from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { supabase } from '../../lib/supabase';
+import { Heart, MessageCircle, Share2, Image as ImageIcon, Globe, Users, Lock, MoreVertical, Send, Clock, Zap, TrendingUp, User, Award, Sparkles, BookOpen, MapPin, Flag, GraduationCap } from 'lucide-react';
 import './Feed.css';
-
-// Constants
-const POST_VISIBILITY = {
-  PUBLIC: 'public',
-  FRIENDS: 'friends',
-  PRIVATE: 'private'
-};
-
-const FEED_TABS = {
-  ALL: 'all',
-  FOLLOWING: 'following',
-  MY_POSTS: 'my',
-  TRENDING: 'trending',
-  POPULAR: 'popular'
-};
 
 const Feed = () => {
   const [user, setUser] = useState(null);
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [newPost, setNewPost] = useState('');
   const [imagePreview, setImagePreview] = useState(null);
   const [imageFile, setImageFile] = useState(null);
-  const [visibility, setVisibility] = useState(POST_VISIBILITY.PUBLIC);
-  const [activeTab, setActiveTab] = useState(FEED_TABS.ALL);
+  const [visibility, setVisibility] = useState('public');
+  const [activeTab, setActiveTab] = useState('all');
   const [commentInputs, setCommentInputs] = useState({});
-  const [isPosting, setIsPosting] = useState(false);
-  const [showMutedPosts, setShowMutedPosts] = useState(false);
-  const [pollData, setPollData] = useState({ question: '', options: ['', ''] });
-  const [showPoll, setShowPoll] = useState(false);
-  const [selectedHashtags, setSelectedHashtags] = useState([]);
-  const [postMetrics, setPostMetrics] = useState({});
-  const [lastPostId, setLastPostId] = useState(null);
-  const [hasMorePosts, setHasMorePosts] = useState(true);
-  
-  const fileInputRef = useRef(null);
-  const textareaRef = useRef(null);
+  const [isComposing, setIsComposing] = useState(false);
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
   const feedRef = useRef(null);
-  const subscriptionRef = useRef(null);
-
-  // User profile data
-  const [userProfile, setUserProfile] = useState(null);
-  const [suggestedUsers, setSuggestedUsers] = useState([]);
-  const [trendingHashtags, setTrendingHashtags] = useState([]);
+  const postsPerPage = 5;
 
   useEffect(() => {
-    initializeFeed();
-    
-    // Set up realtime subscription
-    setupRealtimeSubscription();
-    
-    return () => {
-      // Cleanup subscription
-      if (subscriptionRef.current) {
-        supabase.removeSubscription(subscriptionRef.current);
-      }
-    };
+    checkUser();
   }, []);
 
   useEffect(() => {
     if (user) {
-      fetchPosts();
-      fetchTrendingData();
+      fetchPosts(0);
+      fetchStats();
     }
   }, [user, activeTab]);
 
-  const initializeFeed = async () => {
-    const { user: authUser, profile } = await checkAuth();
-    if (authUser) {
-      setUser(authUser);
-      setUserProfile(profile);
+  const checkUser = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user) {
+      const { data: profile } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', session.user.id)
+        .single();
+      setUser(profile);
     }
   };
 
-  const setupRealtimeSubscription = () => {
-    subscriptionRef.current = subscribeToRealtime(
-      'feed_posts',
-      handleRealtimeUpdate
-    );
-  };
-
-  const handleRealtimeUpdate = (payload) => {
-    const { eventType, new: newPost, old: oldPost } = payload;
-    
-    switch (eventType) {
-      case 'INSERT':
-        setPosts(prev => [formatPost(newPost), ...prev]);
-        break;
-      case 'UPDATE':
-        setPosts(prev => prev.map(post => 
-          post.id === newPost.id ? formatPost(newPost) : post
-        ));
-        break;
-      case 'DELETE':
-        setPosts(prev => prev.filter(post => post.id !== oldPost.id));
-        break;
-    }
-  };
-
-  const fetchPosts = useCallback(async (loadMore = false) => {
-    if (!user) {
-      setLoading(false);
-      return;
-    }
-
-    if (loadMore) {
-      setLoadingMore(true);
-    } else {
-      setLoading(true);
-    }
-
+  const fetchStats = async () => {
     try {
+      // Get posts from last 7 days
+      const weekAgo = new Date();
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      
+      const { data: postsData } = await supabase
+        .from('feed_posts')
+        .select('id')
+        .gte('created_at', weekAgo.toISOString());
+
+      // Get active users (those with posts in last month)
+      const monthAgo = new Date();
+      monthAgo.setDate(monthAgo.getDate() - 30);
+      
+      const { data: recentPosts } = await supabase
+        .from('feed_posts')
+        .select('user_id')
+        .gte('created_at', monthAgo.toISOString());
+
+      const activeUserIds = [...new Set(recentPosts?.map(post => post.user_id) || [])];
+      
+      return {
+        totalPosts: postsData?.length || 0,
+        activeUsers: activeUserIds.length,
+        trendingPosts: Math.floor((postsData?.length || 0) / 2)
+      };
+    } catch (error) {
+      console.error('Error fetching stats:', error);
+      return { totalPosts: 0, activeUsers: 0, trendingPosts: 0 };
+    }
+  };
+
+  const fetchPosts = async (pageNum) => {
+    if (!hasMore && pageNum > 0) return;
+    
+    setLoading(true);
+    try {
+      const from = pageNum * postsPerPage;
+      const to = from + postsPerPage - 1;
+
       let query = supabase
         .from('feed_posts')
         .select(`
           *,
-          user:users!user_id(
+          users!feed_posts_user_id_fkey (
             id,
             firstname,
             surname,
             profile_picture_url,
-            bio,
             university,
-            city,
-            verification_board
+            program_field,
+            is_student
           ),
-          post_likes(id, user_id),
-          post_comments(
+          post_likes!inner (
+            user_id
+          ),
+          post_comments!inner (
             id,
             content,
             created_at,
-            like_count,
-            user:users!user_id(
-              id,
+            user_id,
+            users!post_comments_user_id_fkey (
               firstname,
               surname,
               profile_picture_url
             )
-          ),
-          shares:share_count,
-          views:view_count
+          )
         `)
-        .order('created_at', { ascending: false })
-        .limit(loadMore ? 10 : 20);
+        .order('created_at', { ascending: false });
 
       // Apply filters based on active tab
-      switch (activeTab) {
-        case FEED_TABS.MY_POSTS:
-          query = query.eq('user_id', user.id);
-          break;
-        case FEED_TABS.FOLLOWING:
-          // Fetch followed users' posts
-          const { data: following } = await supabase
-            .from('user_follows')
-            .select('following_id')
-            .eq('follower_id', user.id);
+      if (activeTab === 'my' && user) {
+        query = query.eq('user_id', user.id);
+      } else if (activeTab === 'following' && user) {
+        const { data: following } = await supabase
+          .from('user_follows')
+          .select('following_id')
+          .eq('follower_id', user.id);
 
-          if (following?.length > 0) {
-            const followingIds = following.map(f => f.following_id);
-            query = query.in('user_id', followingIds);
-          } else {
-            setPosts([]);
-            setLoading(false);
-            setLoadingMore(false);
-            return;
-          }
-          break;
-        case FEED_TABS.TRENDING:
-          query = query.gte('like_count', 10)
-                      .gte('comment_count', 5);
-          break;
-        case FEED_TABS.POPULAR:
-          query = query.gt('created_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
-                      .order('like_count', { ascending: false });
-          break;
-      }
-
-      // Pagination for infinite scroll
-      if (loadMore && lastPostId) {
-        const { data: lastPost } = await supabase
-          .from('feed_posts')
-          .select('created_at')
-          .eq('id', lastPostId)
-          .single();
-
-        if (lastPost) {
-          query = query.lt('created_at', lastPost.created_at);
+        if (following && following.length > 0) {
+          const followingIds = following.map(f => f.following_id);
+          query = query.in('user_id', followingIds);
+        } else {
+          setPosts([]);
+          setLoading(false);
+          return;
         }
       }
 
-      // Apply visibility filter
-      query = query.or(`visibility.eq.public,user_id.eq.${user.id}`);
+      // Visibility filter
+      if (user) {
+        query = query.or(`visibility.eq.public,user_id.eq.${user.id},visibility.eq.friends`);
+      } else {
+        query = query.eq('visibility', 'public');
+      }
 
-      const { data, error } = await query;
+      const { data, error, count } = await query.range(from, to);
 
       if (error) throw error;
 
-      const processedPosts = (data || []).map(formatPost);
-
-      if (loadMore) {
-        setPosts(prev => [...prev, ...processedPosts]);
-      } else {
-        setPosts(processedPosts);
+      // Check if we have more posts
+      if (!data || data.length < postsPerPage) {
+        setHasMore(false);
       }
 
-      // Update pagination state
-      if (data && data.length > 0) {
-        setLastPostId(data[data.length - 1].id);
-        setHasMorePosts(data.length === (loadMore ? 10 : 20));
+      // Process posts data
+      const processedPosts = (data || []).map((post, index) => {
+        // Count unique likes
+        const uniqueLikes = new Set(post.post_likes?.map(like => like.user_id) || []);
+        
+        return {
+          ...post,
+          userHasLiked: uniqueLikes.has(user?.id) || false,
+          like_count: uniqueLikes.size,
+          comments: (post.post_comments || []).map(comment => ({
+            ...comment,
+            user: comment.users
+          })).sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
+          user: post.users,
+          isExpanded: false,
+          showAllComments: false,
+          animationDelay: index * 0.1
+        };
+      });
+
+      if (pageNum === 0) {
+        setPosts(processedPosts);
       } else {
-        setHasMorePosts(false);
+        setPosts(prev => [...prev, ...processedPosts]);
       }
 
     } catch (error) {
       console.error('Error fetching posts:', error);
     } finally {
       setLoading(false);
-      setLoadingMore(false);
     }
-  }, [user, activeTab, lastPostId]);
+  };
 
-  const formatPost = (post) => {
-    const hashtags = extractHashtags(post.content);
-    const mentions = extractMentions(post.content);
-    
-    return {
-      ...post,
-      userHasLiked: post.post_likes?.some(like => like.user_id === user?.id) || false,
-      userHasSaved: false, // Implement saved posts later
-      like_count: post.like_count || 0,
-      comment_count: post.comment_count || 0,
-      share_count: post.share_count || 0,
-      view_count: post.views || 0,
-      comments: (post.post_comments || []).slice(0, 2),
-      showAllComments: false,
-      hashtags,
-      mentions,
-      isTrending: (post.like_count || 0) >= 20,
-      isNew: Date.now() - new Date(post.created_at).getTime() < 24 * 60 * 60 * 1000,
-      metrics: {
-        engagementRate: calculateEngagementRate(post),
-        estimatedReach: estimatePostReach(post)
+  const loadMorePosts = () => {
+    if (!loading && hasMore) {
+      const nextPage = page + 1;
+      setPage(nextPage);
+      fetchPosts(nextPage);
+    }
+  };
+
+  useEffect(() => {
+    const handleScroll = () => {
+      if (!feedRef.current) return;
+      
+      const { scrollTop, scrollHeight, clientHeight } = feedRef.current;
+      if (scrollHeight - scrollTop - clientHeight < 100) {
+        loadMorePosts();
       }
     };
-  };
 
-  const extractHashtags = (content) => {
-    if (!content) return [];
-    const hashtagRegex = /#(\w+)/g;
-    return [...content.matchAll(hashtagRegex)].map(match => match[1]);
-  };
-
-  const extractMentions = (content) => {
-    if (!content) return [];
-    const mentionRegex = /@(\w+)/g;
-    return [...content.matchAll(mentionRegex)].map(match => match[1]);
-  };
-
-  const calculateEngagementRate = (post) => {
-    const totalEngagement = (post.like_count || 0) + (post.comment_count || 0) + (post.share_count || 0);
-    return (totalEngagement / Math.max(post.view_count, 1)) * 100;
-  };
-
-  const estimatePostReach = (post) => {
-    // Simple estimation based on engagement
-    const baseReach = 100;
-    const engagementMultiplier = 1 + (post.like_count || 0) * 0.1;
-    return Math.round(baseReach * engagementMultiplier);
-  };
-
-  const fetchTrendingData = async () => {
-    // Fetch trending hashtags
-    const { data: hashtags } = await supabase
-      .rpc('get_trending_hashtags', { days: 7 });
-
-    setTrendingHashtags(hashtags || []);
-
-    // Fetch suggested users
-    const { data: suggestions } = await supabase
-      .rpc('get_suggested_users', { current_user_id: user.id });
-
-    setSuggestedUsers(suggestions || []);
-  };
+    const feedElement = feedRef.current;
+    if (feedElement) {
+      feedElement.addEventListener('scroll', handleScroll);
+      return () => feedElement.removeEventListener('scroll', handleScroll);
+    }
+  }, [loading, hasMore]);
 
   const handleCreatePost = async (e) => {
     e.preventDefault();
-    if (!newPost.trim() && !imageFile && !showPoll) {
-      alert('Please add content to your post');
-      return;
-    }
+    if (!newPost.trim() && !imageFile) return;
 
-    setIsPosting(true);
-    
     try {
+      setIsComposing(true);
       let imageUrl = null;
-      let pollOptions = null;
-      
+
+      // Upload image if exists
       if (imageFile) {
-        imageUrl = await uploadToStorage(
-          'feed-images',
-          imageFile,
-          `${user.id}/${Date.now()}`
-        );
+        const fileExt = imageFile.name.split('.').pop();
+        const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+        
+        const { error: uploadError } = await supabase.storage
+          .from('feed-images')
+          .upload(fileName, imageFile, {
+            cacheControl: '3600',
+            upsert: false
+          });
+
+        if (uploadError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('feed-images')
+          .getPublicUrl(fileName);
+
+        imageUrl = publicUrl;
       }
 
-      if (showPoll && pollData.question && pollData.options.filter(opt => opt.trim()).length >= 2) {
-        pollOptions = {
-          question: pollData.question,
-          options: pollData.options.filter(opt => opt.trim()),
-          votes: {}
-        };
-      }
-
-      const postContent = newPost.trim();
-      const hashtags = extractHashtags(postContent);
-      const mentions = extractMentions(postContent);
-
+      // Create post in database
       const { data, error } = await supabase
         .from('feed_posts')
         .insert([{
           user_id: user.id,
-          content: postContent,
+          content: newPost.trim(),
           image_url: imageUrl,
           visibility: visibility,
           like_count: 0,
           comment_count: 0,
-          share_count: 0,
-          poll_data: pollOptions,
-          hashtags: hashtags,
-          mentions: mentions
+          share_count: 0
         }])
         .select(`
           *,
-          user:users!user_id(
+          users!feed_posts_user_id_fkey (
             id,
+            firstname,
+            surname,
+            profile_picture_url,
+            university,
+            program_field,
+            is_student
+          )
+        `)
+        .single();
+
+      if (error) throw error;
+
+      // Add new post to state
+      const newPostData = {
+        ...data,
+        userHasLiked: false,
+        post_likes: [],
+        post_comments: [],
+        user: data.users,
+        isNewPost: true,
+        animationDelay: 0
+      };
+
+      setPosts(prev => [newPostData, ...prev]);
+
+      // Show success toast
+      showToast('Post published successfully! 🎉', 'success');
+
+      // Reset form
+      setNewPost('');
+      setImagePreview(null);
+      setImageFile(null);
+      setIsComposing(false);
+
+      // Refresh stats
+      fetchStats();
+
+    } catch (error) {
+      console.error('Error creating post:', error);
+      showToast('Failed to create post. Please try again.', 'error');
+      setIsComposing(false);
+    }
+  };
+
+  const handleLikePost = async (postId, currentlyLiked) => {
+    if (!user) {
+      showToast('Please login to like posts', 'warning');
+      return;
+    }
+
+    try {
+      if (currentlyLiked) {
+        // Unlike post
+        const { error } = await supabase
+          .from('post_likes')
+          .delete()
+          .eq('post_id', postId)
+          .eq('user_id', user.id);
+
+        if (error) throw error;
+
+        // Decrement like count in feed_posts
+        const { data: post } = await supabase
+          .from('feed_posts')
+          .select('like_count')
+          .eq('id', postId)
+          .single();
+
+        if (post) {
+          await supabase
+            .from('feed_posts')
+            .update({ like_count: Math.max(0, post.like_count - 1) })
+            .eq('id', postId);
+        }
+
+      } else {
+        // Like post
+        const { error } = await supabase
+          .from('post_likes')
+          .insert([{
+            post_id: postId,
+            user_id: user.id
+          }]);
+
+        if (error) throw error;
+
+        // Increment like count in feed_posts
+        const { data: post } = await supabase
+          .from('feed_posts')
+          .select('like_count')
+          .eq('id', postId)
+          .single();
+
+        if (post) {
+          await supabase
+            .from('feed_posts')
+            .update({ like_count: post.like_count + 1 })
+            .eq('id', postId);
+        }
+      }
+
+      // Update local state
+      setPosts(prev => prev.map(post => {
+        if (post.id === postId) {
+          const newLikeCount = currentlyLiked 
+            ? Math.max(0, post.like_count - 1)
+            : post.like_count + 1;
+          
+          const updatedLikes = currentlyLiked
+            ? (post.post_likes || []).filter(like => like.user_id !== user.id)
+            : [...(post.post_likes || []), { user_id: user.id }];
+
+          return {
+            ...post,
+            like_count: newLikeCount,
+            userHasLiked: !currentlyLiked,
+            post_likes: updatedLikes
+          };
+        }
+        return post;
+      }));
+
+    } catch (error) {
+      console.error('Error updating like:', error);
+      showToast('Failed to update like', 'error');
+    }
+  };
+
+  const handleAddComment = async (postId, content) => {
+    if (!user) {
+      showToast('Please login to comment', 'warning');
+      return;
+    }
+
+    if (!content.trim()) {
+      showToast('Please write a comment', 'warning');
+      return;
+    }
+
+    try {
+      // Insert comment
+      const { data: comment, error } = await supabase
+        .from('post_comments')
+        .insert([{
+          post_id: postId,
+          user_id: user.id,
+          content: content.trim()
+        }])
+        .select(`
+          *,
+          users!post_comments_user_id_fkey (
             firstname,
             surname,
             profile_picture_url
@@ -388,46 +411,64 @@ const Feed = () => {
 
       if (error) throw error;
 
-      // Reset form
-      resetPostForm();
+      // Increment comment count in feed_posts
+      const { data: post } = await supabase
+        .from('feed_posts')
+        .select('comment_count')
+        .eq('id', postId)
+        .single();
 
-      // Show success message
-      showNotification('Post published successfully!', 'success');
+      if (post) {
+        await supabase
+          .from('feed_posts')
+          .update({ comment_count: post.comment_count + 1 })
+          .eq('id', postId);
+      }
+
+      // Update local state
+      setPosts(prev => prev.map(post => {
+        if (post.id === postId) {
+          const newComment = {
+            ...comment,
+            user: comment.users
+          };
+          
+          return {
+            ...post,
+            comment_count: (post.comment_count || 0) + 1,
+            post_comments: [newComment, ...(post.post_comments || [])]
+          };
+        }
+        return post;
+      }));
+
+      // Clear comment input
+      setCommentInputs(prev => ({
+        ...prev,
+        [postId]: ''
+      }));
+
+      showToast('Comment added successfully!', 'success');
 
     } catch (error) {
-      console.error('Error creating post:', error);
-      showNotification('Failed to create post', 'error');
-    } finally {
-      setIsPosting(false);
+      console.error('Error adding comment:', error);
+      showToast('Failed to add comment', 'error');
     }
-  };
-
-  const resetPostForm = () => {
-    setNewPost('');
-    setImagePreview(null);
-    setImageFile(null);
-    setVisibility(POST_VISIBILITY.PUBLIC);
-    setShowPoll(false);
-    setPollData({ question: '', options: ['', ''] });
-    setSelectedHashtags([]);
-  };
-
-  const showNotification = (message, type = 'info') => {
-    // Implement notification system
-    console.log(`${type}: ${message}`);
   };
 
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    if (file.size > 10 * 1024 * 1024) {
-      showNotification('Image size should be less than 10MB', 'warning');
+    // Check file size (50MB limit)
+    if (file.size > 50 * 1024 * 1024) {
+      showToast('Image size should be less than 50MB', 'warning');
       return;
     }
 
+    // Check file type
     if (!file.type.startsWith('image/')) {
-      showNotification('Please upload an image file', 'warning');
+      showToast('Please upload an image file', 'warning');
       return;
     }
 
@@ -440,116 +481,23 @@ const Feed = () => {
     reader.readAsDataURL(file);
   };
 
-  const handleLikePost = async (postId, currentlyLiked) => {
-    if (!user) {
-      showNotification('Please login to like posts', 'warning');
-      return;
-    }
-
-    try {
-      const likeEndpoint = currentlyLiked ? 'unlike' : 'like';
-      const { error } = await supabase.rpc(likeEndpoint, {
-        post_id: postId,
-        user_id: user.id
-      });
-
-      if (error) throw error;
-
-    } catch (error) {
-      console.error('Error updating like:', error);
-      showNotification('Like action failed', 'error');
-    }
-  };
-
-  const handleAddComment = async (postId, content) => {
-    if (!user) {
-      showNotification('Please login to comment', 'warning');
-      return;
-    }
-
-    if (!content.trim()) {
-      showNotification('Please write a comment', 'warning');
-      return;
-    }
-
-    try {
-      const { data, error } = await supabase
-        .from('post_comments')
-        .insert([{
-          post_id: postId,
-          user_id: user.id,
-          content: content.trim()
-        }])
-        .select(`
-          *,
-          user:users!user_id(id, firstname, surname, profile_picture_url)
-        `)
-        .single();
-
-      if (error) throw error;
-
-      // Clear the input
-      setCommentInputs(prev => ({
-        ...prev,
-        [postId]: ''
-      }));
-
-      showNotification('Comment added successfully!', 'success');
-
-    } catch (error) {
-      console.error('Error adding comment:', error);
-      showNotification('Failed to add comment', 'error');
-    }
-  };
-
-  const handleSharePost = async (postId) => {
-    if (!user) {
-      showNotification('Please login to share', 'warning');
-      return;
-    }
-
-    try {
-      const { error } = await supabase.rpc('share_post', {
-        post_id: postId,
-        user_id: user.id
-      });
-
-      if (error) throw error;
-
-      showNotification('Post shared successfully!', 'success');
-
-    } catch (error) {
-      console.error('Error sharing post:', error);
-      showNotification('Failed to share post', 'error');
-    }
-  };
-
-  const handleSavePost = async (postId, currentlySaved) => {
-    if (!user) {
-      showNotification('Please login to save posts', 'warning');
-      return;
-    }
-
-    try {
-      if (currentlySaved) {
-        await supabase
-          .from('saved_posts')
-          .delete()
-          .eq('post_id', postId)
-          .eq('user_id', user.id);
-      } else {
-        await supabase
-          .from('saved_posts')
-          .insert([{
-            post_id: postId,
-            user_id: user.id
-          }]);
-      }
-
-    } catch (error) {
-      console.error('Error saving post:', error);
-      showNotification('Failed to save post', 'error');
-    }
+  const showToast = (message, type = 'info') => {
+    // Create toast element
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.innerHTML = `
+      <div class="toast-content">
+        <div class="toast-message">${message}</div>
+      </div>
+    `;
+    
+    document.body.appendChild(toast);
+    
+    // Remove toast after 3 seconds
+    setTimeout(() => {
+      toast.classList.add('fade-out');
+      setTimeout(() => toast.remove(), 300);
+    }, 3000);
   };
 
   const formatTimeAgo = (dateString) => {
@@ -560,621 +508,317 @@ const Feed = () => {
     const diffMin = Math.floor(diffSec / 60);
     const diffHour = Math.floor(diffMin / 60);
     const diffDay = Math.floor(diffHour / 24);
-    const diffWeek = Math.floor(diffDay / 7);
-    const diffMonth = Math.floor(diffDay / 30);
-    const diffYear = Math.floor(diffDay / 365);
     
     if (diffSec < 60) return 'Just now';
-    if (diffMin < 60) return `${diffMin}m`;
-    if (diffHour < 24) return `${diffHour}h`;
-    if (diffDay < 7) return `${diffDay}d`;
-    if (diffWeek < 4) return `${diffWeek}w`;
-    if (diffMonth < 12) return `${diffMonth}mo`;
-    return `${diffYear}y`;
+    if (diffMin < 60) return `${diffMin}m ago`;
+    if (diffHour < 24) return `${diffHour}h ago`;
+    if (diffDay < 7) return `${diffDay}d ago`;
+    
+    return postDate.toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric',
+      year: diffDay > 365 ? 'numeric' : undefined
+    });
   };
 
   const getInitials = (firstname, surname) => {
     return `${firstname?.[0] || ''}${surname?.[0] || ''}`.toUpperCase();
   };
 
-  const handleLoadMore = () => {
-    if (!loadingMore && hasMorePosts) {
-      fetchPosts(true);
+  const togglePostExpand = (postId) => {
+    setPosts(prev => prev.map(post => 
+      post.id === postId 
+        ? { ...post, isExpanded: !post.isExpanded }
+        : post
+    ));
+  };
+
+  const handleCommentInputChange = (postId, value) => {
+    setCommentInputs(prev => ({
+      ...prev,
+      [postId]: value
+    }));
+  };
+
+  const handleKeyPress = (e, postId) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      const content = commentInputs[postId] || '';
+      if (content.trim()) {
+        handleAddComment(postId, content);
+      }
     }
   };
 
-  const handleTabChange = (tab) => {
-    setActiveTab(tab);
-    setLastPostId(null);
-    setPosts([]);
-  };
-
-  const renderFeedStats = useMemo(() => {
-    if (!posts.length) return null;
-    
-    const totalPosts = posts.length;
-    const totalLikes = posts.reduce((sum, post) => sum + (post.like_count || 0), 0);
-    const totalComments = posts.reduce((sum, post) => sum + (post.comment_count || 0), 0);
-    const avgEngagement = posts.reduce((sum, post) => sum + (post.metrics?.engagementRate || 0), 0) / totalPosts;
-
-    return (
-      <div className="feed-stats">
-        <div className="stat-card">
-          <span className="stat-label">Posts</span>
-          <span className="stat-value">{totalPosts}</span>
-        </div>
-        <div className="stat-card">
-          <span className="stat-label">Total Likes</span>
-          <span className="stat-value">{totalLikes.toLocaleString()}</span>
-        </div>
-        <div className="stat-card">
-          <span className="stat-label">Total Comments</span>
-          <span className="stat-value">{totalComments.toLocaleString()}</span>
-        </div>
-        <div className="stat-card">
-          <span className="stat-label">Avg. Engagement</span>
-          <span className="stat-value">{avgEngagement.toFixed(1)}%</span>
-        </div>
-      </div>
-    );
-  }, [posts]);
-
   if (loading && posts.length === 0) {
     return (
-      <div className="feed-loading">
-        <div className="loading-spinner-large"></div>
-        <p>Loading community updates...</p>
+      <div className="feed-container">
+        <div className="loading-state">
+          <div className="spinner">
+            <div className="spinner-circle"></div>
+          </div>
+          <div className="loading-text">Loading your campus feed...</div>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="feed-container" ref={feedRef}>
+      {/* Floating Decorations */}
+      <div className="floating-decorations">
+        <div className="floating-element el1">🇷🇺</div>
+        <div className="floating-element el2">🇳🇬</div>
+        <div className="floating-element el3">🇰🇪</div>
+        <div className="floating-element el4">🇬🇭</div>
+        <div className="floating-element el5">🇿🇦</div>
+      </div>
+
       {/* Header */}
       <div className="feed-header">
-        <div className="header-content">
-          <h1>AinRu <span className="gradient-text">Community Feed</span></h1>
-          <p className="header-subtitle">Connect, Share & Grow with Africans in Russia</p>
-        </div>
-        
-        {user && (
-          <div className="header-actions">
-            <button className="btn-notifications">
-              <Bell size={20} />
-              <span className="notification-badge">3</span>
-            </button>
-            <button className="btn-trending">
-              <TrendingUp size={20} />
-              <span>Trending</span>
-            </button>
+        <div className="header-main">
+          <div className="title-section">
+            <h1 className="main-title">
+              <span className="title-gradient">Ain Ru</span>
+              <span className="title-sparkle">✨</span>
+            </h1>
+            <p className="subtitle">African Student Community in Russia</p>
           </div>
-        )}
+          <div className="header-stats">
+            <div className="stat-item">
+              <TrendingUp size={18} />
+              <span>{posts.length} Posts</span>
+            </div>
+            <div className="stat-item">
+              <Users size={18} />
+              <span>Active Students</span>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Feed Stats */}
-      {renderFeedStats}
-
-      {/* Main Content Grid */}
-      <div className="feed-grid">
-        {/* Left Sidebar - Suggestions */}
-        {user && (
-          <div className="feed-sidebar">
-            <div className="sidebar-card user-card">
-              <div className="user-info">
-                <div className="user-avatar large">
-                  {userProfile?.profile_picture_url ? (
-                    <img 
-                      src={userProfile.profile_picture_url} 
-                      alt={userProfile.firstname}
-                    />
-                  ) : (
-                    <div className="avatar-fallback">
-                      {getInitials(userProfile?.firstname, userProfile?.surname)}
-                    </div>
-                  )}
-                </div>
-                <h3>{userProfile?.firstname} {userProfile?.surname}</h3>
-                <p className="user-bio">{userProfile?.bio || 'AinRu Member'}</p>
-                <div className="user-stats">
-                  <span>{userProfile?.post_count || 0} Posts</span>
-                  <span>{userProfile?.follower_count || 0} Followers</span>
-                  <span>{userProfile?.following_count || 0} Following</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Trending Hashtags */}
-            <div className="sidebar-card trending-card">
-              <h4><TrendingUp size={18} /> Trending Now</h4>
-              <div className="trending-list">
-                {trendingHashtags.slice(0, 5).map((tag, index) => (
-                  <button 
-                    key={tag.name}
-                    className="trending-item"
-                    onClick={() => setSelectedHashtags([...selectedHashtags, tag.name])}
-                  >
-                    <span className="trending-rank">#{index + 1}</span>
-                    <div className="trending-info">
-                      <span className="hashtag">#{tag.name}</span>
-                      <span className="trending-count">{tag.count} posts</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Suggested Users */}
-            <div className="sidebar-card suggestions-card">
-              <h4><UserPlus size={18} /> Who to Follow</h4>
-              <div className="suggestions-list">
-                {suggestedUsers.slice(0, 3).map(suggestion => (
-                  <div key={suggestion.id} className="suggestion-item">
-                    <div className="suggestion-user">
-                      <div className="user-avatar small">
-                        {suggestion.profile_picture_url ? (
-                          <img src={suggestion.profile_picture_url} alt={suggestion.firstname} />
-                        ) : (
-                          <div className="avatar-fallback">
-                            {getInitials(suggestion.firstname, suggestion.surname)}
-                          </div>
-                        )}
-                      </div>
-                      <div className="suggestion-info">
-                        <span className="suggestion-name">{suggestion.firstname} {suggestion.surname}</span>
-                        <span className="suggestion-bio">{suggestion.university || 'AinRu Member'}</span>
-                      </div>
-                    </div>
-                    <button className="btn-follow">Follow</button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Main Feed */}
-        <div className="feed-main">
-          {/* Create Post - Only for logged in users */}
-          {user && (
-            <AdvancedPostCreator
-              user={user}
-              userProfile={userProfile}
-              newPost={newPost}
-              setNewPost={setNewPost}
-              imagePreview={imagePreview}
-              setImagePreview={setImagePreview}
-              imageFile={imageFile}
-              setImageFile={setImageFile}
-              visibility={visibility}
-              setVisibility={setVisibility}
-              showPoll={showPoll}
-              setShowPoll={setShowPoll}
-              pollData={pollData}
-              setPollData={setPollData}
-              selectedHashtags={selectedHashtags}
-              setSelectedHashtags={setSelectedHashtags}
-              handleCreatePost={handleCreatePost}
-              isPosting={isPosting}
-              fileInputRef={fileInputRef}
-              textareaRef={textareaRef}
-              getInitials={getInitials}
-              handleImageUpload={handleImageUpload}
-            />
-          )}
-
-          {/* Feed Navigation */}
-          <div className="feed-navigation">
-            <div className="nav-tabs">
-              <button 
-                className={`nav-tab ${activeTab === FEED_TABS.ALL ? 'active' : ''}`}
-                onClick={() => handleTabChange(FEED_TABS.ALL)}
-              >
-                <Globe size={18} />
-                <span>All Posts</span>
-              </button>
-              
-              {user && (
-                <>
-                  <button 
-                    className={`nav-tab ${activeTab === FEED_TABS.FOLLOWING ? 'active' : ''}`}
-                    onClick={() => handleTabChange(FEED_TABS.FOLLOWING)}
-                  >
-                    <Users size={18} />
-                    <span>Following</span>
-                    <span className="tab-badge">12</span>
-                  </button>
-                  
-                  <button 
-                    className={`nav-tab ${activeTab === FEED_TABS.MY_POSTS ? 'active' : ''}`}
-                    onClick={() => handleTabChange(FEED_TABS.MY_POSTS)}
-                  >
-                    <Award size={18} />
-                    <span>My Posts</span>
-                  </button>
-                  
-                  <button 
-                    className={`nav-tab ${activeTab === FEED_TABS.TRENDING ? 'active' : ''}`}
-                    onClick={() => handleTabChange(FEED_TABS.TRENDING)}
-                  >
-                    <TrendingUp size={18} />
-                    <span>Trending</span>
-                    <span className="tab-badge hot">HOT</span>
-                  </button>
-                  
-                  <button 
-                    className={`nav-tab ${activeTab === FEED_TABS.POPULAR ? 'active' : ''}`}
-                    onClick={() => handleTabChange(FEED_TABS.POPULAR)}
-                  >
-                    <Zap size={18} />
-                    <span>Popular</span>
-                  </button>
-                </>
-              )}
-            </div>
-            
-            <div className="nav-filters">
-              <select className="filter-select">
-                <option>Sort by: Newest</option>
-                <option>Sort by: Most Liked</option>
-                <option>Sort by: Most Comments</option>
-              </select>
-              <button className="btn-filter">
-                <Filter size={18} />
-                <span>Filter</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Posts Feed */}
-          <div className="posts-feed">
-            {posts.length === 0 ? (
-              <EmptyFeedState 
-                user={user} 
-                activeTab={activeTab} 
-                onPostClick={() => textareaRef.current?.focus()} 
-              />
-            ) : (
-              <>
-                {posts.map((post) => (
-                  <PostCard
-                    key={post.id}
-                    post={post}
-                    currentUser={user}
-                    onLike={handleLikePost}
-                    onComment={handleAddComment}
-                    onShare={handleSharePost}
-                    onSave={handleSavePost}
-                    formatTimeAgo={formatTimeAgo}
-                    getInitials={getInitials}
-                    commentInput={commentInputs[post.id] || ''}
-                    onCommentInputChange={(value) => 
-                      setCommentInputs(prev => ({ ...prev, [post.id]: value }))
-                    }
-                  />
-                ))}
-                
-                {hasMorePosts && (
-                  <div className="load-more-container">
-                    <button 
-                      className="btn-load-more"
-                      onClick={handleLoadMore}
-                      disabled={loadingMore}
-                    >
-                      {loadingMore ? (
-                        <>
-                          <div className="spinner-small"></div>
-                          Loading more posts...
-                        </>
-                      ) : (
-                        'Load More Posts'
-                      )}
-                    </button>
+      {/* Create Post Card */}
+      {user && (
+        <div className="create-post-card glass-effect">
+          <div className="post-form">
+            <div className="user-info">
+              <div className="user-avatar">
+                {user.profile_picture_url ? (
+                  <img src={user.profile_picture_url} alt={user.firstname} />
+                ) : (
+                  <div className="avatar-fallback">
+                    {getInitials(user.firstname, user.surname)}
                   </div>
                 )}
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// Advanced Post Creator Component
-const AdvancedPostCreator = ({
-  user,
-  userProfile,
-  newPost,
-  setNewPost,
-  imagePreview,
-  setImagePreview,
-  imageFile,
-  setImageFile,
-  visibility,
-  setVisibility,
-  showPoll,
-  setShowPoll,
-  pollData,
-  setPollData,
-  selectedHashtags,
-  setSelectedHashtags,
-  handleCreatePost,
-  isPosting,
-  fileInputRef,
-  textareaRef,
-  getInitials,
-  handleImageUpload
-}) => {
-  const [charCount, setCharCount] = useState(0);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [showGifPicker, setShowGifPicker] = useState(false);
-
-  const handleTextChange = (e) => {
-    const value = e.target.value;
-    setNewPost(value);
-    setCharCount(value.length);
-  };
-
-  const addPollOption = () => {
-    if (pollData.options.length < 6) {
-      setPollData({
-        ...pollData,
-        options: [...pollData.options, '']
-      });
-    }
-  };
-
-  const removePollOption = (index) => {
-    if (pollData.options.length > 2) {
-      const newOptions = [...pollData.options];
-      newOptions.splice(index, 1);
-      setPollData({
-        ...pollData,
-        options: newOptions
-      });
-    }
-  };
-
-  const updatePollOption = (index, value) => {
-    const newOptions = [...pollData.options];
-    newOptions[index] = value;
-    setPollData({
-      ...pollData,
-      options: newOptions
-    });
-  };
-
-  const handleRemoveImage = () => {
-    setImagePreview(null);
-    setImageFile(null);
-  };
-
-  return (
-    <div className="create-post-card advanced">
-      <div className="post-form-header">
-        <div className="user-avatar">
-          {userProfile?.profile_picture_url ? (
-            <img 
-              src={userProfile.profile_picture_url} 
-              alt="Profile" 
-            />
-          ) : (
-            <div className="avatar-fallback">
-              {getInitials(userProfile?.firstname, userProfile?.surname)}
+              </div>
+              <div className="user-details">
+                <div className="user-name">{user.firstname} {user.surname}</div>
+                <div className="user-study">
+                  <GraduationCap size={14} />
+                  <span>{user.university || 'University'} • {user.program_field || 'Field of Study'}</span>
+                </div>
+              </div>
             </div>
-          )}
-        </div>
-        
-        <div className="post-input-wrapper">
-          <textarea
-            ref={textareaRef}
-            className="post-input advanced"
-            placeholder="What's on your mind? Share updates, ask questions, or post opportunities..."
-            value={newPost}
-            onChange={handleTextChange}
-            rows="4"
-            maxLength={1000}
-          />
-          
-          <div className="post-content-preview">
+            
+            <div className="post-input-section">
+              <textarea
+                className="post-input"
+                placeholder="What's happening in your Russian campus life?"
+                value={newPost}
+                onChange={(e) => setNewPost(e.target.value)}
+                rows="3"
+                maxLength="500"
+              />
+              <div className="input-actions">
+                <div className="char-count">{newPost.length}/500</div>
+                <div className="visibility-select">
+                  <select 
+                    value={visibility}
+                    onChange={(e) => setVisibility(e.target.value)}
+                  >
+                    <option value="public"><Globe size={14} /> Public</option>
+                    <option value="friends"><Users size={14} /> Friends</option>
+                    <option value="private"><Lock size={14} /> Private</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
             {imagePreview && (
               <div className="image-preview">
                 <img src={imagePreview} alt="Preview" />
                 <button 
                   className="remove-image"
-                  onClick={handleRemoveImage}
+                  onClick={() => {
+                    setImagePreview(null);
+                    setImageFile(null);
+                  }}
                 >
-                  <X size={20} />
+                  ×
                 </button>
               </div>
             )}
-            
-            {showPoll && (
-              <div className="poll-preview">
-                <h4>Poll: {pollData.question || 'Your poll question'}</h4>
-                <div className="poll-options">
-                  {pollData.options.map((option, index) => (
-                    <div key={index} className="poll-option">
-                      <input
-                        type="text"
-                        placeholder={`Option ${index + 1}`}
-                        value={option}
-                        onChange={(e) => updatePollOption(index, e.target.value)}
-                        className="poll-input"
-                      />
-                      {pollData.options.length > 2 && (
-                        <button 
-                          className="remove-option"
-                          onClick={() => removePollOption(index)}
-                        >
-                          <X size={16} />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                  {pollData.options.length < 6 && (
-                    <button className="add-option" onClick={addPollOption}>
-                      + Add Option
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
 
-          {/* Post Actions Bar */}
-          <div className="post-actions-bar">
-            <div className="actions-left">
-              <button 
-                className="action-btn"
-                onClick={() => fileInputRef.current?.click()}
-                type="button"
-              >
-                <ImageIcon size={20} />
-                <span>Photo/Video</span>
-              </button>
-              
-              <button 
-                className="action-btn"
-                onClick={() => setShowPoll(!showPoll)}
-              >
-                <BarChart size={20} />
-                <span>Poll</span>
-              </button>
-              
-              <button 
-                className="action-btn"
-                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-              >
-                <Smile size={20} />
-                <span>Emoji</span>
-              </button>
-              
-              <button 
-                className="action-btn"
-                onClick={() => setShowGifPicker(!showGifPicker)}
-              >
-                <Gif size={20} />
-                <span>GIF</span>
-              </button>
-              
-              <select 
-                value={visibility}
-                onChange={(e) => setVisibility(e.target.value)}
-                className="visibility-select advanced"
-              >
-                <option value="public"><Globe size={16} /> Public</option>
-                <option value="friends"><Users size={16} /> Friends</option>
-                <option value="private"><Lock size={16} /> Private</option>
-              </select>
-            </div>
-            
-            <div className="actions-right">
-              <div className="character-count">
-                {charCount}/1000
+            <div className="post-actions">
+              <div className="action-buttons">
+                <label className="action-btn upload-btn">
+                  <ImageIcon size={20} />
+                  <span>Add Photo</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageUpload}
+                    hidden
+                  />
+                </label>
+                <button className="action-btn">
+                  <MapPin size={20} />
+                  <span>Location</span>
+                </button>
+                <button className="action-btn">
+                  <Flag size={20} />
+                  <span>Tag</span>
+                </button>
               </div>
               <button
+                className={`submit-btn ${isComposing ? 'composing' : ''}`}
                 onClick={handleCreatePost}
-                disabled={(!newPost.trim() && !imageFile && !showPoll) || isPosting}
-                className="submit-btn primary"
+                disabled={(!newPost.trim() && !imageFile) || isComposing}
               >
-                {isPosting ? (
-                  <>
-                    <div className="spinner-small"></div>
-                    Publishing...
-                  </>
-                ) : (
-                  <>
-                    <Send size={18} />
-                    Publish
-                  </>
-                )}
+                {isComposing ? 'Posting...' : 'Post to Feed'}
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Feed Tabs */}
+      <div className="feed-tabs">
+        <button 
+          className={`tab ${activeTab === 'all' ? 'active' : ''}`}
+          onClick={() => {
+            setActiveTab('all');
+            setPage(0);
+            setHasMore(true);
+          }}
+        >
+          <Globe size={18} />
+          <span>All Posts</span>
+        </button>
+        {user && (
+          <>
+            <button 
+              className={`tab ${activeTab === 'following' ? 'active' : ''}`}
+              onClick={() => {
+                setActiveTab('following');
+                setPage(0);
+                setHasMore(true);
+              }}
+            >
+              <Users size={18} />
+              <span>Following</span>
+            </button>
+            <button 
+              className={`tab ${activeTab === 'my' ? 'active' : ''}`}
+              onClick={() => {
+                setActiveTab('my');
+                setPage(0);
+                setHasMore(true);
+              }}
+            >
+              <User size={18} />
+              <span>My Posts</span>
+            </button>
+          </>
+        )}
       </div>
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*,video/*"
-        onChange={handleImageUpload}
-        className="hidden-input"
-        multiple
-      />
-      
-      {/* Hashtag Suggestions */}
-      <div className="hashtag-suggestions">
-        <span className="suggestions-label">Popular hashtags:</span>
-        {['#StudyInRussia', '#AfricanCommunity', '#StudentLife', '#Opportunities', '#Events'].map(tag => (
-          <button 
-            key={tag}
-            className="hashtag-suggestion"
-            onClick={() => setNewPost(prev => prev + ' ' + tag)}
-          >
-            {tag}
-          </button>
-        ))}
+      {/* Posts Feed */}
+      <div className="posts-feed">
+        {posts.length === 0 ? (
+          <div className="empty-feed glass-effect">
+            <div className="empty-icon">📝</div>
+            <h3>No posts yet</h3>
+            <p>Be the first to share your experience in Russia!</p>
+            {!user && (
+              <button 
+                className="login-btn"
+                onClick={() => window.location.href = '/login'}
+              >
+                Login to Post
+              </button>
+            )}
+          </div>
+        ) : (
+          posts.map((post, index) => (
+            <PostCard
+              key={post.id}
+              post={post}
+              currentUser={user}
+              onLike={handleLikePost}
+              onComment={handleAddComment}
+              formatTimeAgo={formatTimeAgo}
+              getInitials={getInitials}
+              isExpanded={post.isExpanded}
+              onToggleExpand={() => togglePostExpand(post.id)}
+              commentInput={commentInputs[post.id] || ''}
+              onCommentInputChange={(value) => handleCommentInputChange(post.id, value)}
+              onKeyPress={(e) => handleKeyPress(e, post.id)}
+              animationDelay={post.animationDelay}
+              index={index}
+            />
+          ))
+        )}
+        
+        {loading && posts.length > 0 && (
+          <div className="loading-more">
+            <div className="loading-dots">
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+          </div>
+        )}
+        
+        {!hasMore && posts.length > 0 && (
+          <div className="end-of-feed">
+            <Sparkles size={20} />
+            <span>You're all caught up!</span>
+          </div>
+        )}
       </div>
     </div>
   );
 };
 
-// Post Card Component
 const PostCard = ({ 
   post, 
   currentUser, 
   onLike, 
   onComment, 
-  onShare, 
-  onSave,
   formatTimeAgo, 
   getInitials,
+  isExpanded,
+  onToggleExpand,
   commentInput,
-  onCommentInputChange
+  onCommentInputChange,
+  onKeyPress,
+  animationDelay,
+  index
 }) => {
-  const [showComments, setShowComments] = useState(false);
-  const [showOptions, setShowOptions] = useState(false);
-  const [showShareMenu, setShowShareMenu] = useState(false);
   const [isLiking, setIsLiking] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isSharing, setIsSharing] = useState(false);
-  const [showAnalytics, setShowAnalytics] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [showComments, setShowComments] = useState(false);
+  const [likeAnimation, setLikeAnimation] = useState(false);
 
   const handleLike = async () => {
     if (isLiking) return;
     setIsLiking(true);
+    setLikeAnimation(true);
+    
     await onLike(post.id, post.userHasLiked);
     setIsLiking(false);
-  };
-
-  const handleSave = async () => {
-    if (isSaving) return;
-    setIsSaving(true);
-    await onSave(post.id, post.userHasSaved);
-    setIsSaving(false);
-  };
-
-  const handleShare = async (platform = 'copy') => {
-    if (isSharing) return;
-    setIsSharing(true);
     
-    try {
-      if (platform === 'copy') {
-        await navigator.clipboard.writeText(
-          `${window.location.origin}/post/${post.id}`
-        );
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      } else {
-        await onShare(post.id);
-      }
-      setShowShareMenu(false);
-    } finally {
-      setIsSharing(false);
-    }
+    setTimeout(() => setLikeAnimation(false), 1000);
   };
 
   const handleSubmitComment = async () => {
@@ -1182,395 +826,186 @@ const PostCard = ({
     await onComment(post.id, commentInput);
   };
 
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmitComment();
-    }
-  };
-
-  const isOwnPost = post.user_id === currentUser?.id;
+  const needsExpansion = post.content && post.content.length > 400 && !isExpanded;
+  const displayContent = needsExpansion 
+    ? post.content.substring(0, 400) + '...' 
+    : post.content;
 
   return (
-    <div className={`post-card advanced ${post.isTrending ? 'trending' : ''} ${post.isNew ? 'new' : ''}`}>
-      {/* Post Header */}
-      <div className="post-header advanced">
-        <div className="post-author">
+    <div 
+      className={`post-card glass-effect ${post.isNewPost ? 'new-post' : ''}`}
+      style={{ animationDelay: `${animationDelay}s` }}
+    >
+      <div className="post-header">
+        <div className="author-info">
           <div className="author-avatar">
             {post.user?.profile_picture_url ? (
               <img 
                 src={post.user.profile_picture_url} 
                 alt={post.user.firstname}
+                onError={(e) => {
+                  e.target.style.display = 'none';
+                  e.target.parentElement.querySelector('.avatar-fallback').style.display = 'flex';
+                }}
               />
-            ) : (
-              <div className="avatar-fallback">
-                {getInitials(post.user?.firstname, post.user?.surname)}
-              </div>
-            )}
-            {post.user?.verification_board && (
-              <div className="verified-badge" title={`Verified ${post.user.verification_board}`}>
-                <Check size={12} />
-              </div>
-            )}
-          </div>
-          
-          <div className="author-info">
-            <div className="author-main">
-              <div className="author-name">
-                <span className="name">
-                  {post.user?.firstname} {post.user?.surname}
-                </span>
-                {isOwnPost && <span className="you-badge">You</span>}
-                {post.user?.university && (
-                  <span className="university-badge">
-                    {post.user.university}
-                  </span>
-                )}
-              </div>
-              
-              <div className="post-meta">
-                <span className="post-time">
-                  <Clock size={12} />
-                  {formatTimeAgo(post.created_at)}
-                </span>
-                <span className="post-visibility">
-                  {post.visibility === 'public' && <Globe size={12} />}
-                  {post.visibility === 'friends' && <Users size={12} />}
-                  {post.visibility === 'private' && <Lock size={12} />}
-                </span>
-                {post.view_count > 0 && (
-                  <span className="post-views">
-                    <Eye size={12} />
-                    {post.view_count.toLocaleString()}
-                  </span>
-                )}
-              </div>
+            ) : null}
+            <div className={`avatar-fallback ${post.user?.profile_picture_url ? 'hidden' : ''}`}>
+              {getInitials(post.user?.firstname, post.user?.surname)}
             </div>
-            
-            <div className="author-extra">
-              {post.user?.city && (
-                <span className="author-location">
-                  <MapPin size={12} />
-                  {post.user.city}
+          </div>
+          <div className="author-details">
+            <div className="author-name">
+              <strong>{post.user?.firstname || 'Student'} {post.user?.surname || ''}</strong>
+              {post.user?.is_student && (
+                <span className="student-badge">
+                  <GraduationCap size={12} />
+                  <span>Student</span>
                 </span>
               )}
             </div>
+            <div className="author-study">
+              <BookOpen size={12} />
+              <span>{post.user?.university || 'Russian University'}</span>
+            </div>
+            <div className="post-meta">
+              <Clock size={12} />
+              <span className="time">{formatTimeAgo(post.created_at)}</span>
+              <span className="visibility">
+                {post.visibility === 'public' && <Globe size={12} />}
+                {post.visibility === 'friends' && <Users size={12} />}
+                {post.visibility === 'private' && <Lock size={12} />}
+              </span>
+            </div>
           </div>
         </div>
-
-        {/* Post Actions Menu */}
-        <div className="post-actions-menu">
-          {isOwnPost && (
-            <button 
-              className="post-analytics-btn"
-              onClick={() => setShowAnalytics(!showAnalytics)}
-              title="View Analytics"
-            >
-              <BarChart size={18} />
-            </button>
-          )}
-          
-          <button 
-            className="post-menu-btn"
-            onClick={() => setShowOptions(!showOptions)}
-          >
-            <MoreVertical size={20} />
-          </button>
-          
-          {showOptions && (
-            <div className="dropdown-menu">
-              {isOwnPost ? (
-                <>
-                  <button className="dropdown-item">
-                    <Edit3 size={16} />
-                    Edit post
-                  </button>
-                  <button className="dropdown-item delete">
-                    <Trash2 size={16} />
-                    Delete post
-                  </button>
-                  <button 
-                    className="dropdown-item"
-                    onClick={() => setShowAnalytics(true)}
-                  >
-                    <BarChart size={16} />
-                    View analytics
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button className="dropdown-item">
-                    <UserPlus size={16} />
-                    Follow {post.user?.firstname}
-                  </button>
-                  <button className="dropdown-item">
-                    <VolumeX size={16} />
-                    Mute {post.user?.firstname}
-                  </button>
-                  <button className="dropdown-item report">
-                    <Flag size={16} />
-                    Report post
-                  </button>
-                </>
-              )}
-            </div>
-          )}
-        </div>
+        
+        <button className="post-menu">
+          <MoreVertical size={20} />
+        </button>
       </div>
 
-      {/* Post Analytics (if shown) */}
-      {showAnalytics && (
-        <div className="post-analytics">
-          <div className="analytics-header">
-            <h4>Post Analytics</h4>
-            <button onClick={() => setShowAnalytics(false)}>
-              <X size={20} />
-            </button>
-          </div>
-          <div className="analytics-grid">
-            <div className="metric">
-              <span className="metric-value">{post.like_count}</span>
-              <span className="metric-label">Likes</span>
-            </div>
-            <div className="metric">
-              <span className="metric-value">{post.comment_count}</span>
-              <span className="metric-label">Comments</span>
-            </div>
-            <div className="metric">
-              <span className="metric-value">{post.share_count}</span>
-              <span className="metric-label">Shares</span>
-            </div>
-            <div className="metric">
-              <span className="metric-value">{post.view_count}</span>
-              <span className="metric-label">Views</span>
-            </div>
-            <div className="metric">
-              <span className="metric-value">{post.metrics?.engagementRate?.toFixed(1)}%</span>
-              <span className="metric-label">Engagement</span>
-            </div>
-            <div className="metric">
-              <span className="metric-value">{post.metrics?.estimatedReach}</span>
-              <span className="metric-label">Estimated Reach</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Post Content */}
       <div className="post-content">
-        <p className="post-text">
-          {post.content}
-        </p>
+        <div className="post-text">
+          <p>
+            {displayContent}
+            {needsExpansion && (
+              <button className="expand-btn" onClick={onToggleExpand}>
+                Read more
+              </button>
+            )}
+          </p>
+        </div>
         
-        {/* Hashtags */}
-        {post.hashtags && post.hashtags.length > 0 && (
-          <div className="post-tags">
-            {post.hashtags.map(tag => (
-              <span key={tag} className="post-tag">
-                <Hash size={12} />
-                {tag}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/* Poll */}
-        {post.poll_data && (
-          <div className="post-poll">
-            <h4>{post.poll_data.question}</h4>
-            <div className="poll-options">
-              {post.poll_data.options.map((option, index) => {
-                const votes = post.poll_data.votes?.[index] || 0;
-                const totalVotes = Object.values(post.poll_data.votes || {}).reduce((a, b) => a + b, 0);
-                const percentage = totalVotes > 0 ? (votes / totalVotes) * 100 : 0;
-                
-                return (
-                  <div key={index} className="poll-option-result">
-                    <div className="poll-option-text">
-                      {option}
-                      <span className="poll-percentage">{percentage.toFixed(0)}%</span>
-                    </div>
-                    <div className="poll-bar">
-                      <div 
-                        className="poll-fill"
-                        style={{ width: `${percentage}%` }}
-                      ></div>
-                    </div>
-                    <span className="poll-votes">{votes} votes</span>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="poll-footer">
-              <span>{Object.values(post.poll_data.votes || {}).reduce((a, b) => a + b, 0)} total votes</span>
-              <button className="btn-vote">Vote</button>
-            </div>
-          </div>
-        )}
-
-        {/* Media */}
         {post.image_url && (
-          <div className="post-media">
+          <div className="post-image">
             <img 
               src={post.image_url} 
-              alt="Post content"
+              alt="Post" 
               loading="lazy"
-              className="post-image"
+              onError={(e) => {
+                e.target.style.display = 'none';
+                e.target.parentElement.innerHTML = '<div class="image-error">Image unavailable</div>';
+              }}
             />
           </div>
         )}
       </div>
 
-      {/* Post Stats */}
-      <div className="post-stats-bar advanced">
-        <div className="stat-item">
-          <Heart size={14} />
-          <span>{post.like_count.toLocaleString()} likes</span>
+      <div className="post-stats">
+        <div className="stat">
+          <Heart size={14} className={likeAnimation ? 'liking' : ''} />
+          <span>{post.like_count || 0} likes</span>
         </div>
-        <div className="stat-item">
+        <div className="stat">
           <MessageCircle size={14} />
-          <span>{post.comment_count.toLocaleString()} comments</span>
+          <span>{post.comment_count || 0} comments</span>
         </div>
-        <div className="stat-item">
+        <div className="stat">
           <Share2 size={14} />
-          <span>{post.share_count.toLocaleString()} shares</span>
+          <span>{post.share_count || 0} shares</span>
         </div>
-        {post.metrics?.estimatedReach && (
-          <div className="stat-item">
-            <Eye size={14} />
-            <span>~{post.metrics.estimatedReach.toLocaleString()} reach</span>
-          </div>
-        )}
       </div>
 
-      {/* Post Actions */}
-      <div className="post-actions advanced">
+      <div className="post-actions">
         <button 
-          className={`action-btn like ${post.userHasLiked ? 'active' : ''}`}
+          className={`action-btn ${post.userHasLiked ? 'liked' : ''}`}
           onClick={handleLike}
           disabled={isLiking}
         >
-          <Heart size={20} fill={post.userHasLiked ? 'currentColor' : 'none'} />
+          <Heart size={18} fill={post.userHasLiked ? 'currentColor' : 'none'} />
           <span>Like</span>
-          {post.userHasLiked && <span className="action-text">Liked</span>}
         </button>
         
         <button 
-          className="action-btn comment"
+          className="action-btn"
           onClick={() => setShowComments(!showComments)}
         >
-          <MessageCircle size={20} />
+          <MessageCircle size={18} />
           <span>Comment</span>
         </button>
         
-        <div className="share-container">
-          <button 
-            className="action-btn share"
-            onClick={() => setShowShareMenu(!showShareMenu)}
-            disabled={isSharing}
-          >
-            <Share2 size={20} />
-            <span>Share</span>
-          </button>
-          
-          {showShareMenu && (
-            <div className="share-menu">
-              <button 
-                className="share-option"
-                onClick={() => handleShare('copy')}
-              >
-                {copied ? <Check size={16} /> : <Copy size={16} />}
-                {copied ? 'Copied!' : 'Copy Link'}
-              </button>
-              <button className="share-option">
-                <ExternalLink size={16} />
-                Share to...
-              </button>
-            </div>
-          )}
-        </div>
-        
-        <button 
-          className={`action-btn save ${post.userHasSaved ? 'active' : ''}`}
-          onClick={handleSave}
-          disabled={isSaving}
-        >
-          <Bookmark size={20} fill={post.userHasSaved ? 'currentColor' : 'none'} />
-          <span>Save</span>
+        <button className="action-btn">
+          <Share2 size={18} />
+          <span>Share</span>
         </button>
       </div>
 
-      {/* Comment Input */}
       {currentUser && (
-        <div className="comment-input-section advanced">
-          <div className="comment-input-wrapper">
+        <div className="comment-input-section">
+          <div className="input-wrapper">
             <div className="comment-avatar">
-              {currentUser?.user_metadata?.avatar_url ? (
+              {currentUser.profile_picture_url ? (
                 <img 
-                  src={currentUser.user_metadata.avatar_url} 
+                  src={currentUser.profile_picture_url} 
                   alt="You"
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                    e.target.parentElement.querySelector('.avatar-fallback').style.display = 'flex';
+                  }}
                 />
-              ) : (
-                <div className="avatar-fallback small">
-                  {getInitials(
-                    currentUser?.user_metadata?.firstname,
-                    currentUser?.user_metadata?.surname
-                  )}
-                </div>
-              )}
-            </div>
-            
-            <div className="comment-input-container">
-              <input
-                type="text"
-                className="comment-input advanced"
-                placeholder="Write a comment..."
-                value={commentInput}
-                onChange={(e) => onCommentInputChange(e.target.value)}
-                onKeyPress={handleKeyPress}
-              />
-              <div className="comment-actions">
-                <button className="comment-emoji">
-                  <Smile size={18} />
-                </button>
-                <button 
-                  className="comment-submit advanced"
-                  onClick={handleSubmitComment}
-                  disabled={!commentInput.trim()}
-                >
-                  <Send size={18} />
-                </button>
+              ) : null}
+              <div className={`avatar-fallback ${currentUser.profile_picture_url ? 'hidden' : ''}`}>
+                {getInitials(currentUser.firstname, currentUser.surname)}
               </div>
             </div>
+            <input
+              type="text"
+              className="comment-input"
+              placeholder="Write a comment..."
+              value={commentInput}
+              onChange={(e) => onCommentInputChange(e.target.value)}
+              onKeyPress={(e) => onKeyPress(e)}
+            />
+            <button 
+              className="comment-send"
+              onClick={handleSubmitComment}
+              disabled={!commentInput.trim()}
+            >
+              <Send size={18} />
+            </button>
           </div>
         </div>
       )}
 
-      {/* Comments Section */}
       {showComments && post.comments && post.comments.length > 0 && (
-        <div className="comments-section advanced">
-          <div className="comments-header">
-            <h4>Comments ({post.comment_count})</h4>
-            <button className="btn-view-all">
-              View all comments
-            </button>
-          </div>
-          
-          {post.comments.map((comment) => (
-            <div key={comment.id} className="comment advanced">
-              <div className="comment-avatar small">
+        <div className="comments-section">
+          {post.comments.map((comment, i) => (
+            <div key={comment.id} className="comment" style={{ animationDelay: `${i * 0.1}s` }}>
+              <div className="comment-avatar">
                 {comment.user?.profile_picture_url ? (
                   <img 
                     src={comment.user.profile_picture_url} 
                     alt={comment.user.firstname}
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                      e.target.parentElement.querySelector('.avatar-fallback').style.display = 'flex';
+                    }}
                   />
-                ) : (
-                  <div className="avatar-fallback small">
-                    {getInitials(comment.user?.firstname, comment.user?.surname)}
-                  </div>
-                )}
+                ) : null}
+                <div className={`avatar-fallback ${comment.user?.profile_picture_url ? 'hidden' : ''}`}>
+                  {getInitials(comment.user?.firstname, comment.user?.surname)}
+                </div>
               </div>
-              
               <div className="comment-content">
                 <div className="comment-header">
                   <span className="comment-author">
@@ -1581,82 +1016,10 @@ const PostCard = ({
                   </span>
                 </div>
                 <p className="comment-text">{comment.content}</p>
-                
-                <div className="comment-actions">
-                  <button className="comment-like">
-                    <Heart size={14} />
-                    <span>{comment.like_count || 0}</span>
-                  </button>
-                  <button className="comment-reply">Reply</button>
-                </div>
               </div>
             </div>
           ))}
         </div>
-      )}
-    </div>
-  );
-};
-
-// Empty Feed State Component
-const EmptyFeedState = ({ user, activeTab, onPostClick }) => {
-  const getEmptyMessage = () => {
-    if (!user) {
-      return {
-        title: "Welcome to AinRu Community!",
-        message: "Join our community of Africans in Russia to connect, share experiences, and find opportunities.",
-        cta: "Sign up to get started"
-      };
-    }
-    
-    switch (activeTab) {
-      case FEED_TABS.FOLLOWING:
-        return {
-          title: "No posts from people you follow",
-          message: "Start following more community members to see their posts here.",
-          cta: "Discover people to follow"
-        };
-      case FEED_TABS.MY_POSTS:
-        return {
-          title: "You haven't posted yet",
-          message: "Share your first post with the community! Ask questions, share updates, or post opportunities.",
-          cta: "Create your first post"
-        };
-      case FEED_TABS.TRENDING:
-        return {
-          title: "No trending posts right now",
-          message: "Be the first to create a trending post! Share something valuable with the community.",
-          cta: "Create a post"
-        };
-      default:
-        return {
-          title: "No posts yet",
-          message: "Be the first to share something with the community!",
-          cta: "Create the first post"
-        };
-    }
-  };
-
-  const emptyState = getEmptyMessage();
-
-  return (
-    <div className="empty-feed advanced">
-      <div className="empty-illustration">
-        <Sparkles size={64} />
-      </div>
-      <h3>{emptyState.title}</h3>
-      <p>{emptyState.message}</p>
-      {user ? (
-        <button className="btn-primary" onClick={onPostClick}>
-          {emptyState.cta}
-        </button>
-      ) : (
-        <button 
-          className="btn-primary"
-          onClick={() => window.location.href = '/signup'}
-        >
-          {emptyState.cta}
-        </button>
       )}
     </div>
   );
