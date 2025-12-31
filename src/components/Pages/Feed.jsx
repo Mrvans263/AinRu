@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
-import { Heart, MessageCircle, Share2, Image as ImageIcon, Globe, Users, Lock, MoreVertical, Send, Clock, Zap, TrendingUp, User, Award, Sparkles, BookOpen, MapPin, Flag, GraduationCap } from 'lucide-react';
+import { Heart, MessageCircle, Share2, Image as ImageIcon, Globe, Users, Lock, MoreVertical, Send, Clock, TrendingUp, User, Award, BookOpen, GraduationCap, Building, MapPin, X } from 'lucide-react';
 import './Feed.css';
 
 const Feed = () => {
@@ -16,102 +16,107 @@ const Feed = () => {
   const [isComposing, setIsComposing] = useState(false);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
+  const [stats, setStats] = useState({ totalPosts: 0, totalUsers: 0, activeUsers: 0 });
+  const fileInputRef = useRef(null);
   const feedRef = useRef(null);
-  const postsPerPage = 5;
+  const postsPerPage = 10;
 
+  // Load user session
   useEffect(() => {
-    checkUser();
+    const getUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const { data: profile } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', session.user.id)
+          .single();
+        setUser(profile);
+      }
+    };
+    getUser();
   }, []);
 
+  // Fetch posts when user or tab changes
   useEffect(() => {
-    if (user) {
+    if (user !== null) { // Changed to handle both logged in and not logged in
       fetchPosts(0);
       fetchStats();
     }
   }, [user, activeTab]);
 
-  const checkUser = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.user) {
-      const { data: profile } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', session.user.id)
-        .single();
-      setUser(profile);
-    }
-  };
-
+  // Fetch platform statistics
   const fetchStats = async () => {
     try {
-      // Get posts from last 7 days
-      const weekAgo = new Date();
-      weekAgo.setDate(weekAgo.getDate() - 7);
-      
-      const { data: postsData } = await supabase
+      // Total posts
+      const { count: totalPosts } = await supabase
         .from('feed_posts')
-        .select('id')
-        .gte('created_at', weekAgo.toISOString());
+        .select('*', { count: 'exact', head: true });
 
-      // Get active users (those with posts in last month)
-      const monthAgo = new Date();
-      monthAgo.setDate(monthAgo.getDate() - 30);
+      // Total users
+      const { count: totalUsers } = await supabase
+        .from('users')
+        .select('*', { count: 'exact', head: true });
+
+      // Active users (posted in last 30 days)
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       
-      const { data: recentPosts } = await supabase
+      const { data: activePosts } = await supabase
         .from('feed_posts')
         .select('user_id')
-        .gte('created_at', monthAgo.toISOString());
+        .gte('created_at', thirtyDaysAgo.toISOString());
 
-      const activeUserIds = [...new Set(recentPosts?.map(post => post.user_id) || [])];
-      
-      return {
-        totalPosts: postsData?.length || 0,
-        activeUsers: activeUserIds.length,
-        trendingPosts: Math.floor((postsData?.length || 0) / 2)
-      };
+      const activeUserIds = [...new Set(activePosts?.map(post => post.user_id) || [])];
+
+      setStats({
+        totalPosts: totalPosts || 0,
+        totalUsers: totalUsers || 0,
+        activeUsers: activeUserIds.length
+      });
     } catch (error) {
       console.error('Error fetching stats:', error);
-      return { totalPosts: 0, activeUsers: 0, trendingPosts: 0 };
     }
   };
 
+  // Fetch posts with pagination
   const fetchPosts = async (pageNum) => {
-    if (!hasMore && pageNum > 0) return;
-    
     setLoading(true);
     try {
       const from = pageNum * postsPerPage;
-      const to = from + postsPerPage - 1;
-
+      
+      // Build base query with joins
       let query = supabase
         .from('feed_posts')
         .select(`
           *,
-          users!feed_posts_user_id_fkey (
+          user:users!feed_posts_user_id_fkey (
             id,
             firstname,
             surname,
             profile_picture_url,
             university,
             program_field,
-            is_student
+            is_student,
+            year_of_study
           ),
-          post_likes!inner (
+          post_likes (
             user_id
           ),
-          post_comments!inner (
+          post_comments (
             id,
             content,
             created_at,
             user_id,
-            users!post_comments_user_id_fkey (
+            user:users!post_comments_user_id_fkey (
               firstname,
               surname,
               profile_picture_url
             )
           )
         `)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .range(from, from + postsPerPage - 1);
 
       // Apply filters based on active tab
       if (activeTab === 'my' && user) {
@@ -122,7 +127,7 @@ const Feed = () => {
           .select('following_id')
           .eq('follower_id', user.id);
 
-        if (following && following.length > 0) {
+        if (following?.length > 0) {
           const followingIds = following.map(f => f.following_id);
           query = query.in('user_id', followingIds);
         } else {
@@ -132,41 +137,43 @@ const Feed = () => {
         }
       }
 
-      // Visibility filter
+      // Apply visibility filter
       if (user) {
-        query = query.or(`visibility.eq.public,user_id.eq.${user.id},visibility.eq.friends`);
+        query = query.or(`visibility.eq.public,user_id.eq.${user.id},and(visibility.eq.friends,user_id.in.(select following_id from user_follows where follower_id.eq.${user.id}))`);
       } else {
         query = query.eq('visibility', 'public');
       }
 
-      const { data, error, count } = await query.range(from, to);
+      const { data: postsData, error } = await query;
 
       if (error) throw error;
 
       // Check if we have more posts
-      if (!data || data.length < postsPerPage) {
+      if (!postsData || postsData.length < postsPerPage) {
         setHasMore(false);
       }
 
       // Process posts data
-      const processedPosts = (data || []).map((post, index) => {
-        // Count unique likes
+      const processedPosts = postsData?.map((post, index) => {
+        // Get unique likes count
         const uniqueLikes = new Set(post.post_likes?.map(like => like.user_id) || []);
+        const userHasLiked = user ? uniqueLikes.has(user.id) : false;
         
+        // Sort comments by date
+        const sortedComments = (post.post_comments || [])
+          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+          .slice(0, 3); // Only show 3 comments initially
+
         return {
           ...post,
-          userHasLiked: uniqueLikes.has(user?.id) || false,
+          userHasLiked,
           like_count: uniqueLikes.size,
-          comments: (post.post_comments || []).map(comment => ({
-            ...comment,
-            user: comment.users
-          })).sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
-          user: post.users,
+          comments: sortedComments,
           isExpanded: false,
           showAllComments: false,
-          animationDelay: index * 0.1
+          animationDelay: index * 0.05
         };
-      });
+      }) || [];
 
       if (pageNum === 0) {
         setPosts(processedPosts);
@@ -181,21 +188,16 @@ const Feed = () => {
     }
   };
 
-  const loadMorePosts = () => {
-    if (!loading && hasMore) {
-      const nextPage = page + 1;
-      setPage(nextPage);
-      fetchPosts(nextPage);
-    }
-  };
-
+  // Handle infinite scroll
   useEffect(() => {
     const handleScroll = () => {
-      if (!feedRef.current) return;
+      if (!feedRef.current || loading || !hasMore) return;
       
       const { scrollTop, scrollHeight, clientHeight } = feedRef.current;
       if (scrollHeight - scrollTop - clientHeight < 100) {
-        loadMorePosts();
+        const nextPage = page + 1;
+        setPage(nextPage);
+        fetchPosts(nextPage);
       }
     };
 
@@ -204,39 +206,41 @@ const Feed = () => {
       feedElement.addEventListener('scroll', handleScroll);
       return () => feedElement.removeEventListener('scroll', handleScroll);
     }
-  }, [loading, hasMore]);
+  }, [loading, hasMore, page]);
 
+  // Create new post
   const handleCreatePost = async (e) => {
     e.preventDefault();
-    if (!newPost.trim() && !imageFile) return;
+    if (!newPost.trim() && !imageFile) {
+      showToast('Please write something or add an image', 'warning');
+      return;
+    }
 
     try {
       setIsComposing(true);
       let imageUrl = null;
 
-      // Upload image if exists
+      // Upload image if provided
       if (imageFile) {
         const fileExt = imageFile.name.split('.').pop();
-        const fileName = `${user.id}/${Date.now()}.${fileExt}`;
-        
+        const fileName = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
+        const filePath = `feed-images/${user.id}/${fileName}`;
+
         const { error: uploadError } = await supabase.storage
           .from('feed-images')
-          .upload(fileName, imageFile, {
-            cacheControl: '3600',
-            upsert: false
-          });
+          .upload(filePath, imageFile);
 
         if (uploadError) throw uploadError;
 
         const { data: { publicUrl } } = supabase.storage
           .from('feed-images')
-          .getPublicUrl(fileName);
+          .getPublicUrl(filePath);
 
         imageUrl = publicUrl;
       }
 
-      // Create post in database
-      const { data, error } = await supabase
+      // Insert post into database
+      const { data: newPostData, error } = await supabase
         .from('feed_posts')
         .insert([{
           user_id: user.id,
@@ -249,35 +253,34 @@ const Feed = () => {
         }])
         .select(`
           *,
-          users!feed_posts_user_id_fkey (
+          user:users!feed_posts_user_id_fkey (
             id,
             firstname,
             surname,
             profile_picture_url,
             university,
             program_field,
-            is_student
+            is_student,
+            year_of_study
           )
         `)
         .single();
 
       if (error) throw error;
 
-      // Add new post to state
-      const newPostData = {
-        ...data,
+      // Add to local state
+      setPosts(prev => [{
+        ...newPostData,
         userHasLiked: false,
         post_likes: [],
         post_comments: [],
-        user: data.users,
+        user: newPostData.user,
         isNewPost: true,
         animationDelay: 0
-      };
+      }, ...prev]);
 
-      setPosts(prev => [newPostData, ...prev]);
-
-      // Show success toast
-      showToast('Post published successfully! 🎉', 'success');
+      // Show success message
+      showToast('Post published successfully!', 'success');
 
       // Reset form
       setNewPost('');
@@ -290,11 +293,12 @@ const Feed = () => {
 
     } catch (error) {
       console.error('Error creating post:', error);
-      showToast('Failed to create post. Please try again.', 'error');
+      showToast('Failed to create post', 'error');
       setIsComposing(false);
     }
   };
 
+  // Handle like/unlike post
   const handleLikePost = async (postId, currentlyLiked) => {
     if (!user) {
       showToast('Please login to like posts', 'warning');
@@ -303,7 +307,7 @@ const Feed = () => {
 
     try {
       if (currentlyLiked) {
-        // Unlike post
+        // Remove like
         const { error } = await supabase
           .from('post_likes')
           .delete()
@@ -312,22 +316,15 @@ const Feed = () => {
 
         if (error) throw error;
 
-        // Decrement like count in feed_posts
-        const { data: post } = await supabase
-          .from('feed_posts')
-          .select('like_count')
-          .eq('id', postId)
-          .single();
-
-        if (post) {
-          await supabase
-            .from('feed_posts')
-            .update({ like_count: Math.max(0, post.like_count - 1) })
-            .eq('id', postId);
-        }
+        // Decrement like count
+        await supabase.rpc('decrement', {
+          table_name: 'feed_posts',
+          column_name: 'like_count',
+          id: postId
+        });
 
       } else {
-        // Like post
+        // Add like
         const { error } = await supabase
           .from('post_likes')
           .insert([{
@@ -337,28 +334,18 @@ const Feed = () => {
 
         if (error) throw error;
 
-        // Increment like count in feed_posts
-        const { data: post } = await supabase
-          .from('feed_posts')
-          .select('like_count')
-          .eq('id', postId)
-          .single();
-
-        if (post) {
-          await supabase
-            .from('feed_posts')
-            .update({ like_count: post.like_count + 1 })
-            .eq('id', postId);
-        }
+        // Increment like count
+        await supabase.rpc('increment', {
+          table_name: 'feed_posts',
+          column_name: 'like_count',
+          id: postId
+        });
       }
 
       // Update local state
       setPosts(prev => prev.map(post => {
         if (post.id === postId) {
-          const newLikeCount = currentlyLiked 
-            ? Math.max(0, post.like_count - 1)
-            : post.like_count + 1;
-          
+          const newLikeCount = currentlyLiked ? post.like_count - 1 : post.like_count + 1;
           const updatedLikes = currentlyLiked
             ? (post.post_likes || []).filter(like => like.user_id !== user.id)
             : [...(post.post_likes || []), { user_id: user.id }];
@@ -379,6 +366,7 @@ const Feed = () => {
     }
   };
 
+  // Add comment to post
   const handleAddComment = async (postId, content) => {
     if (!user) {
       showToast('Please login to comment', 'warning');
@@ -401,7 +389,7 @@ const Feed = () => {
         }])
         .select(`
           *,
-          users!post_comments_user_id_fkey (
+          user:users!post_comments_user_id_fkey (
             firstname,
             surname,
             profile_picture_url
@@ -411,32 +399,22 @@ const Feed = () => {
 
       if (error) throw error;
 
-      // Increment comment count in feed_posts
-      const { data: post } = await supabase
-        .from('feed_posts')
-        .select('comment_count')
-        .eq('id', postId)
-        .single();
-
-      if (post) {
-        await supabase
-          .from('feed_posts')
-          .update({ comment_count: post.comment_count + 1 })
-          .eq('id', postId);
-      }
+      // Increment comment count
+      await supabase.rpc('increment', {
+        table_name: 'feed_posts',
+        column_name: 'comment_count',
+        id: postId
+      });
 
       // Update local state
       setPosts(prev => prev.map(post => {
         if (post.id === postId) {
-          const newComment = {
-            ...comment,
-            user: comment.users
-          };
-          
+          const newCommentCount = post.comment_count + 1;
           return {
             ...post,
-            comment_count: (post.comment_count || 0) + 1,
-            post_comments: [newComment, ...(post.post_comments || [])]
+            comment_count: newCommentCount,
+            comments: [comment, ...post.comments],
+            showAllComments: true
           };
         }
         return post;
@@ -448,7 +426,7 @@ const Feed = () => {
         [postId]: ''
       }));
 
-      showToast('Comment added successfully!', 'success');
+      showToast('Comment added!', 'success');
 
     } catch (error) {
       console.error('Error adding comment:', error);
@@ -456,17 +434,18 @@ const Feed = () => {
     }
   };
 
+  // Handle image upload
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Check file size (50MB limit)
+    // Validate file size (50MB limit)
     if (file.size > 50 * 1024 * 1024) {
       showToast('Image size should be less than 50MB', 'warning');
       return;
     }
 
-    // Check file type
+    // Validate file type
     if (!file.type.startsWith('image/')) {
       showToast('Please upload an image file', 'warning');
       return;
@@ -481,8 +460,8 @@ const Feed = () => {
     reader.readAsDataURL(file);
   };
 
+  // Show toast notification
   const showToast = (message, type = 'info') => {
-    // Create toast element
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
     toast.innerHTML = `
@@ -493,13 +472,13 @@ const Feed = () => {
     
     document.body.appendChild(toast);
     
-    // Remove toast after 3 seconds
     setTimeout(() => {
       toast.classList.add('fade-out');
       setTimeout(() => toast.remove(), 300);
     }, 3000);
   };
 
+  // Format time ago
   const formatTimeAgo = (dateString) => {
     const postDate = new Date(dateString);
     const now = new Date();
@@ -510,21 +489,23 @@ const Feed = () => {
     const diffDay = Math.floor(diffHour / 24);
     
     if (diffSec < 60) return 'Just now';
-    if (diffMin < 60) return `${diffMin}m ago`;
-    if (diffHour < 24) return `${diffHour}h ago`;
-    if (diffDay < 7) return `${diffDay}d ago`;
+    if (diffMin < 60) return `${diffMin}m`;
+    if (diffHour < 24) return `${diffHour}h`;
+    if (diffDay < 7) return `${diffDay}d`;
+    if (diffDay < 30) return `${Math.floor(diffDay / 7)}w`;
     
     return postDate.toLocaleDateString('en-US', { 
       month: 'short', 
-      day: 'numeric',
-      year: diffDay > 365 ? 'numeric' : undefined
+      day: 'numeric' 
     });
   };
 
+  // Get user initials for avatar
   const getInitials = (firstname, surname) => {
     return `${firstname?.[0] || ''}${surname?.[0] || ''}`.toUpperCase();
   };
 
+  // Toggle post content expansion
   const togglePostExpand = (postId) => {
     setPosts(prev => prev.map(post => 
       post.id === postId 
@@ -533,6 +514,7 @@ const Feed = () => {
     ));
   };
 
+  // Handle comment input change
   const handleCommentInputChange = (postId, value) => {
     setCommentInputs(prev => ({
       ...prev,
@@ -540,6 +522,7 @@ const Feed = () => {
     }));
   };
 
+  // Handle enter key in comment input
   const handleKeyPress = (e, postId) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -550,14 +533,15 @@ const Feed = () => {
     }
   };
 
+  // Render loading state
   if (loading && posts.length === 0) {
     return (
       <div className="feed-container">
         <div className="loading-state">
           <div className="spinner">
-            <div className="spinner-circle"></div>
+            <div className="spinner-inner"></div>
           </div>
-          <div className="loading-text">Loading your campus feed...</div>
+          <p>Loading your campus feed...</p>
         </div>
       </div>
     );
@@ -565,33 +549,26 @@ const Feed = () => {
 
   return (
     <div className="feed-container" ref={feedRef}>
-      {/* Floating Decorations */}
-      <div className="floating-decorations">
-        <div className="floating-element el1">🇷🇺</div>
-        <div className="floating-element el2">🇳🇬</div>
-        <div className="floating-element el3">🇰🇪</div>
-        <div className="floating-element el4">🇬🇭</div>
-        <div className="floating-element el5">🇿🇦</div>
-      </div>
-
       {/* Header */}
       <div className="feed-header">
-        <div className="header-main">
-          <div className="title-section">
-            <h1 className="main-title">
-              <span className="title-gradient">Ain Ru</span>
-              <span className="title-sparkle">✨</span>
-            </h1>
-            <p className="subtitle">African Student Community in Russia</p>
-          </div>
+        <div className="header-content">
+          <h1 className="feed-title">
+            <span className="title-main">Campus Feed</span>
+            <span className="title-sub">African Students in Russia</span>
+          </h1>
+          
           <div className="header-stats">
             <div className="stat-item">
-              <TrendingUp size={18} />
-              <span>{posts.length} Posts</span>
+              <div className="stat-value">{stats.totalPosts}</div>
+              <div className="stat-label">Posts</div>
             </div>
             <div className="stat-item">
-              <Users size={18} />
-              <span>Active Students</span>
+              <div className="stat-value">{stats.totalUsers}</div>
+              <div className="stat-label">Students</div>
+            </div>
+            <div className="stat-item">
+              <div className="stat-value">{stats.activeUsers}</div>
+              <div className="stat-label">Active</div>
             </div>
           </div>
         </div>
@@ -599,9 +576,9 @@ const Feed = () => {
 
       {/* Create Post Card */}
       {user && (
-        <div className="create-post-card glass-effect">
+        <div className="create-post-card">
           <div className="post-form">
-            <div className="user-info">
+            <div className="post-form-header">
               <div className="user-avatar">
                 {user.profile_picture_url ? (
                   <img src={user.profile_picture_url} alt={user.firstname} />
@@ -611,42 +588,37 @@ const Feed = () => {
                   </div>
                 )}
               </div>
-              <div className="user-details">
-                <div className="user-name">{user.firstname} {user.surname}</div>
-                <div className="user-study">
-                  <GraduationCap size={14} />
-                  <span>{user.university || 'University'} • {user.program_field || 'Field of Study'}</span>
-                </div>
-              </div>
-            </div>
-            
-            <div className="post-input-section">
-              <textarea
-                className="post-input"
-                placeholder="What's happening in your Russian campus life?"
-                value={newPost}
-                onChange={(e) => setNewPost(e.target.value)}
-                rows="3"
-                maxLength="500"
-              />
-              <div className="input-actions">
-                <div className="char-count">{newPost.length}/500</div>
-                <div className="visibility-select">
-                  <select 
-                    value={visibility}
-                    onChange={(e) => setVisibility(e.target.value)}
-                  >
-                    <option value="public"><Globe size={14} /> Public</option>
-                    <option value="friends"><Users size={14} /> Friends</option>
-                    <option value="private"><Lock size={14} /> Private</option>
-                  </select>
+              <div className="post-input-wrapper">
+                <textarea
+                  className="post-input"
+                  placeholder={`What's on your mind, ${user.firstname}?`}
+                  value={newPost}
+                  onChange={(e) => setNewPost(e.target.value)}
+                  rows="3"
+                  maxLength={500}
+                />
+                <div className="input-footer">
+                  <div className="char-count">
+                    {newPost.length}/500
+                  </div>
+                  <div className="visibility-selector">
+                    <select 
+                      value={visibility}
+                      onChange={(e) => setVisibility(e.target.value)}
+                      className="visibility-select"
+                    >
+                      <option value="public"><Globe size={14} /> Public</option>
+                      <option value="friends"><Users size={14} /> Friends</option>
+                      <option value="private"><Lock size={14} /> Only Me</option>
+                    </select>
+                  </div>
                 </div>
               </div>
             </div>
 
             {imagePreview && (
-              <div className="image-preview">
-                <img src={imagePreview} alt="Preview" />
+              <div className="image-preview-container">
+                <img src={imagePreview} alt="Preview" className="image-preview" />
                 <button 
                   className="remove-image"
                   onClick={() => {
@@ -654,38 +626,31 @@ const Feed = () => {
                     setImageFile(null);
                   }}
                 >
-                  ×
+                  <X size={20} />
                 </button>
               </div>
             )}
 
-            <div className="post-actions">
+            <div className="post-form-actions">
               <div className="action-buttons">
-                <label className="action-btn upload-btn">
+                <label className="action-btn">
                   <ImageIcon size={20} />
-                  <span>Add Photo</span>
+                  <span>Photo</span>
                   <input
                     type="file"
                     accept="image/*"
                     onChange={handleImageUpload}
+                    ref={fileInputRef}
                     hidden
                   />
                 </label>
-                <button className="action-btn">
-                  <MapPin size={20} />
-                  <span>Location</span>
-                </button>
-                <button className="action-btn">
-                  <Flag size={20} />
-                  <span>Tag</span>
-                </button>
               </div>
               <button
-                className={`submit-btn ${isComposing ? 'composing' : ''}`}
+                className={`post-submit-btn ${isComposing ? 'posting' : ''}`}
                 onClick={handleCreatePost}
                 disabled={(!newPost.trim() && !imageFile) || isComposing}
               >
-                {isComposing ? 'Posting...' : 'Post to Feed'}
+                {isComposing ? 'Posting...' : 'Post'}
               </button>
             </div>
           </div>
@@ -700,11 +665,13 @@ const Feed = () => {
             setActiveTab('all');
             setPage(0);
             setHasMore(true);
+            fetchPosts(0);
           }}
         >
           <Globe size={18} />
           <span>All Posts</span>
         </button>
+        
         {user && (
           <>
             <button 
@@ -713,17 +680,20 @@ const Feed = () => {
                 setActiveTab('following');
                 setPage(0);
                 setHasMore(true);
+                fetchPosts(0);
               }}
             >
               <Users size={18} />
               <span>Following</span>
             </button>
+            
             <button 
               className={`tab ${activeTab === 'my' ? 'active' : ''}`}
               onClick={() => {
                 setActiveTab('my');
                 setPage(0);
                 setHasMore(true);
+                fetchPosts(0);
               }}
             >
               <User size={18} />
@@ -736,10 +706,10 @@ const Feed = () => {
       {/* Posts Feed */}
       <div className="posts-feed">
         {posts.length === 0 ? (
-          <div className="empty-feed glass-effect">
+          <div className="empty-state">
             <div className="empty-icon">📝</div>
             <h3>No posts yet</h3>
-            <p>Be the first to share your experience in Russia!</p>
+            <p>Be the first to share something with the community!</p>
             {!user && (
               <button 
                 className="login-btn"
@@ -769,7 +739,7 @@ const Feed = () => {
             />
           ))
         )}
-        
+
         {loading && posts.length > 0 && (
           <div className="loading-more">
             <div className="loading-dots">
@@ -779,11 +749,10 @@ const Feed = () => {
             </div>
           </div>
         )}
-        
+
         {!hasMore && posts.length > 0 && (
           <div className="end-of-feed">
-            <Sparkles size={20} />
-            <span>You're all caught up!</span>
+            <p>You're all caught up! 🎉</p>
           </div>
         )}
       </div>
@@ -791,6 +760,7 @@ const Feed = () => {
   );
 };
 
+// Post Card Component
 const PostCard = ({ 
   post, 
   currentUser, 
@@ -826,23 +796,23 @@ const PostCard = ({
     await onComment(post.id, commentInput);
   };
 
-  const needsExpansion = post.content && post.content.length > 400 && !isExpanded;
+  const needsExpansion = post.content && post.content.length > 300 && !isExpanded;
   const displayContent = needsExpansion 
-    ? post.content.substring(0, 400) + '...' 
+    ? post.content.substring(0, 300) + '...' 
     : post.content;
 
   return (
     <div 
-      className={`post-card glass-effect ${post.isNewPost ? 'new-post' : ''}`}
+      className={`post-card ${post.isNewPost ? 'new-post' : ''}`}
       style={{ animationDelay: `${animationDelay}s` }}
     >
       <div className="post-header">
-        <div className="author-info">
+        <div className="post-author">
           <div className="author-avatar">
             {post.user?.profile_picture_url ? (
               <img 
                 src={post.user.profile_picture_url} 
-                alt={post.user.firstname}
+                alt={`${post.user.firstname} ${post.user.surname}`}
                 onError={(e) => {
                   e.target.style.display = 'none';
                   e.target.parentElement.querySelector('.avatar-fallback').style.display = 'flex';
@@ -853,24 +823,25 @@ const PostCard = ({
               {getInitials(post.user?.firstname, post.user?.surname)}
             </div>
           </div>
-          <div className="author-details">
+          <div className="author-info">
             <div className="author-name">
-              <strong>{post.user?.firstname || 'Student'} {post.user?.surname || ''}</strong>
-              {post.user?.is_student && (
-                <span className="student-badge">
-                  <GraduationCap size={12} />
-                  <span>Student</span>
-                </span>
+              {post.user?.firstname} {post.user?.surname}
+              {post.user_id === currentUser?.id && (
+                <span className="you-badge">You</span>
               )}
             </div>
-            <div className="author-study">
-              <BookOpen size={12} />
-              <span>{post.user?.university || 'Russian University'}</span>
-            </div>
-            <div className="post-meta">
-              <Clock size={12} />
-              <span className="time">{formatTimeAgo(post.created_at)}</span>
-              <span className="visibility">
+            <div className="author-details">
+              {post.user?.university && (
+                <span className="author-university">
+                  <Building size={12} />
+                  {post.user.university}
+                </span>
+              )}
+              <span className="post-time">
+                <Clock size={12} />
+                {formatTimeAgo(post.created_at)}
+              </span>
+              <span className="post-visibility">
                 {post.visibility === 'public' && <Globe size={12} />}
                 {post.visibility === 'friends' && <Users size={12} />}
                 {post.visibility === 'private' && <Lock size={12} />}
@@ -879,28 +850,29 @@ const PostCard = ({
           </div>
         </div>
         
-        <button className="post-menu">
-          <MoreVertical size={20} />
-        </button>
+        {post.user_id === currentUser?.id && (
+          <button className="post-menu-btn">
+            <MoreVertical size={20} />
+          </button>
+        )}
       </div>
 
       <div className="post-content">
-        <div className="post-text">
-          <p>
-            {displayContent}
-            {needsExpansion && (
-              <button className="expand-btn" onClick={onToggleExpand}>
-                Read more
-              </button>
-            )}
-          </p>
-        </div>
+        <p className="post-text">
+          {displayContent}
+          {needsExpansion && (
+            <button className="read-more-btn" onClick={onToggleExpand}>
+              Read more
+            </button>
+          )}
+        </p>
         
         {post.image_url && (
-          <div className="post-image">
+          <div className="post-image-container">
             <img 
               src={post.image_url} 
               alt="Post" 
+              className="post-image"
               loading="lazy"
               onError={(e) => {
                 e.target.style.display = 'none';
@@ -933,7 +905,7 @@ const PostCard = ({
           disabled={isLiking}
         >
           <Heart size={18} fill={post.userHasLiked ? 'currentColor' : 'none'} />
-          <span>Like</span>
+          <span>{post.userHasLiked ? 'Liked' : 'Like'}</span>
         </button>
         
         <button 
@@ -952,7 +924,7 @@ const PostCard = ({
 
       {currentUser && (
         <div className="comment-input-section">
-          <div className="input-wrapper">
+          <div className="comment-input-wrapper">
             <div className="comment-avatar">
               {currentUser.profile_picture_url ? (
                 <img 
@@ -968,21 +940,23 @@ const PostCard = ({
                 {getInitials(currentUser.firstname, currentUser.surname)}
               </div>
             </div>
-            <input
-              type="text"
-              className="comment-input"
-              placeholder="Write a comment..."
-              value={commentInput}
-              onChange={(e) => onCommentInputChange(e.target.value)}
-              onKeyPress={(e) => onKeyPress(e)}
-            />
-            <button 
-              className="comment-send"
-              onClick={handleSubmitComment}
-              disabled={!commentInput.trim()}
-            >
-              <Send size={18} />
-            </button>
+            <div className="comment-input-container">
+              <input
+                type="text"
+                className="comment-input"
+                placeholder="Write a comment..."
+                value={commentInput}
+                onChange={(e) => onCommentInputChange(e.target.value)}
+                onKeyPress={(e) => onKeyPress(e)}
+              />
+              <button 
+                className="comment-submit-btn"
+                onClick={handleSubmitComment}
+                disabled={!commentInput.trim()}
+              >
+                <Send size={18} />
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -995,7 +969,7 @@ const PostCard = ({
                 {comment.user?.profile_picture_url ? (
                   <img 
                     src={comment.user.profile_picture_url} 
-                    alt={comment.user.firstname}
+                    alt={`${comment.user.firstname} ${comment.user.surname}`}
                     onError={(e) => {
                       e.target.style.display = 'none';
                       e.target.parentElement.querySelector('.avatar-fallback').style.display = 'flex';
