@@ -22,6 +22,25 @@ const Services = () => {
   });
   const [filterChanged, setFilterChanged] = useState(false);
 
+  // Service types configuration - defined once for consistency
+  const serviceTypes = {
+    academic: { label: '📚 Academic', icon: '📚' },
+    tutoring: { label: '👨‍🏫 Tutoring', icon: '👨‍🏫' },
+    translation: { label: '🔤 Translation', icon: '🔤' },
+    transportation: { label: '🚗 Transportation', icon: '🚗' },
+    housing: { label: '🏠 Housing', icon: '🏠' },
+    food: { label: '🍕 Food', icon: '🍕' },
+    legal: { label: '⚖️ Legal', icon: '⚖️' },
+    medical: { label: '🏥 Medical', icon: '🏥' },
+    beauty: { label: '💅 Beauty', icon: '💅' },
+    fitness: { label: '💪 Fitness', icon: '💪' },
+    tech: { label: '💻 Tech', icon: '💻' },
+    design: { label: '🎨 Design', icon: '🎨' },
+    writing: { label: '✍️ Writing', icon: '✍️' },
+    consulting: { label: '💼 Consulting', icon: '💼' },
+    other: { label: '🔧 Other', icon: '🔧' }
+  };
+
   // Fetch initial data
   useEffect(() => {
     checkUser();
@@ -50,7 +69,6 @@ const Services = () => {
       if (error) throw error;
       setCategories(data || []);
       
-      // Fetch services after categories
       fetchServices();
     } catch (error) {
       console.error('Error fetching categories:', error);
@@ -121,20 +139,10 @@ const Services = () => {
     setFilterChanged(true);
   };
 
-  // Image upload function - FIXED VERSION
+  // Image upload function
   const uploadImage = async (file, userId) => {
     try {
-      console.log('📤 Starting image upload...', {
-        fileName: file?.name,
-        fileSize: file?.size,
-        fileType: file?.type,
-        userId
-      });
-      
-      if (!file) {
-        console.log('No file provided');
-        return null;
-      }
+      if (!file) return null;
       
       if (!userId) {
         throw new Error('User ID is required for image upload');
@@ -148,52 +156,27 @@ const Services = () => {
       const fileExt = file.name.split('.').pop();
       const fileName = `${userId}-${Date.now()}.${fileExt}`;
       
-      console.log('Uploading to bucket: service-images');
-      console.log('Filename:', fileName);
-      
       // Upload the file
-      const { data, error: uploadError } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from('service-images')
-        .upload(fileName, file, {
-          cacheControl: '3600',
-          upsert: false
-        });
+        .upload(fileName, file);
 
-      if (uploadError) {
-        console.error('Storage upload error:', uploadError);
-        
-        // Check bucket access
-        const { data: buckets } = await supabase.storage.listBuckets();
-        console.log('Available buckets:', buckets);
-        
-        throw uploadError;
-      }
+      if (uploadError) throw uploadError;
 
-      console.log('Upload successful, data:', data);
-      
       // Get public URL
-      const { data: urlData } = supabase.storage
+      const { data: { publicUrl } } = supabase.storage
         .from('service-images')
         .getPublicUrl(fileName);
-      
-      console.log('Generated public URL:', urlData.publicUrl);
-      
-      return urlData.publicUrl;
+
+      return publicUrl;
     } catch (error) {
-      console.error('Image upload failed with details:', {
-        name: error.name,
-        message: error.message,
-        details: error.details,
-        hint: error.hint
-      });
+      console.error('Image upload failed:', error);
       throw error;
     }
   };
 
   const handleCreateService = async (serviceData) => {
     try {
-      console.log('Creating service:', serviceData);
-      
       const insertData = {
         user_id: user.id,
         category_id: serviceData.category_id ? parseInt(serviceData.category_id) : null,
@@ -216,8 +199,6 @@ const Services = () => {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
-      
-      console.log('Insert data:', insertData);
       
       const { data, error } = await supabase
         .from('services')
@@ -310,88 +291,6 @@ const Services = () => {
     }
   };
 
-  // Test storage function
-  const testStorageSetup = async () => {
-    console.log('🔍 Testing storage setup...');
-    
-    try {
-      // 1. Get current user
-      if (!user) {
-        console.error('❌ User not authenticated. Please log in first.');
-        alert('Please log in first to test storage');
-        return;
-      }
-      
-      // 2. List buckets to confirm service-images exists
-      const { data: buckets, error: bucketsError } = await supabase.storage.listBuckets();
-      if (bucketsError) {
-        console.error('❌ Cannot list buckets:', bucketsError);
-        alert('Cannot list buckets: ' + bucketsError.message);
-        return;
-      }
-      
-      console.log('📦 Available buckets:', buckets.map(b => b.name));
-      const serviceBucket = buckets.find(b => b.name === 'service-images');
-      
-      if (!serviceBucket) {
-        console.error('❌ service-images bucket not found!');
-        alert('service-images bucket not found! Please create it in Supabase Dashboard → Storage');
-        return;
-      }
-      
-      console.log('✅ service-images bucket found:', serviceBucket);
-      
-      // 3. Test upload with a small text file
-      console.log('⬆️ Testing upload...');
-      const testContent = 'This is a test file for storage verification';
-      const testFile = new File([testContent], 'storage-test.txt', { 
-        type: 'text/plain' 
-      });
-      
-      const testFileName = `test-${user.id}-${Date.now()}.txt`;
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('service-images')
-        .upload(testFileName, testFile);
-      
-      if (uploadError) {
-        console.error('❌ Upload failed:', uploadError);
-        alert('Upload test failed: ' + uploadError.message + '\n\nCheck your storage policies in the dashboard.');
-        return;
-      }
-      
-      console.log('✅ Upload successful:', uploadData);
-      
-      // 4. Get public URL
-      const { data: urlData } = supabase.storage
-        .from('service-images')
-        .getPublicUrl(testFileName);
-      
-      console.log('🔗 Public URL:', urlData.publicUrl);
-      
-      // 5. Test that we can access the file
-      const response = await fetch(urlData.publicUrl);
-      if (response.ok) {
-        const text = await response.text();
-        console.log('✅ File accessible via URL. Content:', text);
-        alert('✅ Storage test PASSED!\n\nBucket: service-images\nUpload: ✓\nPublic URL: ✓\n\nYou can now upload service images!');
-      } else {
-        console.error('❌ Cannot access file via URL');
-        alert('Upload worked but cannot access file via URL. Check bucket is set to "Public"');
-      }
-      
-      // 6. Clean up test file
-      await supabase.storage
-        .from('service-images')
-        .remove([testFileName]);
-      
-      console.log('🧹 Test file cleaned up');
-      
-    } catch (err) {
-      console.error('❌ Storage test failed:', err);
-      alert('Storage test failed: ' + err.message);
-    }
-  };
-
   // Helper functions
   const formatPrice = (price, currency = 'RUB') => {
     const symbols = { 'RUB': '₽', 'USD': '$', 'EUR': '€', 'ZAR': 'R', 'ZWL': 'Z$' };
@@ -408,13 +307,11 @@ const Services = () => {
   };
 
   const getServiceTypeIcon = (type) => {
-    const icons = {
-      'academic': '📚', 'tutoring': '👨‍🏫', 'translation': '🔤', 'transportation': '🚗',
-      'housing': '🏠', 'food': '🍕', 'legal': '⚖️', 'medical': '🏥', 'beauty': '💅',
-      'fitness': '💪', 'tech': '💻', 'design': '🎨', 'writing': '✍️', 'consulting': '💼',
-      'other': '🔧'
-    };
-    return icons[type] || '🔧';
+    return serviceTypes[type]?.icon || '🔧';
+  };
+
+  const getServiceTypeLabel = (type) => {
+    return serviceTypes[type]?.label || '🔧 Other';
   };
 
   const formatDate = (dateString) => {
@@ -457,22 +354,6 @@ const Services = () => {
             <div className="login-prompt">
               <p>Log in to offer your services or contact providers</p>
             </div>
-          )}
-          
-          {/* Storage Test Button - Temporary for debugging */}
-          {user && (
-            <button 
-              className="test-storage-btn"
-              onClick={testStorageSetup}
-              style={{
-                marginLeft: '10px',
-                background: '#6c757d',
-                fontSize: '12px',
-                padding: '5px 10px'
-              }}
-            >
-              Test Storage
-            </button>
           )}
         </div>
       </div>
@@ -523,13 +404,11 @@ const Services = () => {
               className="filter-select"
             >
               <option value="">All Types</option>
-              <option value="academic">📚 Academic</option>
-              <option value="tutoring">👨‍🏫 Tutoring</option>
-              <option value="translation">🔤 Translation</option>
-              <option value="transportation">🚗 Transportation</option>
-              <option value="housing">🏠 Housing</option>
-              <option value="food">🍕 Food</option>
-              <option value="other">🔧 Other</option>
+              {Object.entries(serviceTypes).map(([key, { label }]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -553,6 +432,7 @@ const Services = () => {
                 value={filters.minPrice}
                 onChange={(e) => handleFilterChange('minPrice', e.target.value)}
                 className="price-input"
+                min="0"
               />
               <span>to</span>
               <input
@@ -561,6 +441,7 @@ const Services = () => {
                 value={filters.maxPrice}
                 onChange={(e) => handleFilterChange('maxPrice', e.target.value)}
                 className="price-input"
+                min="0"
               />
             </div>
           </div>
@@ -631,6 +512,7 @@ const Services = () => {
               formatPrice={formatPrice}
               getCurrencyFlag={getCurrencyFlag}
               getServiceTypeIcon={getServiceTypeIcon}
+              getServiceTypeLabel={getServiceTypeLabel}
               formatDate={formatDate}
             />
           ))
@@ -642,6 +524,7 @@ const Services = () => {
         <CreateServiceModal
           user={user}
           categories={categories}
+          serviceTypes={serviceTypes}
           onClose={() => setShowCreateModal(false)}
           onCreate={handleCreateService}
           uploadImage={uploadImage}
@@ -661,13 +544,14 @@ const ServiceCard = ({
   formatPrice,
   getCurrencyFlag,
   getServiceTypeIcon,
+  getServiceTypeLabel,
   formatDate
 }) => {
   const isOwnService = service.user_id === currentUser?.id;
 
   return (
     <div className="service-card">
-      {/* Service Image (Optional) */}
+      {/* Service Image */}
       {service.image_url && (
         <div className="service-image-container">
           <img 
@@ -811,13 +695,16 @@ const ServiceCard = ({
       {/* Footer */}
       <div className="service-footer">
         <span className="service-date">Posted {formatDate(service.created_at)}</span>
+        <span className="service-type-label">
+          {getServiceTypeLabel(service.service_type || 'other')}
+        </span>
       </div>
     </div>
   );
 };
 
-// Create Service Modal Component - UPDATED with fixed image upload
-const CreateServiceModal = ({ user, categories, onClose, onCreate, uploadImage }) => {
+// Create Service Modal Component
+const CreateServiceModal = ({ user, categories, serviceTypes, onClose, onCreate, uploadImage }) => {
   const [loading, setLoading] = useState(false);
   const [imagePreview, setImagePreview] = useState(null);
   const [imageFile, setImageFile] = useState(null);
@@ -872,13 +759,10 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate, uploadImage }
       if (imageFile && user?.id) {
         setUploadingImage(true);
         try {
-          console.log('Uploading image for service creation...');
           imageUrl = await uploadImage(imageFile, user.id);
-          console.log('Image uploaded successfully:', imageUrl);
         } catch (error) {
           console.error('Image upload error:', error);
           // Don't fail the whole submission if image upload fails
-          // Just continue without the image
           imageUrl = null;
         } finally {
           setUploadingImage(false);
@@ -908,12 +792,10 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate, uploadImage }
         image_url: imageUrl,
       };
 
-      console.log('Submitting service data:', serviceData);
       await onCreate(serviceData);
-      setLoading(false);
     } catch (error) {
-      console.error('Error creating service:', error);
       alert('Failed to create service: ' + error.message);
+    } finally {
       setLoading(false);
     }
   };
@@ -1058,13 +940,11 @@ const CreateServiceModal = ({ user, categories, onClose, onCreate, uploadImage }
                     value={form.service_type}
                     onChange={handleChange}
                   >
-                    <option value="academic">📚 Academic</option>
-                    <option value="tutoring">👨‍🏫 Tutoring</option>
-                    <option value="translation">🔤 Translation</option>
-                    <option value="transportation">🚗 Transportation</option>
-                    <option value="housing">🏠 Housing</option>
-                    <option value="food">🍕 Food</option>
-                    <option value="other">🔧 Other</option>
+                    {Object.entries(serviceTypes).map(([key, { label }]) => (
+                      <option key={key} value={key}>
+                        {label}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
