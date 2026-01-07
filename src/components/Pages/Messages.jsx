@@ -19,7 +19,6 @@ const Messages = ({ user }) => {
   const [showNewChatModal, setShowNewChatModal] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [showChat, setShowChat] = useState(false);
-  const [page, setPage] = useState(0);
   
   // Refs
   const messagesEndRef = useRef(null);
@@ -27,6 +26,9 @@ const Messages = ({ user }) => {
   const typingTimeoutRef = useRef(null);
   const isLoadingRef = useRef(false);
   const pageRef = useRef(0);
+  const loadedMessageIdsRef = useRef(new Set());
+  const scrollPositionRef = useRef(null);
+  const prevConversationIdRef = useRef(null);
 
   // Check if mobile
   useEffect(() => {
@@ -63,9 +65,9 @@ const Messages = ({ user }) => {
     }
   }, [user?.id]);
 
-  // Load messages for active conversation
-  const loadMessages = useCallback(async (reset = false) => {
-    if (!activeConversation?.id || isLoadingRef.current) return;
+  // Load messages for active conversation - FIXED with duplicate prevention
+  const loadMessages = useCallback(async (conversationId, reset = false) => {
+    if (!conversationId || isLoadingRef.current) return;
     
     isLoadingRef.current = true;
     setLoadingMessages(true);
@@ -74,25 +76,57 @@ const Messages = ({ user }) => {
     
     try {
       const newMessages = await messagingAPI.getConversationMessages(
-        activeConversation.id,
+        conversationId,
         currentPage,
         50
       );
       
       if (reset) {
-        setMessages(newMessages || []);
-        setPage(0);
+        // Clear loaded message IDs when resetting
+        loadedMessageIdsRef.current.clear();
+        const uniqueMessages = removeDuplicateMessages(newMessages || []);
+        setMessages(uniqueMessages);
         pageRef.current = 0;
-        setHasMoreMessages((newMessages || []).length === 50);
+        setHasMoreMessages(uniqueMessages.length === 50);
+        
+        // Mark as read
+        if (user?.id) {
+          await messagingAPI.markAsRead(conversationId, user.id);
+          // Update unread count in conversations list
+          setConversations(prev => 
+            prev.map(conv => 
+              conv.id === conversationId 
+                ? { ...conv, unread_count: 0 }
+                : conv
+            )
+          );
+          loadConversations(); // Refresh conversations list
+        }
       } else {
-        setMessages(prev => [...(newMessages || []), ...prev]);
-        setHasMoreMessages((newMessages || []).length === 50);
-      }
-      
-      // Mark as read
-      if (reset && user?.id) {
-        await messagingAPI.markAsRead(activeConversation.id, user.id);
-        loadConversations();
+        // Filter out duplicates before adding
+        const uniqueNewMessages = (newMessages || []).filter(
+          msg => !loadedMessageIdsRef.current.has(msg.id)
+        );
+        
+        if (uniqueNewMessages.length > 0) {
+          // Store scroll position before adding messages
+          if (messagesContainerRef.current) {
+            const container = messagesContainerRef.current;
+            const previousHeight = container.scrollHeight;
+            scrollPositionRef.current = { previousHeight, scrollTop: container.scrollTop };
+          }
+          
+          // Remove any duplicates from the new messages themselves
+          const deduplicatedMessages = removeDuplicateMessages(uniqueNewMessages);
+          
+          setMessages(prev => [...deduplicatedMessages, ...prev]);
+          setHasMoreMessages(deduplicatedMessages.length === 50);
+          
+          // Add to loaded IDs
+          deduplicatedMessages.forEach(msg => loadedMessageIdsRef.current.add(msg.id));
+        } else {
+          setHasMoreMessages(false);
+        }
       }
     } catch (error) {
       console.error('Error loading messages:', error);
@@ -101,16 +135,41 @@ const Messages = ({ user }) => {
       setLoadingMessages(false);
       isLoadingRef.current = false;
     }
-  }, [activeConversation?.id, user?.id, loadConversations]);
+  }, [user?.id, loadConversations]);
+
+  // Helper function to remove duplicate messages
+  const removeDuplicateMessages = useCallback((messagesArray) => {
+    const seen = new Set();
+    return messagesArray.filter(message => {
+      if (!message || !message.id) return false;
+      const duplicate = seen.has(message.id);
+      seen.add(message.id);
+      return !duplicate;
+    });
+  }, []);
+
+  // Restore scroll position after loading older messages
+  useEffect(() => {
+    if (scrollPositionRef.current && messagesContainerRef.current) {
+      const container = messagesContainerRef.current;
+      const { previousHeight, scrollTop } = scrollPositionRef.current;
+      const newHeight = container.scrollHeight;
+      
+      // Calculate new scroll position
+      const heightDifference = newHeight - previousHeight;
+      container.scrollTop = scrollTop + heightDifference;
+      
+      scrollPositionRef.current = null;
+    }
+  }, [messages]);
 
   // Load more messages
   const loadMoreMessages = useCallback(async () => {
     if (!hasMoreMessages || isLoadingRef.current || !activeConversation) return;
     
     pageRef.current += 1;
-    setPage(prev => prev + 1);
-    await loadMessages(false);
-  }, [hasMoreMessages, loadMessages, activeConversation]);
+    await loadMessages(activeConversation.id, false);
+  }, [hasMoreMessages, activeConversation, loadMessages]);
 
   // Handle scroll for infinite loading
   const handleScroll = useCallback(() => {
@@ -118,9 +177,11 @@ const Messages = ({ user }) => {
     
     const container = messagesContainerRef.current;
     const scrollTop = container.scrollTop;
+    const scrollHeight = container.scrollHeight;
+    const clientHeight = container.clientHeight;
     
-    // Load more when scrolled near top
-    if (scrollTop < 100) {
+    // Load more when scrolled near top (within 200px)
+    if (scrollTop < 200) {
       loadMoreMessages();
     }
   }, [hasMoreMessages, loadingMessages, loadMoreMessages]);
@@ -146,7 +207,16 @@ const Messages = ({ user }) => {
         clearTimeout(typingTimeoutRef.current);
       }
       
-      // Refresh conversations
+      // Add message optimistically with duplicate check
+      setMessages(prev => {
+        // Check if message already exists
+        if (prev.some(msg => msg.id === sentMessage.id)) {
+          return prev;
+        }
+        return [...prev, sentMessage];
+      });
+      
+      // Refresh conversations to update last message preview
       setTimeout(() => loadConversations(), 500);
       
       return sentMessage;
@@ -160,23 +230,38 @@ const Messages = ({ user }) => {
   };
 
   // Handle conversation select
-  const handleSelectConversation = async (conversation) => {
+  const handleSelectConversation = useCallback(async (conversation) => {
     if (!conversation) return;
     
+    // Store previous conversation ID
+    const prevId = prevConversationIdRef.current;
+    prevConversationIdRef.current = conversation.id;
+    
+    // If clicking the same conversation, just refresh messages
+    if (prevId === conversation.id) {
+      await loadMessages(conversation.id, true);
+      return;
+    }
+    
+    // Clear previous messages first
+    setMessages([]);
     setActiveConversation(conversation);
+    
     if (isMobile) {
       setShowChat(true);
     }
-    setPage(0);
+    
     pageRef.current = 0;
-    await loadMessages(true);
-  };
+    loadedMessageIdsRef.current.clear();
+    await loadMessages(conversation.id, true);
+  }, [isMobile, loadMessages]);
 
   // Handle back to conversations (mobile)
   const handleBackToConversations = () => {
     setShowChat(false);
     setActiveConversation(null);
     setMessages([]);
+    prevConversationIdRef.current = null;
   };
 
   // Handle typing indicator
@@ -188,30 +273,61 @@ const Messages = ({ user }) => {
     }
     
     if (isTyping) {
+      setTypingUsers([{ id: 'typing-user', name: 'Someone' }]);
       typingTimeoutRef.current = setTimeout(() => {
         setTypingUsers([]);
       }, 3000);
+    } else {
+      setTypingUsers([]);
     }
   }, [activeConversation?.id, user?.id]);
 
-  // Subscribe to real-time updates
+  // Subscribe to real-time updates for active conversation - FIXED duplicate prevention
   useEffect(() => {
     if (!activeConversation?.id || !user?.id) return;
     
-    const subscription = messagingRealtime.subscribeToConversation(
-      activeConversation.id,
-      async (event, data) => {
-        if (event === 'message') {
-          setMessages(prev => [...prev, data]);
-          
-          if (data.sender_id !== user.id) {
-            await messagingAPI.markAsRead(activeConversation.id, user.id);
+    let subscription;
+    
+    const setupSubscription = async () => {
+      subscription = messagingRealtime.subscribeToConversation(
+        activeConversation.id,
+        async (event, data) => {
+          if (event === 'message') {
+            // Check if message already exists
+            if (!loadedMessageIdsRef.current.has(data.id)) {
+              loadedMessageIdsRef.current.add(data.id);
+              
+              // Only add if it's for the currently active conversation
+              if (data.conversation_id === activeConversation.id) {
+                setMessages(prev => {
+                  // Double-check for duplicates in current state
+                  if (prev.some(msg => msg.id === data.id)) {
+                    return prev;
+                  }
+                  return [...prev, data];
+                });
+                
+                if (data.sender_id !== user.id) {
+                  await messagingAPI.markAsRead(activeConversation.id, user.id);
+                  // Update unread count in conversations list
+                  setConversations(prev => 
+                    prev.map(conv => 
+                      conv.id === activeConversation.id 
+                        ? { ...conv, unread_count: 0 }
+                        : conv
+                    )
+                  );
+                }
+                
+                setTimeout(() => loadConversations(), 100);
+              }
+            }
           }
-          
-          setTimeout(() => loadConversations(), 100);
         }
-      }
-    );
+      );
+    };
+    
+    setupSubscription();
     
     return () => {
       if (subscription) {
@@ -220,13 +336,13 @@ const Messages = ({ user }) => {
     };
   }, [activeConversation?.id, user?.id, loadConversations]);
 
-  // Load initial data
+  // Load initial conversations
   useEffect(() => {
     if (!user?.id) return;
     
     loadConversations();
     
-    // Subscribe to new messages
+    // Subscribe to new messages for unread count
     const channel = supabase
       .channel(`user-${user.id}-messages`)
       .on(
@@ -236,12 +352,8 @@ const Messages = ({ user }) => {
           schema: 'public',
           table: 'messages'
         },
-        (payload) => {
-          // Check if this message is for a conversation we're in
-          const conv = conversations.find(c => c.id === payload.new.conversation_id);
-          if (conv) {
-            loadConversations();
-          }
+        () => {
+          loadConversations();
         }
       )
       .subscribe();
@@ -249,7 +361,7 @@ const Messages = ({ user }) => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, loadConversations, conversations]);
+  }, [user?.id, loadConversations]);
 
   // Add scroll listener for infinite loading
   useEffect(() => {
@@ -265,11 +377,14 @@ const Messages = ({ user }) => {
   // Scroll to bottom when new messages arrive
   useEffect(() => {
     if (messagesEndRef.current && messages.length > 0) {
-      setTimeout(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, 100);
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage?.sender_id === user?.id) {
+        setTimeout(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }, 100);
+      }
     }
-  }, [messages]);
+  }, [messages, user?.id]);
 
   // Helper functions
   const formatTime = (dateString) => {
@@ -315,7 +430,7 @@ const Messages = ({ user }) => {
     }
   };
 
-  const getAvatar = (conversation) => {
+  const getAvatarUrl = (conversation) => {
     if (!conversation) return null;
     
     if (conversation.is_group) {
@@ -361,7 +476,20 @@ const Messages = ({ user }) => {
   const getTypingNames = () => {
     if (typingUsers.length === 0) return '';
     if (!activeConversation) return '';
+    
+    if (activeConversation.is_group) {
+      return `${typingUsers.length} ${typingUsers.length === 1 ? 'person is' : 'people are'} typing...`;
+    }
     return 'Typing...';
+  };
+
+  // Generate unique keys for messages - FIXED
+  const generateMessageKey = (message) => {
+    if (!message || !message.id) return `msg-${Date.now()}-${Math.random()}`;
+    
+    // Include timestamp in key to ensure uniqueness even if IDs duplicate
+    const timestamp = message.created_at ? new Date(message.created_at).getTime() : Date.now();
+    return `${message.id}-${timestamp}`;
   };
 
   // Loading state
@@ -420,16 +548,28 @@ const Messages = ({ user }) => {
                 onClick={() => handleSelectConversation(conversation)}
               >
                 <div className="conversation-avatar">
-                  {getAvatar(conversation) ? (
+                  {/* Always render image if URL exists, but hide it initially */}
+                  {getAvatarUrl(conversation) ? (
                     <img 
-                      src={getAvatar(conversation)} 
+                      src={getAvatarUrl(conversation)} 
                       alt={getConversationName(conversation)}
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                        const fallback = e.target.parentElement.querySelector('.avatar-fallback');
+                        if (fallback) fallback.style.display = 'flex';
+                      }}
+                      style={{ display: 'none' }} // Start hidden
+                      onLoad={(e) => {
+                        e.target.style.display = 'block';
+                        const fallback = e.target.parentElement.querySelector('.avatar-fallback');
+                        if (fallback) fallback.style.display = 'none';
+                      }}
                     />
-                  ) : (
-                    <div className="avatar-fallback">
-                      {getAvatarFallback(conversation)}
-                    </div>
-                  )}
+                  ) : null}
+                  {/* Fallback is always rendered, CSS will handle visibility */}
+                  <div className="avatar-fallback">
+                    {getAvatarFallback(conversation)}
+                  </div>
                   {conversation.unread_count > 0 && (
                     <span className="unread-dot">{conversation.unread_count}</span>
                   )}
@@ -472,7 +612,26 @@ const Messages = ({ user }) => {
                 </button>
               )}
               <div className="chat-header-avatar">
-                {getAvatarFallback(activeConversation)}
+                {getAvatarUrl(activeConversation) ? (
+                  <img 
+                    src={getAvatarUrl(activeConversation)} 
+                    alt={getConversationName(activeConversation)}
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                      const fallback = e.target.parentElement.querySelector('.avatar-fallback');
+                      if (fallback) fallback.style.display = 'flex';
+                    }}
+                    style={{ display: 'none' }}
+                    onLoad={(e) => {
+                      e.target.style.display = 'block';
+                      const fallback = e.target.parentElement.querySelector('.avatar-fallback');
+                      if (fallback) fallback.style.display = 'none';
+                    }}
+                  />
+                ) : null}
+                <div className="avatar-fallback">
+                  {getAvatarFallback(activeConversation)}
+                </div>
               </div>
               <div className="chat-header-info">
                 <h3 className="chat-title">{getConversationName(activeConversation)}</h3>
@@ -519,7 +678,7 @@ const Messages = ({ user }) => {
                         nextMessage.sender_id !== message.sender_id;
                         
                       return (
-                        <React.Fragment key={message.id || index}>
+                        <React.Fragment key={generateMessageKey(message)}>
                           {showDate && (
                             <div className="message-date-divider">
                               <span>{new Date(message.created_at).toLocaleDateString([], { 
@@ -599,7 +758,7 @@ const Messages = ({ user }) => {
   );
 };
 
-// Message Bubble Component
+// Message Bubble Component - FIXED: Always show fallback, hide only when image loads
 const MessageBubble = ({ message, isOwn, showAvatar, user }) => {
   const formatMessageTime = (dateString) => {
     if (!dateString) return '';
@@ -621,12 +780,37 @@ const MessageBubble = ({ message, isOwn, showAvatar, user }) => {
     return `${message.users.firstname || ''} ${message.users.surname || ''}`.trim() || 'User';
   };
 
+  // Get avatar fallback text
+  const getAvatarFallbackText = () => {
+    if (!message.users) return '👤';
+    const first = message.users.firstname?.[0] || '';
+    const last = message.users.surname?.[0] || '';
+    return `${first}${last}`.toUpperCase() || '👤';
+  };
+
   return (
     <div className={`message-wrapper ${isOwn ? 'own-message' : 'other-message'}`}>
       {!isOwn && showAvatar && (
         <div className="message-avatar">
+          {message.users?.profile_picture_url ? (
+            <img 
+              src={message.users.profile_picture_url} 
+              alt={getSenderName()}
+              onError={(e) => {
+                e.target.style.display = 'none';
+                const fallback = e.target.parentElement.querySelector('.avatar-fallback');
+                if (fallback) fallback.style.display = 'flex';
+              }}
+              style={{ display: 'none' }}
+              onLoad={(e) => {
+                e.target.style.display = 'block';
+                const fallback = e.target.parentElement.querySelector('.avatar-fallback');
+                if (fallback) fallback.style.display = 'none';
+              }}
+            />
+          ) : null}
           <div className="avatar-fallback">
-            {message.users?.firstname?.[0] || '👤'}
+            {getAvatarFallbackText()}
           </div>
         </div>
       )}

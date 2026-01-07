@@ -152,7 +152,7 @@ const CompleteProfile = ({ user, onProfileComplete, onLogout }) => {
     if (formData.date_of_birth) {
       const dob = new Date(formData.date_of_birth);
       const today = new Date();
-      const age = today.getFullYear() - dob.getFullYear();
+      let age = today.getFullYear() - dob.getFullYear();
       const monthDiff = today.getMonth() - dob.getMonth();
       
       if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {

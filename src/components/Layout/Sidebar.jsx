@@ -14,7 +14,10 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
     activeMembers: 1234,
     newListings: 42
   });
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifications, setShowNotifications] = useState(false);
 
+  // FIXED: Updated item.id values to match App.jsx tab names
   const sidebarSections = [
     {
       title: 'Discover',
@@ -30,8 +33,19 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
       title: 'Connect',
       items: [
         { id: 'friends', label: 'Connections', icon: '👥', count: stats.pendingConnections },
-        { id: 'community', label: 'All Members', icon: '🌍' },
-        { id: 'messages', label: 'Messages', icon: '💬', count: stats.unreadMessages },
+        { id: 'students', label: 'All Members', icon: '🌍' },
+        { 
+          id: 'messages', 
+          label: 'Messages', 
+          icon: '💬', 
+          count: stats.unreadMessages,
+          hasNotifications: true,
+          onClick: () => {
+            setActiveTab('messages');
+            // Mark all message notifications as read when opening messages
+            markMessageNotificationsAsRead();
+          }
+        },
         { id: 'study-groups', label: 'Study Groups', icon: '📚' },
       ]
     },
@@ -41,7 +55,7 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
         { id: 'jobs', label: 'Job Board', icon: '💼' },
         { id: 'events', label: 'Events', icon: '📅', count: stats.upcomingEvents },
         { id: 'housing', label: 'Housing', icon: '🏠' },
-        { id: 'food', label: 'African Food', icon: '🍛' },
+        { id: 'campus-eats', label: 'African Food', icon: '🍛' },
       ]
     },
     {
@@ -56,6 +70,8 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
   useEffect(() => {
     if (user) {
       fetchSidebarStats();
+      fetchRealNotifications();
+      setupRealtimeSubscriptions();
     }
   }, [user]);
 
@@ -63,47 +79,205 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
     fetchPlatformStats();
   }, []);
 
+  const setupRealtimeSubscriptions = () => {
+    if (!user) return;
+
+    // Subscribe to new messages
+    const messagesSubscription = supabase
+      .channel('sidebar-messages')
+      .on('postgres_changes', 
+        { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'messages',
+          filter: `sender_id=neq.${user.id}`
+        }, 
+        (payload) => {
+          // Check if message is for user
+          checkForNewMessage(payload.new);
+        }
+      )
+      .subscribe();
+
+    // Subscribe to new connection requests
+    const connectionsSubscription = supabase
+      .channel('sidebar-connections')
+      .on('postgres_changes', 
+        { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'friends',
+          filter: `friend_id=eq.${user.id}`
+        }, 
+        (payload) => {
+          if (payload.new.status === 'pending') {
+            addNotification({
+              type: 'connection_request',
+              title: 'New Connection Request',
+              message: `${payload.new.user_id ? 'Someone' : 'A user'} wants to connect with you`,
+              timestamp: new Date().toISOString(),
+              unread: true
+            });
+            // Update stats
+            setStats(prev => ({
+              ...prev,
+              pendingConnections: prev.pendingConnections + 1
+            }));
+          }
+        }
+      )
+      .subscribe();
+
+    // Subscribe to new event invites
+    const eventsSubscription = supabase
+      .channel('sidebar-events')
+      .on('postgres_changes', 
+        { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'event_attendees',
+          filter: `user_id=eq.${user.id}`
+        }, 
+        (payload) => {
+          if (payload.new.status === 'invited') {
+            addNotification({
+              type: 'event_invite',
+              title: 'Event Invitation',
+              message: 'You\'ve been invited to an event',
+              timestamp: new Date().toISOString(),
+              unread: true
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    // Subscribe to listing interactions
+    const listingsSubscription = supabase
+      .channel('sidebar-listings')
+      .on('postgres_changes', 
+        { 
+          event: '*', 
+          schema: 'public', 
+          table: 'saved_listings',
+          filter: `listing_id=in.(${getUserListingIds()})`
+        }, 
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            addNotification({
+              type: 'listing_saved',
+              title: 'Your listing was saved',
+              message: 'Someone saved your listing',
+              timestamp: new Date().toISOString(),
+              unread: true
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(messagesSubscription);
+      supabase.removeChannel(connectionsSubscription);
+      supabase.removeChannel(eventsSubscription);
+      supabase.removeChannel(listingsSubscription);
+    };
+  };
+
+  const getUserListingIds = () => {
+    // This would need to fetch user's listing IDs
+    // For now return empty string
+    return '';
+  };
+
+  const checkForNewMessage = async (message) => {
+    // Check if user is a participant in the conversation
+    const { data: participants } = await supabase
+      .from('conversation_participants')
+      .select('user_id')
+      .eq('conversation_id', message.conversation_id);
+
+    if (participants?.some(p => p.user_id === user.id)) {
+      addNotification({
+        type: 'new_message',
+        title: 'New Message',
+        message: message.content?.substring(0, 50) || 'New message received',
+        timestamp: message.created_at,
+        unread: true,
+        conversationId: message.conversation_id
+      });
+      
+      // Update unread messages count
+      setStats(prev => ({
+        ...prev,
+        unreadMessages: prev.unreadMessages + 1
+      }));
+    }
+  };
+
+  const addNotification = (notification) => {
+    setNotifications(prev => {
+      // Prevent duplicates
+      if (prev.some(n => n.id === notification.id)) {
+        return prev;
+      }
+      
+      const newNotification = {
+        ...notification,
+        id: Date.now().toString(),
+        timestamp: notification.timestamp || new Date().toISOString()
+      };
+      
+      return [newNotification, ...prev].slice(0, 20); // Keep only last 20
+    });
+  };
+
   const fetchSidebarStats = async () => {
     try {
       setLoading(true);
       
       const [
-        { count: unreadMessages },
-        { count: pendingConnections },
-        { count: activeListings },
-        { count: upcomingEvents }
+        { data: conversations, error: convError },
+        { count: pendingConnections, error: connError },
+        { count: activeListings, error: listError },
+        { count: upcomingEvents, error: eventError }
       ] = await Promise.all([
         // Unread messages count
         supabase
           .from('conversation_participants')
-          .select('unread_count', { count: 'exact', head: true })
+          .select('unread_count')
           .eq('user_id', user.id),
         
-        // Pending connection requests
+        // Pending friend requests
         supabase
-          .from('connections')
+          .from('friends')
           .select('*', { count: 'exact', head: true })
-          .eq('target_user_id', user.id)
+          .eq('friend_id', user.id)
           .eq('status', 'pending'),
         
         // Active listings
         supabase
-          .from('listings')
+          .from('marketplace_listings')
           .select('*', { count: 'exact', head: true })
           .eq('user_id', user.id)
-          .eq('is_active', true),
+          .eq('status', 'active'),
         
-        // Upcoming events
+        // Upcoming events user is attending
         supabase
           .from('event_attendees')
           .select('*', { count: 'exact', head: true })
           .eq('user_id', user.id)
           .eq('status', 'going')
-          .gt('events.event_date', new Date().toISOString())
       ]);
 
+      // Calculate total unread messages
+      let unreadMessagesTotal = 0;
+      if (conversations && !convError) {
+        unreadMessagesTotal = conversations.reduce((sum, conv) => sum + (conv.unread_count || 0), 0);
+      }
+
       setStats({
-        unreadMessages: unreadMessages || 0,
+        unreadMessages: unreadMessagesTotal,
         pendingConnections: pendingConnections || 0,
         activeListings: activeListings || 0,
         upcomingEvents: upcomingEvents || 0
@@ -113,6 +287,111 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
       console.error('Error fetching sidebar stats:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchRealNotifications = async () => {
+    try {
+      if (!user) return;
+
+      const [
+        { data: recentMessages },
+        { data: friendRequests },
+        { data: eventInvites }
+      ] = await Promise.all([
+        // Recent unread messages
+        supabase
+          .from('messages')
+          .select(`
+            id,
+            content,
+            created_at,
+            conversation_id,
+            sender:users!messages_sender_id_fkey(firstname, surname)
+          `)
+          .eq('conversations.conversation_participants.user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(5),
+        
+        // Pending friend requests
+        supabase
+          .from('friends')
+          .select(`
+            id,
+            created_at,
+            user:users!friends_user_id_fkey(firstname, surname)
+          `)
+          .eq('friend_id', user.id)
+          .eq('status', 'pending')
+          .order('created_at', { ascending: false })
+          .limit(5),
+        
+        // Event invitations
+        supabase
+          .from('event_attendees')
+          .select(`
+            id,
+            created_at,
+            events(title)
+          `)
+          .eq('user_id', user.id)
+          .eq('status', 'invited')
+          .order('created_at', { ascending: false })
+          .limit(3)
+      ]);
+
+      const newNotifications = [];
+
+      // Add message notifications
+      if (recentMessages) {
+        recentMessages.forEach(msg => {
+          newNotifications.push({
+            id: `msg_${msg.id}`,
+            type: 'new_message',
+            title: `New message from ${msg.sender?.firstname || 'Someone'}`,
+            message: msg.content?.substring(0, 50) || 'New message',
+            timestamp: msg.created_at,
+            unread: true,
+            conversationId: msg.conversation_id
+          });
+        });
+      }
+
+      // Add friend request notifications
+      if (friendRequests) {
+        friendRequests.forEach(req => {
+          newNotifications.push({
+            id: `friend_${req.id}`,
+            type: 'connection_request',
+            title: 'Connection Request',
+            message: `${req.user?.firstname || 'Someone'} wants to connect`,
+            timestamp: req.created_at,
+            unread: true,
+            requestId: req.id
+          });
+        });
+      }
+
+      // Add event invitations
+      if (eventInvites) {
+        eventInvites.forEach(invite => {
+          newNotifications.push({
+            id: `event_${invite.id}`,
+            type: 'event_invite',
+            title: 'Event Invitation',
+            message: `Invited to ${invite.events?.title || 'an event'}`,
+            timestamp: invite.created_at,
+            unread: true
+          });
+        });
+      }
+
+      // Sort by timestamp (newest first)
+      newNotifications.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      setNotifications(newNotifications);
+
+    } catch (error) {
+      console.error('Error fetching notifications:', error);
     }
   };
 
@@ -130,9 +409,9 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
         
         // New listings in last 24 hours
         supabase
-          .from('listings')
+          .from('marketplace_listings')
           .select('*', { count: 'exact', head: true })
-          .eq('is_active', true)
+          .eq('status', 'active')
           .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
       ]);
 
@@ -142,24 +421,115 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
       });
     } catch (error) {
       console.error('Error fetching platform stats:', error);
-      // Keep default values on error
+    }
+  };
+
+  const handleNotificationClick = (notification) => {
+    // Mark as read
+    markNotificationAsRead(notification);
+
+    // Navigate based on notification type
+    switch (notification.type) {
+      case 'new_message':
+        setActiveTab('messages');
+        break;
+      case 'connection_request':
+        setActiveTab('friends');
+        break;
+      case 'event_invite':
+        setActiveTab('events');
+        break;
+      default:
+        break;
+    }
+
+    setShowNotifications(false);
+  };
+
+  const markNotificationAsRead = (notification) => {
+    setNotifications(prev => 
+      prev.map(n => 
+        n.id === notification.id ? { ...n, unread: false } : n
+      )
+    );
+  };
+
+  const markMessageNotificationsAsRead = async () => {
+    try {
+      // Reset unread messages count in database
+      await supabase
+        .from('conversation_participants')
+        .update({ unread_count: 0 })
+        .eq('user_id', user.id);
+
+      // Update local state
+      setStats(prev => ({ ...prev, unreadMessages: 0 }));
+      
+      // Mark all message notifications as read
+      setNotifications(prev => 
+        prev.map(n => 
+          n.type === 'new_message' ? { ...n, unread: false } : n
+        )
+      );
+
+    } catch (error) {
+      console.error('Error marking messages as read:', error);
+    }
+  };
+
+  const markAllNotificationsAsRead = () => {
+    setNotifications(prev => 
+      prev.map(n => ({ ...n, unread: false }))
+    );
+  };
+
+  const clearAllNotifications = () => {
+    setNotifications([]);
+  };
+
+  const getUnreadNotificationCount = () => {
+    return notifications.filter(n => n.unread).length;
+  };
+
+  const formatNotificationTime = (timestamp) => {
+    if (!timestamp) return 'Just now';
+    
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  const getNotificationIcon = (type) => {
+    switch (type) {
+      case 'new_message': return '💬';
+      case 'connection_request': return '👥';
+      case 'event_invite': return '📅';
+      case 'listing_saved': return '⭐';
+      default: return '🔔';
     }
   };
 
   const handleCreateListing = () => {
-    // Open create listing modal or navigate
+    setActiveTab('marketplace');
+    // You could open a create listing modal here
     console.log('Create listing clicked');
-    // You can implement modal or navigation here
   };
 
   const handleQuickHelp = () => {
-    // Open help modal or navigate to support
-    console.log('Quick help clicked');
     window.location.href = '/support';
   };
 
   const handleCommunityGuidelines = () => {
-    // Open community guidelines
     window.location.href = '/guidelines';
   };
 
@@ -199,7 +569,7 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
 
   return (
     <aside className="sidebar" role="complementary" aria-label="Sidebar navigation">
-      {/* Quick Profile */}
+      {/* Quick Profile with Notifications */}
       <div className="sidebar-profile">
         <button
           onClick={() => setActiveTab('dashboard')}
@@ -223,6 +593,12 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
                 {getUserInitials()}
               </span>
             )}
+            {/* Notification badge on profile */}
+            {getUnreadNotificationCount() > 0 && (
+              <span className="profile-notification-badge">
+                {getUnreadNotificationCount()}
+              </span>
+            )}
           </div>
           <div className="profile-info">
             <h3 className="profile-name">
@@ -233,6 +609,99 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
             </p>
           </div>
         </button>
+
+        {/* Notifications Button */}
+        <div className="notifications-container">
+          <button
+            className="notifications-button"
+            onClick={() => setShowNotifications(!showNotifications)}
+            aria-label={`Notifications ${getUnreadNotificationCount() > 0 ? `, ${getUnreadNotificationCount()} unread` : ''}`}
+          >
+            <span className="notifications-icon">🔔</span>
+            {getUnreadNotificationCount() > 0 && (
+              <span className="notifications-badge">
+                {getUnreadNotificationCount()}
+              </span>
+            )}
+          </button>
+
+          {/* Notifications Dropdown */}
+          {showNotifications && (
+            <div className="notifications-dropdown">
+              <div className="notifications-header">
+                <h4>Notifications</h4>
+                <div className="notifications-actions">
+                  {notifications.some(n => n.unread) && (
+                    <button
+                      onClick={markAllNotificationsAsRead}
+                      className="notifications-action-btn"
+                      aria-label="Mark all as read"
+                    >
+                      Mark all read
+                    </button>
+                  )}
+                  {notifications.length > 0 && (
+                    <button
+                      onClick={clearAllNotifications}
+                      className="notifications-action-btn clear-btn"
+                      aria-label="Clear all notifications"
+                    >
+                      Clear all
+                    </button>
+                  )}
+                </div>
+              </div>
+              
+              <div className="notifications-list">
+                {notifications.length > 0 ? (
+                  notifications.map((notification) => (
+                    <button
+                      key={notification.id}
+                      onClick={() => handleNotificationClick(notification)}
+                      className={`notification-item ${notification.unread ? 'unread' : ''}`}
+                      aria-label={`${notification.title}: ${notification.message}`}
+                    >
+                      <div className="notification-icon">
+                        {getNotificationIcon(notification.type)}
+                      </div>
+                      <div className="notification-content">
+                        <div className="notification-title">
+                          {notification.title}
+                          {notification.unread && (
+                            <span className="unread-indicator" aria-hidden="true"></span>
+                          )}
+                        </div>
+                        <div className="notification-message">
+                          {notification.message}
+                        </div>
+                        <div className="notification-time">
+                          {formatNotificationTime(notification.timestamp)}
+                        </div>
+                      </div>
+                    </button>
+                  ))
+                ) : (
+                  <div className="no-notifications">
+                    <span className="no-notifications-icon">🔕</span>
+                    <p>No notifications</p>
+                  </div>
+                )}
+              </div>
+              
+              <div className="notifications-footer">
+                <button
+                  onClick={() => {
+                    setActiveTab('messages');
+                    setShowNotifications(false);
+                  }}
+                  className="view-all-btn"
+                >
+                  View All Messages
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Navigation Sections */}
@@ -254,8 +723,22 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
               {section.items.map((item) => (
                 <button
                   key={item.id}
-                  onClick={() => setActiveTab(item.id)}
-                  className={`sidebar-item ${activeTab === item.id ? 'sidebar-item-active' : ''}`}
+                  onClick={() => {
+                    if (item.onClick) {
+                      item.onClick();
+                    } else {
+                      setActiveTab(item.id);
+                    }
+                    if (item.hasNotifications) {
+                      // Clear notifications for this tab when clicked
+                      setNotifications(prev => 
+                        prev.map(n => 
+                          n.type === 'new_message' ? { ...n, unread: false } : n
+                        )
+                      );
+                    }
+                  }}
+                  className={`sidebar-item ${activeTab === item.id ? 'sidebar-item-active' : ''} ${item.hasNotifications ? 'has-notifications' : ''}`}
                   disabled={loading && item.count !== undefined}
                   aria-current={activeTab === item.id ? 'page' : undefined}
                   aria-label={`${item.label}${item.count ? `, ${item.count} notifications` : ''}`}

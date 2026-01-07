@@ -52,10 +52,10 @@ const NewChatModal = ({ user, onClose, onConversationCreated }) => {
     
     try {
       // First check if conversation already exists
-      const existingConv = await messagingAPI.checkExistingConversation(user.id, selectedUser.id);
+      const existingConvId = await messagingAPI.checkExistingConversation(user.id, selectedUser.id);
       
-      if (existingConv) {
-        onConversationCreated(existingConv);
+      if (existingConvId) {
+        onConversationCreated(existingConvId);
         onClose();
         return;
       }
