@@ -4,14 +4,16 @@ import './Layout.css';
 const MobileNav = ({ user, onLogout, activeTab, setActiveTab }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
+  // FIXED: Updated mobileNavItems to include Members instead of Travel
   const mobileNavItems = [
     { id: 'feed', label: 'Feed', icon: '📰' },
     { id: 'marketplace', label: 'Market', icon: '🛒' },
-    { id: 'travel', label: 'Travel', icon: '✈️' },
+    { id: 'students', label: 'Members', icon: '🌍' }, // CHANGED from travel to students
     { id: 'money', label: 'Money', icon: '💰' },
     { id: 'dashboard', label: 'Profile', icon: '👤' },
   ];
 
+  // FIXED: Changed 'All Members' id from 'community' to 'students'
   const menuSections = [
     {
       title: 'Discover',
@@ -27,7 +29,7 @@ const MobileNav = ({ user, onLogout, activeTab, setActiveTab }) => {
       title: 'Connect',
       items: [
         { id: 'friends', label: 'Friends', icon: '👥' },
-        { id: 'community', label: 'All Members', icon: '🌍' },
+        { id: 'students', label: 'All Members', icon: '🌍' }, // FIXED: Changed from 'community' to 'students'
         { id: 'messages', label: 'Messages', icon: '💬' },
         { id: 'study-groups', label: 'Study Groups', icon: '📚' },
       ]
@@ -77,6 +79,19 @@ const MobileNav = ({ user, onLogout, activeTab, setActiveTab }) => {
     return 'African in Russia';
   };
 
+  // Haptic feedback utility for mobile
+  const hapticFeedback = () => {
+    if ('vibrate' in navigator) {
+      navigator.vibrate(10);
+    }
+  };
+
+  const handleNavClick = (tabId) => {
+    hapticFeedback();
+    setActiveTab(tabId);
+    setIsMenuOpen(false);
+  };
+
   return (
     <>
       {/* Mobile Top Bar */}
@@ -91,7 +106,10 @@ const MobileNav = ({ user, onLogout, activeTab, setActiveTab }) => {
           </div>
 
           <button
-            onClick={() => setIsMenuOpen(true)}
+            onClick={() => {
+              hapticFeedback();
+              setIsMenuOpen(true);
+            }}
             className="mobile-menu-button"
             aria-label="Open menu"
             aria-expanded={isMenuOpen}
@@ -108,6 +126,11 @@ const MobileNav = ({ user, onLogout, activeTab, setActiveTab }) => {
           role="dialog"
           aria-modal="true"
           aria-label="Main menu"
+          onClick={(e) => {
+            if (e.target.classList.contains('mobile-menu-overlay')) {
+              setIsMenuOpen(false);
+            }
+          }}
         >
           <div className="mobile-menu-container">
             {/* Menu Header */}
@@ -120,7 +143,10 @@ const MobileNav = ({ user, onLogout, activeTab, setActiveTab }) => {
                 </div>
               </div>
               <button
-                onClick={() => setIsMenuOpen(false)}
+                onClick={() => {
+                  hapticFeedback();
+                  setIsMenuOpen(false);
+                }}
                 className="mobile-menu-close"
                 aria-label="Close menu"
               >
@@ -161,10 +187,7 @@ const MobileNav = ({ user, onLogout, activeTab, setActiveTab }) => {
                     {section.items.map((item) => (
                       <button
                         key={item.id}
-                        onClick={() => {
-                          setActiveTab(item.id);
-                          setIsMenuOpen(false);
-                        }}
+                        onClick={() => handleNavClick(item.id)}
                         className={`mobile-menu-item ${activeTab === item.id ? 'mobile-menu-item-active' : ''}`}
                         role="menuitem"
                         aria-current={activeTab === item.id ? 'page' : undefined}
@@ -183,6 +206,7 @@ const MobileNav = ({ user, onLogout, activeTab, setActiveTab }) => {
               <div className="mobile-menu-footer">
                 <button
                   onClick={() => {
+                    hapticFeedback();
                     onLogout();
                     setIsMenuOpen(false);
                   }}
@@ -200,6 +224,7 @@ const MobileNav = ({ user, onLogout, activeTab, setActiveTab }) => {
               <div className="mobile-auth-buttons">
                 <button
                   onClick={() => {
+                    hapticFeedback();
                     window.location.href = '/';
                     setIsMenuOpen(false);
                   }}
@@ -209,6 +234,7 @@ const MobileNav = ({ user, onLogout, activeTab, setActiveTab }) => {
                 </button>
                 <button
                   onClick={() => {
+                    hapticFeedback();
                     window.location.href = '/?state=signup';
                     setIsMenuOpen(false);
                   }}
@@ -228,7 +254,10 @@ const MobileNav = ({ user, onLogout, activeTab, setActiveTab }) => {
           {mobileNavItems.map((item) => (
             <button
               key={item.id}
-              onClick={() => setActiveTab(item.id)}
+              onClick={() => {
+                hapticFeedback();
+                setActiveTab(item.id);
+              }}
               className={`bottom-nav-item ${activeTab === item.id ? 'bottom-nav-item-active' : ''}`}
               role="tab"
               aria-selected={activeTab === item.id}

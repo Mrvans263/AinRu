@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
 import './AllStudents.css';
 
@@ -6,143 +6,184 @@ const AllStudents = () => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterBy, setFilterBy] = useState('all'); // 'all', 'student', 'non-student'
-  const [sortBy, setSortBy] = useState('name'); // 'name', 'recent', 'university'
+  const [filterBy, setFilterBy] = useState('all');
+  const [sortBy, setSortBy] = useState('recent');
 
+  // Fetch users
   useEffect(() => {
-    fetchAllUsers();
+    const fetchUsers = async () => {
+      setLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('users')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        setUsers(data || []);
+      } catch (error) {
+        console.error('Error fetching users:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchUsers();
   }, []);
 
-  const fetchAllUsers = async () => {
-    setLoading(true);
-    try {
-      // Fetch all users from the database
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .order('created_at', { ascending: false });
+  // Filter and sort users with useMemo for performance
+  const filteredUsers = useMemo(() => {
+    const searchLower = searchTerm.toLowerCase();
+    
+    return users
+      .filter(user => {
+        // Search filter
+        const matchesSearch = 
+          !searchTerm ||
+          (user.firstname && user.firstname.toLowerCase().includes(searchLower)) ||
+          (user.surname && user.surname.toLowerCase().includes(searchLower)) ||
+          (user.email && user.email.toLowerCase().includes(searchLower)) ||
+          (user.university && user.university.toLowerCase().includes(searchLower));
 
-      if (error) throw error;
+        // Student status filter
+        const matchesStudentFilter = 
+          filterBy === 'all' ||
+          (filterBy === 'student' && user.is_student === true) ||
+          (filterBy === 'non-student' && (!user.is_student || user.is_student === false));
 
-      console.log('Users fetched:', data?.length || 0);
-      setUsers(data || []);
-    } catch (error) {
-      console.error('Error fetching users:', error);
-      setUsers([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+        return matchesSearch && matchesStudentFilter;
+      })
+      .sort((a, b) => {
+        switch (sortBy) {
+          case 'name':
+            const nameA = `${a.firstname || ''} ${a.surname || ''}`.toLowerCase();
+            const nameB = `${b.firstname || ''} ${b.surname || ''}`.toLowerCase();
+            return nameA.localeCompare(nameB);
+          
+          case 'recent':
+            return new Date(b.created_at) - new Date(a.created_at);
+          
+          case 'university':
+            const uniA = a.university || '';
+            const uniB = b.university || '';
+            return uniA.localeCompare(uniB);
+          
+          default:
+            return 0;
+        }
+      });
+  }, [users, searchTerm, filterBy, sortBy]);
 
-  // Filter and sort users
-  const filteredUsers = users
-    .filter(user => {
-      // Search filter
-      const searchLower = searchTerm.toLowerCase();
-      const matchesSearch = 
-        !searchTerm ||
-        (user.firstname && user.firstname.toLowerCase().includes(searchLower)) ||
-        (user.surname && user.surname.toLowerCase().includes(searchLower)) ||
-        (user.email && user.email.toLowerCase().includes(searchLower)) ||
-        (user.university && user.university.toLowerCase().includes(searchLower)) ||
-        (user.city && user.city.toLowerCase().includes(searchLower));
+  // Calculate stats
+  const stats = useMemo(() => {
+    const students = users.filter(u => u.is_student).length;
+    const members = users.length - students;
+    
+    return { total: users.length, students, members };
+  }, [users]);
 
-      // Student status filter
-      const matchesStudentFilter = 
-        filterBy === 'all' ||
-        (filterBy === 'student' && user.is_student === true) ||
-        (filterBy === 'non-student' && (!user.is_student || user.is_student === false));
-
-      return matchesSearch && matchesStudentFilter;
-    })
-    .sort((a, b) => {
-      switch (sortBy) {
-        case 'name':
-          const nameA = `${a.firstname || ''} ${a.surname || ''}`.toLowerCase();
-          const nameB = `${b.firstname || ''} ${b.surname || ''}`.toLowerCase();
-          return nameA.localeCompare(nameB);
-        
-        case 'recent':
-          return new Date(b.created_at) - new Date(a.created_at);
-        
-        case 'university':
-          const uniA = a.university || '';
-          const uniB = b.university || '';
-          return uniA.localeCompare(uniB);
-        
-        default:
-          return 0;
+  // Contact handler
+  const handleContact = useCallback((type, value, name) => {
+    if (!value) return;
+    
+    if (type === 'email') {
+      window.location.href = `mailto:${value}`;
+    } else if (type === 'phone') {
+      if (window.confirm(`Call ${name || 'this member'} at ${value}?`)) {
+        window.location.href = `tel:${value}`;
       }
-    });
+    }
+  }, []);
 
+  // Format date
   const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-ZA', {
+    return new Date(dateString).toLocaleDateString('en-ZA', {
       year: 'numeric',
       month: 'short',
       day: 'numeric'
     });
   };
 
-  const getStudentStatusBadge = (isStudent) => {
-    if (isStudent === true) {
-      return <span className="student-badge">🎓 Student</span>;
-    }
-    return <span className="non-student-badge">👤 Member</span>;
-  };
-
+  // Get education badge
   const getEducationBadge = (education) => {
     if (!education) return null;
     
     const educationMap = {
-      'Undergraduate': '📚 Undergrad',
-      'Graduate': '🎓 Graduate',
-      'Postgraduate': '📜 Postgrad',
-      'PhD': '🧠 PhD',
-      'Diploma': '📋 Diploma'
+      'Undergraduate': 'Undergrad',
+      'Graduate': 'Graduate',
+      'Postgraduate': 'Postgrad',
+      'PhD': 'PhD',
+      'Diploma': 'Diploma'
     };
     
     return educationMap[education] || education;
   };
 
+  // Loading skeleton
   if (loading) {
     return (
       <div className="all-students-container">
-        <div className="loading">Loading users...</div>
+        <div className="loading-container">
+          <div className="loading-spinner"></div>
+          <p>Loading members...</p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="all-students-container">
-      {/* Header */}
-      <div className="all-students-header">
-        <h1 className="all-students-title">Community Members</h1>
-        <p className="all-students-subtitle">
-          Connect with {users.length} members in our community
-        </p>
-      </div>
-
-      {/* Filters Section */}
-      <div className="students-filters">
-        <div className="filters-grid">
-          {/* Search */}
-          <div className="filter-group">
-            <input
-              type="text"
-              className="search-input"
-              placeholder="Search by name, email, or university..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+      {/* Header with Stats */}
+      <header className="page-header">
+        <div>
+          <h1>Community Members</h1>
+          <p className="subtitle">Connect with {stats.total} members in our community</p>
+        </div>
+        
+        <div className="stats-grid">
+          <div className="stat-card">
+            <div className="stat-number">{stats.total}</div>
+            <div className="stat-label">Total</div>
           </div>
+          <div className="stat-card">
+            <div className="stat-number">{stats.students}</div>
+            <div className="stat-label">Students</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-number">{stats.members}</div>
+            <div className="stat-label">Members</div>
+          </div>
+        </div>
+      </header>
 
-          {/* Filter by Student Status */}
+      {/* Search and Filters */}
+      <div className="filters-section">
+        <div className="search-container">
+          <input
+            type="text"
+            placeholder="Search by name, email, university..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="search-input"
+          />
+          {searchTerm && (
+            <button 
+              className="clear-btn"
+              onClick={() => setSearchTerm('')}
+              aria-label="Clear search"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+
+        <div className="filter-controls">
           <div className="filter-group">
-            <select
-              className="filter-select"
-              value={filterBy}
+            <label>Filter:</label>
+            <select 
+              value={filterBy} 
               onChange={(e) => setFilterBy(e.target.value)}
+              className="select-input"
             >
               <option value="all">All Members</option>
               <option value="student">Students Only</option>
@@ -150,120 +191,129 @@ const AllStudents = () => {
             </select>
           </div>
 
-          {/* Sort By */}
           <div className="filter-group">
-            <select
-              className="filter-select"
-              value={sortBy}
+            <label>Sort by:</label>
+            <select 
+              value={sortBy} 
               onChange={(e) => setSortBy(e.target.value)}
+              className="select-input"
             >
-              <option value="name">Sort by Name</option>
-              <option value="recent">Sort by Recent</option>
-              <option value="university">Sort by University</option>
+              <option value="recent">Most Recent</option>
+              <option value="name">Name (A-Z)</option>
+              <option value="university">University</option>
             </select>
           </div>
         </div>
 
-        <div className="results-count">
-          Showing {filteredUsers.length} of {users.length} members
+        <div className="results-info">
+          <span className="results-count">
+            Showing {filteredUsers.length} of {users.length} members
+          </span>
         </div>
       </div>
 
       {/* Users Grid */}
-      <div className="users-grid">
+      <main className="users-grid">
         {filteredUsers.length === 0 ? (
-          <div className="no-users">
+          <div className="empty-state">
+            <div className="empty-icon">👥</div>
             <h3>No members found</h3>
             <p>Try adjusting your search or filters</p>
+            <button 
+              className="reset-btn"
+              onClick={() => {
+                setSearchTerm('');
+                setFilterBy('all');
+              }}
+            >
+              Reset Filters
+            </button>
           </div>
         ) : (
-          filteredUsers.map(user => (
+          filteredUsers.map((user) => (
             <div key={user.id} className="user-card">
-              {/* Profile Picture or Initials */}
-              <div className="user-avatar">
-                {user.profile_picture_url ? (
-                  <img 
-                    src={user.profile_picture_url} 
-                    alt={`${user.firstname || ''} ${user.surname || ''}`}
-                    className="avatar-image"
-                    onError={(e) => {
-                      e.target.style.display = 'none';
-                      e.target.nextElementSibling.style.display = 'flex';
-                    }}
-                  />
-                ) : null}
-                <div className="avatar-fallback">
-                  {user.firstname?.[0]?.toUpperCase() || 'U'}
+              {/* User Header */}
+              <div className="user-header">
+                <div className="user-avatar">
+                  {user.profile_picture_url ? (
+                    <img 
+                      src={user.profile_picture_url}
+                      alt={`${user.firstname} ${user.surname}`}
+                      className="avatar-img"
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                        e.target.nextElementSibling.style.display = 'flex';
+                      }}
+                    />
+                  ) : null}
+                  <div className="avatar-fallback">
+                    {(user.firstname?.[0] || 'U').toUpperCase()}
+                  </div>
+                  <div className={`status-badge ${user.is_student ? 'student' : 'member'}`}>
+                    {user.is_student ? '🎓' : '👤'}
+                  </div>
                 </div>
-              </div>
 
-              {/* User Info */}
-              <div className="user-info">
-                {/* Name and Student Status */}
-                <div className="user-header">
+                <div className="user-info-header">
                   <h3 className="user-name">
                     {user.firstname || 'User'} {user.surname || ''}
                   </h3>
-                  {getStudentStatusBadge(user.is_student)}
+                  <div className="user-role">
+                    {user.is_student ? 'Student' : 'Member'}
+                  </div>
                 </div>
+              </div>
 
-                {/* Email */}
+              {/* User Details */}
+              <div className="user-details">
                 {user.email && (
-                  <div className="user-email">
-                    <span className="info-icon">📧</span>
-                    <a href={`mailto:${user.email}`} className="email-link">
+                  <div className="detail-row">
+                    <span className="detail-icon">✉️</span>
+                    <span 
+                      className="detail-value clickable"
+                      onClick={() => handleContact('email', user.email, user.firstname)}
+                    >
                       {user.email}
-                    </a>
-                  </div>
-                )}
-
-                {/* University */}
-                {user.university && (
-                  <div className="user-university">
-                    <span className="info-icon">🏫</span>
-                    {user.university}
-                  </div>
-                )}
-
-                {/* Education Level */}
-                {user.education && (
-                  <div className="user-education">
-                    <span className="info-icon">📖</span>
-                    {getEducationBadge(user.education)}
-                  </div>
-                )}
-
-                {/* City */}
-                {user.city && (
-                  <div className="user-city">
-                    <span className="info-icon">📍</span>
-                    {user.city}
-                  </div>
-                )}
-
-                {/* Phone (if available and user is student) */}
-                {user.phone && user.is_student && (
-                  <div className="user-phone">
-                    <span className="info-icon">📱</span>
-                    <a href={`tel:${user.phone}`} className="phone-link">
-                      {user.phone}
-                    </a>
-                  </div>
-                )}
-
-                {/* Joined Date */}
-                <div className="user-joined">
-                  <span className="info-icon">📅</span>
-                  Joined {formatDate(user.created_at)}
-                </div>
-
-                {/* Additional Info */}
-                <div className="user-meta">
-                  {user.verification_board && (
-                    <span className="verification-badge">
-                      ✅ {user.verification_board}
                     </span>
-                  )}
+                  </div>
+                )}
+
+                {user.university && (
+                  <div className="detail-row">
+                    <span className="detail-icon">🏫</span>
+                    <span className="detail-value">{user.university}</span>
+                  </div>
+                )}
+
+                {user.education && (
+                  <div className="detail-row">
+                    <span className="detail-icon">📚</span>
+                    <span className="detail-value badge">{getEducationBadge(user.education)}</span>
+                  </div>
+                )}
+
+                {user.city && (
+                  <div className="detail-row">
+                    <span className="detail-icon">📍</span>
+                    <span className="detail-value">{user.city}</span>
+                  </div>
+                )}
+
+                {user.phone && (
+                  <div className="detail-row">
+                    <span className="detail-icon">📱</span>
+                    <span 
+                      className="detail-value clickable"
+                      onClick={() => handleContact('phone', user.phone, user.firstname)}
+                    >
+                      {user.phone}
+                    </span>
+                  </div>
+                )}
+
+                <div className="detail-row">
+                  <span className="detail-icon">📅</span>
+                  <span className="detail-value">Joined {formatDate(user.created_at)}</span>
                 </div>
               </div>
 
@@ -271,23 +321,17 @@ const AllStudents = () => {
               <div className="user-actions">
                 {user.email && (
                   <button
-                    className="email-btn"
-                    onClick={() => window.location.href = `mailto:${user.email}`}
-                    title="Send email"
+                    className="action-btn email-btn"
+                    onClick={() => handleContact('email', user.email, user.firstname)}
                   >
-                    📧 Email
+                    ✉️ Email
                   </button>
                 )}
                 
                 {user.phone && (
                   <button
-                    className="call-btn"
-                    onClick={() => {
-                      if (window.confirm(`Call ${user.firstname || 'User'} at ${user.phone}?`)) {
-                        window.location.href = `tel:${user.phone}`;
-                      }
-                    }}
-                    title="Call"
+                    className="action-btn call-btn"
+                    onClick={() => handleContact('phone', user.phone, user.firstname)}
                   >
                     📞 Call
                   </button>
@@ -296,7 +340,7 @@ const AllStudents = () => {
             </div>
           ))
         )}
-      </div>
+      </main>
     </div>
   );
 };

@@ -1,4 +1,4 @@
-// Feed.jsx - Complete Optimized Replacement WITH LIKE PERSISTENCE FIX & INFINITE SCROLL FIX
+// Feed.jsx - Complete Mobile Optimized Version with Like Persistence & Infinite Scroll Fix
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Heart, MessageCircle, Share2, Image as ImageIcon, Globe, Users, Lock, MoreVertical, Send, Clock, User, X } from 'lucide-react';
@@ -51,10 +51,12 @@ const Toast = ({ message, type, onClose }) => {
 const Avatar = React.memo(({ user, size = 'md', onClick, priority = false }) => {
   const [hasError, setHasError] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [isTapped, setIsTapped] = useState(false);
+
   const sizes = {
-    sm: '32px',
-    md: '48px',
-    lg: '64px'
+    sm: '36px',
+    md: '44px',
+    lg: '60px'
   };
 
   const getInitials = useCallback((firstname, surname) => {
@@ -81,10 +83,18 @@ const Avatar = React.memo(({ user, size = 'md', onClick, priority = false }) => 
     }
   }, [user]);
 
+  const handleClick = (e) => {
+    if (onClick) {
+      setIsTapped(true);
+      setTimeout(() => setIsTapped(false), 200);
+      onClick(e);
+    }
+  };
+
   return (
     <div 
-      className={`avatar avatar-${size} ${onClick ? 'clickable' : ''}`}
-      onClick={onClick}
+      className={`avatar avatar-${size} ${onClick ? 'clickable' : ''} ${isTapped ? 'tapped' : ''}`}
+      onClick={handleClick}
       style={{ width: sizes[size], height: sizes[size] }}
     >
       {avatarSrc && !hasError ? (
@@ -114,10 +124,13 @@ const Avatar = React.memo(({ user, size = 'md', onClick, priority = false }) => 
 });
 Avatar.displayName = 'Avatar';
 
-// ProgressiveImage Component
-const ProgressiveImage = React.memo(({ src, alt, className, priority = false }) => {
+// ProgressiveImage Component with zoom
+const ProgressiveImage = React.memo(({ src, alt, className, priority = false, onDoubleTap }) => {
   const [isLoaded, setIsLoaded] = useState(false);
   const [hasError, setHasError] = useState(false);
+  const [isZoomed, setIsZoomed] = useState(false);
+  const [showDoubleTapHeart, setShowDoubleTapHeart] = useState(false);
+  const lastTapRef = useRef(0);
 
   useEffect(() => {
     if (!src) return;
@@ -141,12 +154,35 @@ const ProgressiveImage = React.memo(({ src, alt, className, priority = false }) 
     };
   }, [src]);
 
+  const handleTouch = () => {
+    const now = Date.now();
+    const DOUBLE_TAP_DELAY = 300;
+    
+    if (lastTapRef.current && now - lastTapRef.current < DOUBLE_TAP_DELAY) {
+      // Double tap detected
+      if (onDoubleTap) {
+        onDoubleTap();
+      }
+      setShowDoubleTapHeart(true);
+      setTimeout(() => setShowDoubleTapHeart(false), 1000);
+      lastTapRef.current = 0;
+    } else {
+      lastTapRef.current = now;
+    }
+  };
+
+  const handleClick = () => {
+    setIsZoomed(!isZoomed);
+  };
+
   if (!src) return null;
 
   return (
     <div 
-      className={`image-container ${className || ''} ${isLoaded ? 'loaded' : 'loading'}`}
+      className={`image-container ${className || ''} ${isLoaded ? 'loaded' : 'loading'} ${isZoomed ? 'zoomed' : ''}`}
       data-priority={priority}
+      onClick={handleClick}
+      onTouchEnd={handleTouch}
     >
       {!isLoaded && !hasError && (
         <div className="image-placeholder">
@@ -156,7 +192,7 @@ const ProgressiveImage = React.memo(({ src, alt, className, priority = false }) 
       
       {hasError && (
         <div className="image-error">
-          <ImageIcon size={32} />
+          <div className="error-icon">📷</div>
           <span>Image failed to load</span>
         </div>
       )}
@@ -169,6 +205,28 @@ const ProgressiveImage = React.memo(({ src, alt, className, priority = false }) 
         className={`actual-image ${isLoaded ? 'visible' : 'invisible'}`}
         style={{ opacity: isLoaded ? 1 : 0 }}
       />
+      
+      {showDoubleTapHeart && (
+        <div className="double-tap-heart">
+          <Heart size={48} fill="currentColor" color="#ef4444" />
+        </div>
+      )}
+      
+      {isZoomed && (
+        <div className="zoom-overlay">
+          <button 
+            className="zoom-close"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsZoomed(false);
+            }}
+            aria-label="Close zoom"
+          >
+            <X size={24} />
+          </button>
+          <div className="zoom-instruction">Tap to close</div>
+        </div>
+      )}
     </div>
   );
 });
@@ -250,7 +308,7 @@ const CreatePost = React.memo(({ user, onCreatePost, isSubmitting }) => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
       const scrollHeight = textareaRef.current.scrollHeight;
-      const maxHeight = 200; // Maximum height in pixels
+      const maxHeight = 150; // Maximum height in pixels for mobile
       textareaRef.current.style.height = Math.min(scrollHeight, maxHeight) + 'px';
     }
   }, [content]);
@@ -275,7 +333,7 @@ const CreatePost = React.memo(({ user, onCreatePost, isSubmitting }) => {
               disabled={isSubmitting}
             />
             <div className="input-footer">
-              <div className="char-count">
+              <div className={`char-count ${charCount > 1800 ? 'warning' : ''}`}>
                 {charCount}/2000
               </div>
               <div className="visibility-selector">
@@ -319,7 +377,7 @@ const CreatePost = React.memo(({ user, onCreatePost, isSubmitting }) => {
               disabled={isSubmitting}
               aria-label="Add photo"
             >
-              <ImageIcon size={20} />
+              <ImageIcon size={18} />
               <span>Photo</span>
             </button>
             
@@ -351,7 +409,7 @@ const CreatePost = React.memo(({ user, onCreatePost, isSubmitting }) => {
 });
 CreatePost.displayName = 'CreatePost';
 
-// PostCard Component
+// PostCard Component - MOBILE OPTIMIZED
 const PostCard = React.memo(({ 
   post, 
   currentUser, 
@@ -371,6 +429,9 @@ const PostCard = React.memo(({
   const [commentInput, setCommentInput] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
   const [loadingComments, setLoadingComments] = useState(false);
+  const [isLiking, setIsLiking] = useState(false);
+  const [isCommenting, setIsCommenting] = useState(false);
+  
   const commentInputRef = useRef(null);
   
   const needsExpansion = post.content?.length > 300 && !isExpanded;
@@ -409,6 +470,7 @@ const PostCard = React.memo(({
           setComments(formattedComments);
         } catch (error) {
           console.error('Error loading comments:', error);
+          showToast('Failed to load comments', 'error');
         } finally {
           setLoadingComments(false);
         }
@@ -416,7 +478,14 @@ const PostCard = React.memo(({
     };
 
     loadComments();
-  }, [showComments, post.id]);
+  }, [showComments, post.id, showToast]);
+
+  // FIX: Update liked state when post.userHasLiked changes (on refresh)
+  useEffect(() => {
+    setLiked(post.userHasLiked);
+    setLikeCount(post.like_count);
+    setCommentCount(post.comment_count || 0);
+  }, [post.userHasLiked, post.like_count, post.comment_count]);
 
   const handleLike = async () => {
     if (!currentUser) {
@@ -424,28 +493,49 @@ const PostCard = React.memo(({
       return;
     }
     
+    // Prevent duplicate likes if already in process
+    if (isLiking) return;
+    
     const previousLiked = liked;
     const previousCount = likeCount;
     
-    // Optimistic update
-    setLiked(!liked);
-    setLikeCount(previousLiked ? previousCount - 1 : previousCount + 1);
+    // FIX: Check if already liked before incrementing
+    if (previousLiked) {
+      // User wants to unlike
+      setIsLiking(true);
+      setLiked(false);
+      setLikeCount(previousCount - 1);
+    } else {
+      // User wants to like
+      setIsLiking(true);
+      setLiked(true);
+      setLikeCount(previousCount + 1);
+    }
     
     try {
+      // Call the parent handler with the correct state
       await onLike(post.id, previousLiked);
     } catch (error) {
       // Rollback on error
       setLiked(previousLiked);
       setLikeCount(previousCount);
       showToast('Failed to update like', 'error');
+    } finally {
+      // Clear loading state
+      setTimeout(() => {
+        setIsLiking(false);
+      }, 300);
     }
   };
 
   const handleSubmitComment = async () => {
     if (!commentInput.trim() || !currentUser) return;
     
+    if (isCommenting) return;
+    
     const commentToSend = commentInput.trim();
     setCommentInput('');
+    setIsCommenting(true);
     
     try {
       await onComment(post.id, commentToSend);
@@ -469,32 +559,41 @@ const PostCard = React.memo(({
       setCommentCount(prev => prev + 1);
       
       // Refetch actual comments in background
-      const { data } = await supabase
-        .from('post_comments')
-        .select(`
-          *,
-          users!post_comments_user_id_fkey (
-            id,
-            firstname,
-            surname,
-            profile_picture_url
-          )
-        `)
-        .eq('post_id', post.id)
-        .order('created_at', { ascending: true })
-        .limit(50);
+      setTimeout(async () => {
+        try {
+          const { data } = await supabase
+            .from('post_comments')
+            .select(`
+              *,
+              users!post_comments_user_id_fkey (
+                id,
+                firstname,
+                surname,
+                profile_picture_url
+              )
+            `)
+            .eq('post_id', post.id)
+            .order('created_at', { ascending: true })
+            .limit(50);
 
-      if (data) {
-        const formattedComments = data.map(comment => ({
-          ...comment,
-          user: comment.users
-        }));
-        setComments(formattedComments);
-      }
+          if (data) {
+            const formattedComments = data.map(comment => ({
+              ...comment,
+              user: comment.users
+            }));
+            setComments(formattedComments);
+          }
+        } catch (error) {
+          console.error('Error refreshing comments:', error);
+        }
+      }, 1000);
       
     } catch (error) {
       // Error handled by parent
       setCommentInput(commentToSend); // Restore comment input
+      showToast('Failed to add comment', 'error');
+    } finally {
+      setIsCommenting(false);
     }
   };
 
@@ -514,11 +613,23 @@ const PostCard = React.memo(({
     }
   };
 
-  useEffect(() => {
-    setLiked(post.userHasLiked);
-    setLikeCount(post.like_count);
-    setCommentCount(post.comment_count || 0);
-  }, [post]);
+  const handleDoubleTapLike = () => {
+    if (!liked && !isLiking) {
+      handleLike();
+    }
+  };
+
+  const handleViewProfileClick = () => {
+    if (onViewProfile && post.user_id) {
+      onViewProfile(post.user_id);
+    }
+  };
+
+  const handleShareClick = () => {
+    if (onShare) {
+      onShare(post);
+    }
+  };
 
   return (
     <article 
@@ -531,12 +642,12 @@ const PostCard = React.memo(({
           <Avatar 
             user={post.user}
             size="md"
-            onClick={() => onViewProfile(post.user_id)}
+            onClick={handleViewProfileClick}
             priority={index < 3}
           />
           <div className="author-info">
             <div className="author-name">
-              <span onClick={() => onViewProfile(post.user_id)} className="author-name-link">
+              <span onClick={handleViewProfileClick} className="author-name-link">
                 {post.user?.firstname} {post.user?.surname}
               </span>
               {post.user_id === currentUser?.id && (
@@ -570,14 +681,14 @@ const PostCard = React.memo(({
         <div className="post-menu">
           <button 
             className="post-menu-btn" 
-            onClick={() => onShare(post)}
+            onClick={handleShareClick}
             aria-label="Share post"
           >
-            <Share2 size={20} />
+            <Share2 size={18} />
           </button>
           {post.user_id === currentUser?.id && (
             <button className="post-menu-btn" aria-label="More options">
-              <MoreVertical size={20} />
+              <MoreVertical size={18} />
             </button>
           )}
         </div>
@@ -604,20 +715,23 @@ const PostCard = React.memo(({
               alt="Post image"
               className="post-image"
               priority={index < 3}
+              onDoubleTap={handleDoubleTapLike}
             />
           </div>
         )}
       </div>
 
+      {/* ENHANCED: Smaller interactive buttons for mobile */}
       <div className="post-interactive-stats">
         <button 
-          className={`stat-action-btn ${liked ? 'liked' : ''}`}
+          className={`stat-action-btn ${liked ? 'liked' : ''} ${isLiking ? 'loading' : ''}`}
           onClick={handleLike}
+          disabled={isLiking}
           aria-label={liked ? 'Unlike post' : 'Like post'}
           title={liked ? 'Unlike' : 'Like'}
         >
           <div className="stat-action-content">
-            <Heart size={18} fill={liked ? 'currentColor' : 'none'} />
+            <Heart size={16} fill={liked ? 'currentColor' : 'none'} />
             {likeCount > 0 && (
               <span className="stat-count">{likeCount}</span>
             )}
@@ -631,7 +745,7 @@ const PostCard = React.memo(({
           title="Comments"
         >
           <div className="stat-action-content">
-            <MessageCircle size={18} />
+            <MessageCircle size={16} />
             {commentCount > 0 && (
               <span className="stat-count">{commentCount}</span>
             )}
@@ -640,12 +754,12 @@ const PostCard = React.memo(({
         
         <button 
           className="stat-action-btn"
-          onClick={() => onShare(post)}
+          onClick={handleShareClick}
           aria-label="Share post"
           title="Share"
         >
           <div className="stat-action-content">
-            <Share2 size={18} />
+            <Share2 size={16} />
             {(post.share_count || 0) > 0 && (
               <span className="stat-count">{post.share_count || 0}</span>
             )}
@@ -666,15 +780,20 @@ const PostCard = React.memo(({
                 value={commentInput}
                 onChange={(e) => setCommentInput(e.target.value)}
                 onKeyPress={handleKeyPress}
+                disabled={isCommenting}
                 aria-label="Comment input"
               />
               <button 
                 className="comment-submit-btn"
                 onClick={handleSubmitComment}
-                disabled={!commentInput.trim()}
+                disabled={!commentInput.trim() || isCommenting}
                 aria-label="Submit comment"
               >
-                <Send size={18} />
+                {isCommenting ? (
+                  <span className="spinner-small"></span>
+                ) : (
+                  <Send size={16} />
+                )}
               </button>
             </div>
           </div>
@@ -703,6 +822,9 @@ const PostCard = React.memo(({
                     <div className="comment-header">
                       <span className="comment-author">
                         {comment.user?.firstname} {comment.user?.surname}
+                        {comment.user_id === currentUser?.id && (
+                          <span className="you-badge">You</span>
+                        )}
                       </span>
                       <span className="comment-time">
                         {formatTimeAgo(comment.created_at)}
@@ -725,7 +847,7 @@ const PostCard = React.memo(({
 });
 PostCard.displayName = 'PostCard';
 
-// Main Feed Component - OPTIMIZED WITH LIKE PERSISTENCE FIX & INFINITE SCROLL FIX
+// Main Feed Component - FIXED INFINITE SCROLL & LIKE PERSISTENCE
 const Feed = () => {
   const [user, setUser] = useState(null);
   const [posts, setPosts] = useState([]);
@@ -743,7 +865,7 @@ const Feed = () => {
   const postsPerPage = 10;
   const abortControllerRef = useRef(null);
   const observerRef = useRef(null);
-  const isLoadingMore = useRef(false); // Track loading state to prevent multiple fetches
+  const isLoadingMore = useRef(false);
 
   // Show toast notification
   const showToast = useCallback((message, type = 'info') => {
@@ -786,7 +908,7 @@ const Feed = () => {
     getUser();
   }, [showToast]);
 
-  // Optimized fetch posts - FIXED LIKE PERSISTENCE
+  // FIXED: Optimized fetch posts with proper like persistence
   const fetchPosts = useCallback(async (pageNum, isRefresh = false) => {
     if (isFetching || isLoadingMore.current) return;
     
@@ -872,10 +994,17 @@ const Feed = () => {
       // Get all post IDs for batch queries
       const postIds = postsData.map(post => post.id);
 
-      // Batch fetch likes - FIX: This is where the like data comes from
-      const { data: likesData } = await supabase
+      // FIXED: Batch fetch likes with user-specific check
+      const { data: likesData } = user ? await supabase
         .from('post_likes')
         .select('post_id, user_id')
+        .in('post_id', postIds)
+        .eq('user_id', user.id) : { data: [] };
+
+      // Batch fetch all likes for count
+      const { data: allLikesData } = await supabase
+        .from('post_likes')
+        .select('post_id')
         .in('post_id', postIds);
 
       // Batch fetch comment counts
@@ -884,21 +1013,21 @@ const Feed = () => {
         .select('post_id')
         .in('post_id', postIds);
 
-      // Create a Set of post IDs that the current user has liked
-      // This is the key fix for like persistence
+      // Create Set of post IDs that the current user has liked
       const userLikedPostIds = new Set();
       const likeCountsByPost = new Map();
       const commentCountsByPost = new Map();
 
-      // Process likes data - FIX: Correctly track user likes and counts
-      if (likesData) {
+      // Process user-specific likes
+      if (likesData && user) {
         likesData.forEach(like => {
-          // Track if current user liked this post
-          if (user && like.user_id === user.id) {
-            userLikedPostIds.add(like.post_id);
-          }
-          
-          // Count likes per post
+          userLikedPostIds.add(like.post_id);
+        });
+      }
+
+      // Process all likes for counts
+      if (allLikesData) {
+        allLikesData.forEach(like => {
           likeCountsByPost.set(
             like.post_id, 
             (likeCountsByPost.get(like.post_id) || 0) + 1
@@ -916,12 +1045,12 @@ const Feed = () => {
         });
       }
 
-      // Process posts - FIX: Apply the correct userHasLiked value
-      const processedPosts = postsData.map((post, index) => {
+      // Process posts - FIXED: Proper like persistence
+      const processedPosts = postsData.map((post) => {
         return {
           ...post,
           user: post.users,
-          // FIX: Correctly check if current user has liked this post using the Set
+          // FIX: This correctly sets userHasLiked based on user's likes
           userHasLiked: user ? userLikedPostIds.has(post.id) : false,
           like_count: likeCountsByPost.get(post.id) || 0,
           comment_count: commentCountsByPost.get(post.id) || 0,
@@ -965,6 +1094,7 @@ const Feed = () => {
   useEffect(() => {
     setPage(0);
     setHasMore(true);
+    setLoading(true);
     fetchPosts(0, true);
     
     // Cleanup observer when tab changes
@@ -973,17 +1103,16 @@ const Feed = () => {
       observerRef.current.disconnect();
       observerRef.current = null;
     }
+    
+    // Reset sentinel
+    if (sentinelRef.current) {
+      sentinelRef.current = null;
+    }
   }, [user, activeTab]);
 
-  // Setup Intersection Observer for infinite scroll - FIXED
+  // FIXED: Setup Intersection Observer for infinite scroll
   useEffect(() => {
     if (!hasMore || isFetching || isLoadingMore.current) return;
-
-    // Cleanup previous observer
-    if (observerRef.current) {
-      observerRef.current.disconnect();
-      observerRef.current = null;
-    }
 
     const options = {
       root: null,
@@ -994,19 +1123,21 @@ const Feed = () => {
     const handleIntersection = (entries) => {
       const [entry] = entries;
       
-      // Only fetch if we're intersecting and not already loading
       if (entry.isIntersecting && !isFetching && !isLoadingMore.current && hasMore) {
-        // Update page state and fetch next page
-        setPage(prevPage => {
-          const nextPage = prevPage + 1;
-          fetchPosts(nextPage, false);
-          return nextPage;
-        });
+        // Fetch next page
+        const nextPage = page + 1;
+        setPage(nextPage);
+        fetchPosts(nextPage, false);
       }
     };
 
     const observer = new IntersectionObserver(handleIntersection, options);
     observerRef.current = observer;
+
+    // Recreate sentinel if needed
+    if (!sentinelRef.current) {
+      sentinelRef.current = document.querySelector('.loading-sentinel');
+    }
 
     if (sentinelRef.current) {
       observer.observe(sentinelRef.current);
@@ -1018,64 +1149,57 @@ const Feed = () => {
         observerRef.current = null;
       }
     };
-  }, [hasMore, isFetching, fetchPosts]);
+  }, [hasMore, isFetching, page, fetchPosts]);
 
-  // Optimized image compression (non-blocking)
+  // Image compression
   const compressImage = useCallback((file) => {
     return new Promise((resolve) => {
-      // If file is small, return as is
       if (file.size <= 1024 * 1024) { // 1MB
         resolve(file);
         return;
       }
       
-      // Use requestAnimationFrame to avoid blocking
-      requestAnimationFrame(() => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      
+      reader.onload = (e) => {
+        const img = new Image();
+        img.src = e.target.result;
         
-        reader.onload = (e) => {
-          const img = new Image();
-          img.src = e.target.result;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
           
-          img.onload = () => {
-            // Use setTimeout to yield to main thread
-            setTimeout(() => {
-              const canvas = document.createElement('canvas');
-              const ctx = canvas.getContext('2d');
-              
-              let width = img.width;
-              let height = img.height;
-              const maxSize = 1200;
-              
-              if (width > height && width > maxSize) {
-                height = (height * maxSize) / width;
-                width = maxSize;
-              } else if (height > maxSize) {
-                width = (width * maxSize) / height;
-                height = maxSize;
-              }
-              
-              canvas.width = width;
-              canvas.height = height;
-              
-              ctx.drawImage(img, 0, 0, width, height);
-              
-              canvas.toBlob((blob) => {
-                const compressedFile = new File([blob], file.name, {
-                  type: 'image/jpeg',
-                  lastModified: Date.now()
-                });
-                resolve(compressedFile);
-              }, 'image/jpeg', 0.8);
-            }, 0);
-          };
+          let width = img.width;
+          let height = img.height;
+          const maxSize = 1200;
+          
+          if (width > height && width > maxSize) {
+            height = (height * maxSize) / width;
+            width = maxSize;
+          } else if (height > maxSize) {
+            width = (width * maxSize) / height;
+            height = maxSize;
+          }
+          
+          canvas.width = width;
+          canvas.height = height;
+          
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          canvas.toBlob((blob) => {
+            const compressedFile = new File([blob], file.name, {
+              type: 'image/jpeg',
+              lastModified: Date.now()
+            });
+            resolve(compressedFile);
+          }, 'image/jpeg', 0.8);
         };
-      });
+      };
     });
   }, []);
 
-  // Handle create post - OPTIMIZED VERSION
+  // Handle create post
   const handleCreatePost = useCallback(async (postData) => {
     if (!user) {
       showToast('Please login to create a post', 'warning');
@@ -1092,7 +1216,6 @@ const Feed = () => {
     try {
       let imageUrl = null;
       
-      // Upload image if exists (non-blocking approach)
       if (postData.imageFile) {
         const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
         if (!validTypes.includes(postData.imageFile.type)) {
@@ -1107,7 +1230,6 @@ const Feed = () => {
           return;
         }
         
-        // Compress image if needed (non-blocking)
         const compressedFile = await compressImage(postData.imageFile);
         
         const sanitizedName = compressedFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -1131,7 +1253,6 @@ const Feed = () => {
         imageUrl = publicUrl;
       }
       
-      // Create post with minimal data first
       const { data: newPostData, error } = await supabase
         .from('feed_posts')
         .insert([{
@@ -1148,7 +1269,6 @@ const Feed = () => {
       
       if (error) throw error;
       
-      // Create optimistic post
       const optimisticPost = {
         ...newPostData,
         user: {
@@ -1159,7 +1279,7 @@ const Feed = () => {
           university: user.university,
           program_field: user.program_field
         },
-        userHasLiked: false,
+        userHasLiked: false, // User hasn't liked their own post yet
         like_count: 0,
         comment_count: 0,
         comments: [],
@@ -1168,11 +1288,10 @@ const Feed = () => {
         isNewPost: true
       };
       
-      // Optimistic update - add to beginning of posts
       setPosts(prev => [optimisticPost, ...prev]);
       showToast('Post published successfully!', 'success');
       
-      // Refetch to get accurate counts (in background, non-blocking)
+      // Refetch to get accurate counts
       setTimeout(() => {
         fetchPosts(0, true);
       }, 1000);
@@ -1185,18 +1304,20 @@ const Feed = () => {
     }
   }, [user, showToast, compressImage, fetchPosts]);
 
-  // Handle like post
+  // FIXED: Handle like post with proper state management
   const handleLikePost = useCallback(async (postId, currentlyLiked) => {
     if (!user) return;
     
     try {
       if (currentlyLiked) {
+        // User wants to unlike
         await supabase
           .from('post_likes')
           .delete()
           .eq('post_id', postId)
           .eq('user_id', user.id);
       } else {
+        // User wants to like
         await supabase
           .from('post_likes')
           .insert([{
@@ -1206,9 +1327,22 @@ const Feed = () => {
           }]);
       }
       
+      // Update the specific post in the posts array
+      setPosts(prev => prev.map(post => {
+        if (post.id === postId) {
+          return {
+            ...post,
+            userHasLiked: !currentlyLiked,
+            like_count: currentlyLiked ? (post.like_count - 1) : (post.like_count + 1)
+          };
+        }
+        return post;
+      }));
+      
     } catch (error) {
       console.error('Error updating like:', error);
       showToast('Failed to update like', 'error');
+      throw error;
     }
   }, [user, showToast]);
 
@@ -1229,6 +1363,17 @@ const Feed = () => {
         }]);
       
       if (error) throw error;
+
+      // Update comment count for the post
+      setPosts(prev => prev.map(post => {
+        if (post.id === postId) {
+          return {
+            ...post,
+            comment_count: (post.comment_count || 0) + 1
+          };
+        }
+        return post;
+      }));
 
       showToast('Comment added!', 'success');
       
@@ -1274,6 +1419,17 @@ const Feed = () => {
           text: post.content?.substring(0, 100),
           url: window.location.href,
         });
+        
+        // Increment share count
+        setPosts(prev => prev.map(p => {
+          if (p.id === post.id) {
+            return {
+              ...p,
+              share_count: (p.share_count || 0) + 1
+            };
+          }
+          return p;
+        }));
       } else {
         await navigator.clipboard.writeText(window.location.href);
         showToast('Link copied to clipboard!', 'success');
@@ -1375,7 +1531,7 @@ const Feed = () => {
             onClick={() => setActiveTab('all')}
             aria-label="View all posts"
           >
-            <Globe size={18} />
+            <Globe size={16} />
             <span>All Posts</span>
           </button>
           
@@ -1386,7 +1542,7 @@ const Feed = () => {
                 onClick={() => setActiveTab('following')}
                 aria-label="View posts from people you follow"
               >
-                <Users size={18} />
+                <Users size={16} />
                 <span>Following</span>
               </button>
               
@@ -1395,7 +1551,7 @@ const Feed = () => {
                 onClick={() => setActiveTab('my')}
                 aria-label="View your posts"
               >
-                <User size={18} />
+                <User size={16} />
                 <span>My Posts</span>
               </button>
             </>
@@ -1447,7 +1603,7 @@ const Feed = () => {
             </div>
           )}
 
-          {/* Sentinel for infinite scroll */}
+          {/* Sentinel for infinite scroll - FIXED: This triggers the observer */}
           <div 
             ref={sentinelRef}
             className="loading-sentinel"

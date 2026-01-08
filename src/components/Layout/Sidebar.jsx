@@ -17,6 +17,26 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
 
+  // Loading skeleton components
+  const StatLoadingSkeleton = () => (
+    <div className="stat-item">
+      <div className="stat-value shimmer" style={{ width: '60px', height: '20px', margin: '0 auto' }}></div>
+      <div className="stat-label shimmer" style={{ width: '80px', height: '12px', margin: '4px auto 0' }}></div>
+    </div>
+  );
+
+  const ItemLoadingSkeleton = () => (
+    <div className="sidebar-item" style={{ cursor: 'default' }}>
+      <div className="sidebar-item-content">
+        <span className="item-icon shimmer" style={{ width: '24px', height: '24px' }}></span>
+        <span className="item-label shimmer" style={{ width: '100px', height: '16px' }}></span>
+      </div>
+      <div className="sidebar-item-badges">
+        <span className="item-count item-count-loading"></span>
+      </div>
+    </div>
+  );
+
   // FIXED: Updated item.id values to match App.jsx tab names
   const sidebarSections = [
     {
@@ -42,7 +62,6 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
           hasNotifications: true,
           onClick: () => {
             setActiveTab('messages');
-            // Mark all message notifications as read when opening messages
             markMessageNotificationsAsRead();
           }
         },
@@ -93,7 +112,6 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
           filter: `sender_id=neq.${user.id}`
         }, 
         (payload) => {
-          // Check if message is for user
           checkForNewMessage(payload.new);
         }
       )
@@ -118,7 +136,6 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
               timestamp: new Date().toISOString(),
               unread: true
             });
-            // Update stats
             setStats(prev => ({
               ...prev,
               pendingConnections: prev.pendingConnections + 1
@@ -185,13 +202,10 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
   };
 
   const getUserListingIds = () => {
-    // This would need to fetch user's listing IDs
-    // For now return empty string
     return '';
   };
 
   const checkForNewMessage = async (message) => {
-    // Check if user is a participant in the conversation
     const { data: participants } = await supabase
       .from('conversation_participants')
       .select('user_id')
@@ -207,7 +221,6 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
         conversationId: message.conversation_id
       });
       
-      // Update unread messages count
       setStats(prev => ({
         ...prev,
         unreadMessages: prev.unreadMessages + 1
@@ -217,7 +230,6 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
 
   const addNotification = (notification) => {
     setNotifications(prev => {
-      // Prevent duplicates
       if (prev.some(n => n.id === notification.id)) {
         return prev;
       }
@@ -228,7 +240,7 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
         timestamp: notification.timestamp || new Date().toISOString()
       };
       
-      return [newNotification, ...prev].slice(0, 20); // Keep only last 20
+      return [newNotification, ...prev].slice(0, 20);
     });
   };
 
@@ -242,27 +254,23 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
         { count: activeListings, error: listError },
         { count: upcomingEvents, error: eventError }
       ] = await Promise.all([
-        // Unread messages count
         supabase
           .from('conversation_participants')
           .select('unread_count')
           .eq('user_id', user.id),
         
-        // Pending friend requests
         supabase
           .from('friends')
           .select('*', { count: 'exact', head: true })
           .eq('friend_id', user.id)
           .eq('status', 'pending'),
         
-        // Active listings
         supabase
           .from('marketplace_listings')
           .select('*', { count: 'exact', head: true })
           .eq('user_id', user.id)
           .eq('status', 'active'),
         
-        // Upcoming events user is attending
         supabase
           .from('event_attendees')
           .select('*', { count: 'exact', head: true })
@@ -270,7 +278,6 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
           .eq('status', 'going')
       ]);
 
-      // Calculate total unread messages
       let unreadMessagesTotal = 0;
       if (conversations && !convError) {
         unreadMessagesTotal = conversations.reduce((sum, conv) => sum + (conv.unread_count || 0), 0);
@@ -299,7 +306,6 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
         { data: friendRequests },
         { data: eventInvites }
       ] = await Promise.all([
-        // Recent unread messages
         supabase
           .from('messages')
           .select(`
@@ -313,7 +319,6 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
           .order('created_at', { ascending: false })
           .limit(5),
         
-        // Pending friend requests
         supabase
           .from('friends')
           .select(`
@@ -326,7 +331,6 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
           .order('created_at', { ascending: false })
           .limit(5),
         
-        // Event invitations
         supabase
           .from('event_attendees')
           .select(`
@@ -342,7 +346,6 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
 
       const newNotifications = [];
 
-      // Add message notifications
       if (recentMessages) {
         recentMessages.forEach(msg => {
           newNotifications.push({
@@ -357,7 +360,6 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
         });
       }
 
-      // Add friend request notifications
       if (friendRequests) {
         friendRequests.forEach(req => {
           newNotifications.push({
@@ -372,7 +374,6 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
         });
       }
 
-      // Add event invitations
       if (eventInvites) {
         eventInvites.forEach(invite => {
           newNotifications.push({
@@ -386,7 +387,6 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
         });
       }
 
-      // Sort by timestamp (newest first)
       newNotifications.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
       setNotifications(newNotifications);
 
@@ -401,13 +401,11 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
         { count: activeMembers },
         { count: newListings }
       ] = await Promise.all([
-        // Active members (users with profile_completed = true)
         supabase
           .from('users')
           .select('*', { count: 'exact', head: true })
           .eq('profile_completed', true),
         
-        // New listings in last 24 hours
         supabase
           .from('marketplace_listings')
           .select('*', { count: 'exact', head: true })
@@ -425,10 +423,8 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
   };
 
   const handleNotificationClick = (notification) => {
-    // Mark as read
     markNotificationAsRead(notification);
 
-    // Navigate based on notification type
     switch (notification.type) {
       case 'new_message':
         setActiveTab('messages');
@@ -456,16 +452,13 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
 
   const markMessageNotificationsAsRead = async () => {
     try {
-      // Reset unread messages count in database
       await supabase
         .from('conversation_participants')
         .update({ unread_count: 0 })
         .eq('user_id', user.id);
 
-      // Update local state
       setStats(prev => ({ ...prev, unreadMessages: 0 }));
       
-      // Mark all message notifications as read
       setNotifications(prev => 
         prev.map(n => 
           n.type === 'new_message' ? { ...n, unread: false } : n
@@ -521,8 +514,6 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
 
   const handleCreateListing = () => {
     setActiveTab('marketplace');
-    // You could open a create listing modal here
-    console.log('Create listing clicked');
   };
 
   const handleQuickHelp = () => {
@@ -593,7 +584,6 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
                 {getUserInitials()}
               </span>
             )}
-            {/* Notification badge on profile */}
             {getUnreadNotificationCount() > 0 && (
               <span className="profile-notification-badge">
                 {getUnreadNotificationCount()}
@@ -721,55 +711,53 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
             </h3>
             <div className="section-items">
               {section.items.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => {
-                    if (item.onClick) {
-                      item.onClick();
-                    } else {
-                      setActiveTab(item.id);
-                    }
-                    if (item.hasNotifications) {
-                      // Clear notifications for this tab when clicked
-                      setNotifications(prev => 
-                        prev.map(n => 
-                          n.type === 'new_message' ? { ...n, unread: false } : n
-                        )
-                      );
-                    }
-                  }}
-                  className={`sidebar-item ${activeTab === item.id ? 'sidebar-item-active' : ''} ${item.hasNotifications ? 'has-notifications' : ''}`}
-                  disabled={loading && item.count !== undefined}
-                  aria-current={activeTab === item.id ? 'page' : undefined}
-                  aria-label={`${item.label}${item.count ? `, ${item.count} notifications` : ''}`}
-                >
-                  <div className="sidebar-item-content">
-                    <span className="item-icon" aria-hidden="true">{item.icon}</span>
-                    <span className="item-label">{item.label}</span>
-                  </div>
-                  <div className="sidebar-item-badges">
-                    {item.badge && (
-                      <span 
-                        className="item-badge"
-                        aria-hidden="true"
-                      >
-                        {item.badge}
-                      </span>
-                    )}
-                    {item.count !== undefined && (
-                      <span 
-                        className={`item-count ${loading ? 'item-count-loading' : ''}`}
-                        aria-label={`${item.count} notifications`}
-                      >
-                        {loading ? (
-                          <span className="loading-dots" aria-hidden="true">...</span>
-                        ) : (
-                          item.count > 0 && item.count
-                        )}
-                      </span>
-                    )}
-                  </div>
-                </button>
+                loading && item.count !== undefined ? (
+                  <ItemLoadingSkeleton key={item.id} />
+                ) : (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      if (item.onClick) {
+                        item.onClick();
+                      } else {
+                        setActiveTab(item.id);
+                      }
+                      if (item.hasNotifications) {
+                        setNotifications(prev => 
+                          prev.map(n => 
+                            n.type === 'new_message' ? { ...n, unread: false } : n
+                          )
+                        );
+                      }
+                    }}
+                    className={`sidebar-item ${activeTab === item.id ? 'sidebar-item-active' : ''} ${item.hasNotifications ? 'has-notifications' : ''}`}
+                    aria-current={activeTab === item.id ? 'page' : undefined}
+                    aria-label={`${item.label}${item.count ? `, ${item.count} notifications` : ''}`}
+                  >
+                    <div className="sidebar-item-content">
+                      <span className="item-icon" aria-hidden="true">{item.icon}</span>
+                      <span className="item-label">{item.label}</span>
+                    </div>
+                    <div className="sidebar-item-badges">
+                      {item.badge && (
+                        <span 
+                          className="item-badge"
+                          aria-hidden="true"
+                        >
+                          {item.badge}
+                        </span>
+                      )}
+                      {item.count !== undefined && item.count > 0 && (
+                        <span 
+                          className="item-count"
+                          aria-label={`${item.count} notifications`}
+                        >
+                          {item.count}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                )
               ))}
             </div>
           </div>
@@ -817,25 +805,34 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
           <p className="stat-subtitle">Africans in Russia</p>
         </div>
         <div className="stat-items">
-          <div 
-            className="stat-item" 
-            role="status"
-            aria-label={`${platformStats.activeMembers.toLocaleString()} active members`}
-          >
-            <div className="stat-value">
-              {platformStats.activeMembers.toLocaleString()}
-            </div>
-            <div className="stat-label">Active Members</div>
-          </div>
-          <div 
-            className="stat-item"
-            role="status"
-            aria-label={`${platformStats.newListings} new listings in last 24 hours`}
-          >
-            <div className="stat-value">{platformStats.newListings}</div>
-            <div className="stat-label">New Listings</div>
-            <div className="stat-timeframe">Last 24h</div>
-          </div>
+          {loading ? (
+            <>
+              <StatLoadingSkeleton />
+              <StatLoadingSkeleton />
+            </>
+          ) : (
+            <>
+              <div 
+                className="stat-item" 
+                role="status"
+                aria-label={`${platformStats.activeMembers.toLocaleString()} active members`}
+              >
+                <div className="stat-value">
+                  {platformStats.activeMembers.toLocaleString()}
+                </div>
+                <div className="stat-label">Active Members</div>
+              </div>
+              <div 
+                className="stat-item"
+                role="status"
+                aria-label={`${platformStats.newListings} new listings in last 24 hours`}
+              >
+                <div className="stat-value">{platformStats.newListings}</div>
+                <div className="stat-label">New Listings</div>
+                <div className="stat-timeframe">Last 24h</div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
