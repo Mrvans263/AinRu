@@ -1,14 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import './Layout.css';
 
 const MobileNav = ({ user, onLogout, activeTab, setActiveTab }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
+  // Add this useEffect for scroll control
+  useEffect(() => {
+    if (isMenuOpen) {
+      document.body.classList.add('mobile-menu-open');
+    } else {
+      document.body.classList.remove('mobile-menu-open');
+    }
+    
+    return () => {
+      document.body.classList.remove('mobile-menu-open');
+    };
+  }, [isMenuOpen]);
+
   // FIXED: Updated mobileNavItems to include Members instead of Travel
   const mobileNavItems = [
     { id: 'feed', label: 'Feed', icon: '📰' },
     { id: 'marketplace', label: 'Market', icon: '🛒' },
-    { id: 'students', label: 'Members', icon: '🌍' }, // CHANGED from travel to students
+    { id: 'students', label: 'Members', icon: '🌍' },
     { id: 'money', label: 'Money', icon: '💰' },
     { id: 'dashboard', label: 'Profile', icon: '👤' },
   ];
@@ -29,7 +42,7 @@ const MobileNav = ({ user, onLogout, activeTab, setActiveTab }) => {
       title: 'Connect',
       items: [
         { id: 'friends', label: 'Friends', icon: '👥' },
-        { id: 'students', label: 'All Members', icon: '🌍' }, // FIXED: Changed from 'community' to 'students'
+        { id: 'students', label: 'All Members', icon: '🌍' },
         { id: 'messages', label: 'Messages', icon: '💬' },
         { id: 'study-groups', label: 'Study Groups', icon: '📚' },
       ]
@@ -128,6 +141,7 @@ const MobileNav = ({ user, onLogout, activeTab, setActiveTab }) => {
           aria-label="Main menu"
           onClick={(e) => {
             if (e.target.classList.contains('mobile-menu-overlay')) {
+              document.body.classList.remove('mobile-menu-open');
               setIsMenuOpen(false);
             }
           }}
@@ -145,6 +159,7 @@ const MobileNav = ({ user, onLogout, activeTab, setActiveTab }) => {
               <button
                 onClick={() => {
                   hapticFeedback();
+                  document.body.classList.remove('mobile-menu-open');
                   setIsMenuOpen(false);
                 }}
                 className="mobile-menu-close"
@@ -208,6 +223,7 @@ const MobileNav = ({ user, onLogout, activeTab, setActiveTab }) => {
                   onClick={() => {
                     hapticFeedback();
                     onLogout();
+                    document.body.classList.remove('mobile-menu-open');
                     setIsMenuOpen(false);
                   }}
                   className="mobile-logout-button"
@@ -226,6 +242,7 @@ const MobileNav = ({ user, onLogout, activeTab, setActiveTab }) => {
                   onClick={() => {
                     hapticFeedback();
                     window.location.href = '/';
+                    document.body.classList.remove('mobile-menu-open');
                     setIsMenuOpen(false);
                   }}
                   className="mobile-auth-btn mobile-auth-login"
@@ -236,6 +253,7 @@ const MobileNav = ({ user, onLogout, activeTab, setActiveTab }) => {
                   onClick={() => {
                     hapticFeedback();
                     window.location.href = '/?state=signup';
+                    document.body.classList.remove('mobile-menu-open');
                     setIsMenuOpen(false);
                   }}
                   className="mobile-auth-btn mobile-auth-join"
