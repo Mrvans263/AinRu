@@ -1709,3 +1709,205 @@ button:focus-visible {
     padding: 0.75rem 0.5rem;
   }
 }
+/* ========== MOBILE SCROLLING FIXES ========== */
+.app-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  overflow: hidden;
+  width: 100%;
+}
+
+.main-layout {
+  display: flex;
+  flex: 1;
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+}
+
+/* Content Area - This is where the scrolling happens */
+.content-area {
+  flex: 1;
+  overflow-y: auto;
+  width: 100%;
+  height: 100vh;
+  -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+  background: var(--bg-secondary);
+}
+
+.content-area.with-sidebar {
+  margin-left: 0; /* Remove sidebar offset for mobile */
+}
+
+.content-wrapper {
+  min-height: 100%;
+  padding: 1.5rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* Mobile-specific content area adjustments */
+@media (max-width: 768px) {
+  .app-container {
+    padding-top: 3.5rem; /* Height of mobile top nav */
+    padding-bottom: 4rem; /* Height of bottom nav */
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  .content-area {
+    height: calc(100vh - 3.5rem - 4rem); /* Subtract nav heights */
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+
+  .content-wrapper {
+    padding: 1rem;
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0));
+  }
+
+  /* Adjust tab content for mobile */
+  .tab-content {
+    padding-bottom: 2rem;
+  }
+
+  /* Safe area support for iPhone X and newer */
+  .bottom-nav {
+    padding-bottom: env(safe-area-inset-bottom, 0.75rem);
+  }
+
+  .content-wrapper {
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0));
+  }
+
+  /* Prevent horizontal overflow on mobile */
+  * {
+    max-width: 100%;
+  }
+
+  img, video, iframe {
+    max-width: 100%;
+    height: auto;
+  }
+}
+
+/* Desktop-specific adjustments */
+@media (min-width: 769px) {
+  .content-area {
+    height: calc(100vh - 4.5rem); /* Subtract navbar height */
+    padding-top: 0;
+  }
+
+  .content-area.with-sidebar {
+    margin-left: 18rem; /* Sidebar width */
+    width: calc(100% - 18rem);
+  }
+
+  .sidebar {
+    height: calc(100vh - 4.5rem); /* Subtract navbar height */
+    top: 4.5rem; /* Align with navbar bottom */
+  }
+}
+
+/* Tab Content Styling */
+.tab-content {
+  animation: fadeIn 0.3s ease;
+  min-height: 100%;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Loading Screen */
+.loading-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background: var(--bg-primary);
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--border-light);
+  border-top-color: var(--primary-gradient);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Sidebar Toggle Button */
+.sidebar-toggle {
+  position: fixed;
+  top: 5.5rem;
+  left: 0;
+  z-index: 100;
+  background: var(--primary-gradient);
+  color: white;
+  border: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-md);
+  transition: all var(--transition-base);
+}
+
+.sidebar-toggle:hover {
+  width: 32px;
+  transform: translateX(2px);
+}
+
+@media (min-width: 769px) {
+  .sidebar-toggle {
+    display: flex;
+  }
+}
+
+/* Fix for iOS Safari 100vh issue */
+@supports (-webkit-touch-callout: none) {
+  .app-container {
+    height: -webkit-fill-available;
+  }
+  
+  .content-area {
+    height: -webkit-fill-available;
+  }
+}
+
+/* Ensure no horizontal scroll on mobile */
+html, body {
+  overflow-x: hidden;
+  position: relative;
+  width: 100%;
+}
+
+/* Touch scrolling improvements */
+.content-area {
+  scroll-behavior: smooth;
+  overscroll-behavior: contain; /* Prevent pull-to-refresh on mobile */
+}
+
+/* Fix for fixed elements causing scroll issues */
+.navbar, .mobile-nav, .bottom-nav {
+  transform: translateZ(0); /* Force GPU acceleration */
+  backface-visibility: hidden;
+}
+
+/* Prevent body scroll when mobile menu is open */
+body.menu-open {
+  overflow: hidden;
+  position: fixed;
+  width: 100%;
+  height: 100%;
+}
