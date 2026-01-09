@@ -232,7 +232,7 @@ const ProgressiveImage = React.memo(({ src, alt, className, priority = false, on
 });
 ProgressiveImage.displayName = 'ProgressiveImage';
 
-// Create Post Component - SEPARATED FOR PERFORMANCE
+// Create Post Component - FIXED MOBILE IMAGE UPLOAD REFRESH ISSUE
 const CreatePost = React.memo(({ user, onCreatePost, isSubmitting }) => {
   const [content, setContent] = useState('');
   const [imagePreview, setImagePreview] = useState(null);
@@ -267,6 +267,10 @@ const CreatePost = React.memo(({ user, onCreatePost, isSubmitting }) => {
   };
 
   const handleImageUpload = (e) => {
+    // Prevent any default behavior that might cause refresh
+    e.preventDefault();
+    e.stopPropagation();
+    
     const file = e.target.files[0];
     if (!file) return;
     
@@ -313,11 +317,28 @@ const CreatePost = React.memo(({ user, onCreatePost, isSubmitting }) => {
     }
   }, [content]);
 
+  // Handle image button click - FIX FOR MOBILE REFRESH
+  const handleImageButtonClick = (e) => {
+    // CRITICAL: Prevent default and stop propagation to avoid form submission
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (fileInputRef.current) {
+      // Clear input to ensure change event fires even for same file
+      fileInputRef.current.value = '';
+      fileInputRef.current.click();
+    }
+  };
+
   if (!user) return null;
 
   return (
     <div className="create-post-card">
-      <form onSubmit={handleSubmit} className="post-form">
+      <form 
+        onSubmit={handleSubmit} 
+        className="post-form"
+        noValidate // Prevent browser validation that might cause refresh
+      >
         <div className="post-form-header">
           <Avatar user={user} size="md" priority />
           <div className="post-input-wrapper">
@@ -371,9 +392,9 @@ const CreatePost = React.memo(({ user, onCreatePost, isSubmitting }) => {
         <div className="post-form-actions">
           <div className="action-buttons">
             <button 
-              type="button"
+              type="button" // CRITICAL: Must be type="button" not "submit"
               className="action-btn"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={handleImageButtonClick} // Use the fixed handler
               disabled={isSubmitting}
               aria-label="Add photo"
             >
@@ -381,12 +402,20 @@ const CreatePost = React.memo(({ user, onCreatePost, isSubmitting }) => {
               <span>Photo</span>
             </button>
             
+            {/* File input with mobile optimizations */}
             <input
               type="file"
               accept="image/*"
               onChange={handleImageUpload}
               ref={fileInputRef}
               hidden
+              // Mobile-specific attributes to prevent refresh
+              capture="environment"
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+              }}
+              onTouchStart={(e) => e.stopPropagation()} // For touch devices
             />
           </div>
           <button
@@ -394,6 +423,7 @@ const CreatePost = React.memo(({ user, onCreatePost, isSubmitting }) => {
             className={`post-submit-btn ${isSubmitting ? 'posting' : ''}`}
             disabled={(!content.trim() && !imageFile) || isSubmitting}
             aria-label="Post to feed"
+            onClick={(e) => e.stopPropagation()} // Prevent event bubbling
           >
             {isSubmitting ? (
               <>
@@ -1515,7 +1545,7 @@ const Feed = () => {
           </div>
         </div>
 
-        {/* Create Post - Separated Component */}
+        {/* Create Post - Separated Component with MOBILE FIX */}
         {user && (
           <CreatePost
             user={user}
