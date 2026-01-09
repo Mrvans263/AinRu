@@ -753,7 +753,7 @@ const Messages = ({ user, onClose }) => {
                   </button>
                   
                   {/* MOBILE CLOSE BUTTON - Added */}
-                  <button 
+                    { /* <button 
                     className="close-messages-btn"
                     onClick={handleCloseMessages}
                     title="Close messages"
@@ -764,8 +764,8 @@ const Messages = ({ user, onClose }) => {
                       <line x1="6" y1="6" x2="18" y2="18" />
                     </svg>
                     <span className="close-btn-text">Close</span>
-                  </button>
-                </>
+                  </button> */}
+                </>  
               )}
               
               <div className="chat-user">
