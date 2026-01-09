@@ -31,8 +31,9 @@ const Messages = ({ user }) => {
   const scrollPositionRef = useRef(null);
   const prevConversationIdRef = useRef(null);
   const inputRef = useRef(null);
+  const initialLoadRef = useRef(true);
 
-  // Mobile detection - SIMPLIFIED
+  // Mobile detection
   useEffect(() => {
     const checkMobile = () => {
       const mobile = window.innerWidth <= 768;
@@ -167,6 +168,40 @@ const Messages = ({ user }) => {
     }
   }, [messages]);
 
+  // Scroll to bottom when messages load or new message is added
+  useEffect(() => {
+    if (messagesContainerRef.current && messages.length > 0) {
+      // Wait a bit for DOM to update
+      setTimeout(() => {
+        if (messagesContainerRef.current) {
+          const container = messagesContainerRef.current;
+          
+          // Check if we're near the bottom (within 100px)
+          const isNearBottom = 
+            container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+          
+          // Always scroll to bottom on initial load or if we're near bottom
+          if (initialLoadRef.current || isNearBottom) {
+            messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+            initialLoadRef.current = false;
+          }
+        }
+      }, 50);
+    }
+  }, [messages]);
+
+  // Scroll to bottom when active conversation changes
+  useEffect(() => {
+    if (activeConversation && messagesContainerRef.current) {
+      initialLoadRef.current = true;
+      setTimeout(() => {
+        if (messagesContainerRef.current) {
+          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+        }
+      }, 100);
+    }
+  }, [activeConversation]);
+
   // Load more messages
   const loadMoreMessages = useCallback(async () => {
     if (!hasMoreMessages || isLoadingRef.current || !activeConversation) return;
@@ -216,6 +251,13 @@ const Messages = ({ user }) => {
       
       setTimeout(() => loadConversations(), 500);
       
+      // Scroll to bottom after sending
+      setTimeout(() => {
+        if (messagesContainerRef.current) {
+          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+        }
+      }, 100);
+      
       return sentMessage;
     } catch (error) {
       console.error('Error sending message:', error);
@@ -248,6 +290,7 @@ const Messages = ({ user }) => {
     
     pageRef.current = 0;
     loadedMessageIdsRef.current.clear();
+    initialLoadRef.current = true;
     await loadMessages(conversation.id, true);
   }, [isMobile, loadMessages]);
 
@@ -257,6 +300,7 @@ const Messages = ({ user }) => {
     setActiveConversation(null);
     setMessages([]);
     prevConversationIdRef.current = null;
+    initialLoadRef.current = true;
   };
 
   // Handle typing indicator
@@ -302,6 +346,19 @@ const Messages = ({ user }) => {
                 }
                 
                 setTimeout(() => loadConversations(), 100);
+                
+                // Scroll to bottom for new received messages
+                setTimeout(() => {
+                  if (messagesContainerRef.current) {
+                    const container = messagesContainerRef.current;
+                    const isNearBottom = 
+                      container.scrollHeight - container.scrollTop - container.clientHeight < 200;
+                    
+                    if (isNearBottom) {
+                      container.scrollTop = container.scrollHeight;
+                    }
+                  }
+                }, 50);
               }
             }
           } else if (event === 'typing') {
@@ -368,18 +425,6 @@ const Messages = ({ user }) => {
       container.removeEventListener('scroll', handleScroll);
     };
   }, [handleScroll]);
-
-  // Scroll to bottom
-  useEffect(() => {
-    if (messagesEndRef.current && messages.length > 0) {
-      const lastMessage = messages[messages.length - 1];
-      if (lastMessage?.sender_id === user?.id) {
-        setTimeout(() => {
-          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-        }, 100);
-      }
-    }
-  }, [messages, user?.id]);
 
   // Helper functions
   const formatTime = (dateString) => {
@@ -619,6 +664,7 @@ const Messages = ({ user }) => {
           <>
             {/* Chat Header */}
             <div className="chat-header">
+              {/* Back Button - Fixed: Always show on mobile when in chat */}
               {isMobile && (
                 <button 
                   className="back-btn"
@@ -629,6 +675,7 @@ const Messages = ({ user }) => {
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <polyline points="15 18 9 12 15 6" />
                   </svg>
+                  <span className="back-btn-text">Back</span>
                 </button>
               )}
               

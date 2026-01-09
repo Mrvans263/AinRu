@@ -30,6 +30,7 @@
   --radius-xl: 20px;
   --transition: all 0.2s ease;
   --sidebar-width: 380px;
+  --mobile-input-height: 70px;
 }
 
 /* Reset & Base Styles */
@@ -51,7 +52,7 @@
   background: var(--background);
   display: flex;
   overflow: hidden;
-  z-index: 2000; /* Above all other components */
+  z-index: 2000;
 }
 
 .messages-container.loading {
@@ -156,7 +157,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 44px;
+    width: 50px;
     height: 44px;
     background: none;
     border: none;
@@ -164,6 +165,15 @@
     color: var(--text-secondary);
     flex-shrink: 0;
     padding: 0;
+    margin-right: 8px;
+  }
+  
+  /* Back button text */
+  .back-btn-text {
+    display: none;
+    font-size: 14px;
+    margin-left: 4px;
+    font-weight: 500;
   }
   
   /* Mobile: Adjust header heights */
@@ -175,18 +185,27 @@
     align-items: center;
   }
   
-  /* Mobile: Messages container */
+  /* Adjust chat header for back button */
+  .chat-header {
+    padding-left: 12px !important;
+  }
+  
+  .chat-user {
+    margin-left: 0;
+  }
+  
+  /* Mobile: Messages container - FIXED BOTTOM SPACING */
   .messages-scroll-container {
     flex: 1;
     padding: 16px;
-    padding-bottom: 80px; /* Space for input */
+    padding-bottom: calc(var(--mobile-input-height) + 20px); /* Space for input + extra */
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
   }
   
   /* Mobile: Message input - fixed at bottom */
   .message-input-area {
-    position: absolute;
+    position: fixed;
     bottom: 0;
     left: 0;
     right: 0;
@@ -195,11 +214,13 @@
     background: var(--surface);
     border-top: 1px solid var(--border);
     z-index: 10;
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
   }
   
   /* Mobile: Adjust input field */
   .message-input {
-    font-size: 16px !important; /* Prevent iOS zoom */
+    font-size: 16px !important;
+    min-height: 44px;
   }
   
   /* Mobile: Smaller avatars */
@@ -215,7 +236,7 @@
   
   /* Mobile: Conversation list full height */
   .conversations-list {
-    height: calc(100% - 120px); /* Subtract header + search */
+    height: calc(100% - 120px);
   }
 }
 
@@ -591,7 +612,7 @@
   font-weight: 500;
 }
 
-/* Messages Scroll Container */
+/* Messages Scroll Container - FIXED FOR BOTTOM MESSAGES */
 .messages-scroll-container {
   flex: 1;
   overflow-y: auto;
@@ -601,6 +622,13 @@
   -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
+}
+
+/* Desktop: Add bottom padding for input area */
+@media (min-width: 769px) {
+  .messages-scroll-container {
+    padding-bottom: 100px; /* Space for desktop input */
+  }
 }
 
 .loading-messages {
@@ -661,12 +689,18 @@
   font-weight: 500;
 }
 
-/* Messages List */
+/* Messages List - ADD EXTRA BOTTOM SPACING */
 .messages-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
   flex: 1;
+  margin-bottom: 20px; /* Extra spacing at bottom */
+}
+
+/* Last message bubble should have extra margin */
+.messages-list > .message-wrapper:last-child .message-bubble {
+  margin-bottom: 10px; /* Extra space for last message */
 }
 
 /* Message Wrapper */
@@ -765,6 +799,7 @@
   max-width: 120px;
   margin-left: 8px;
   box-shadow: var(--shadow-sm);
+  margin-bottom: 20px; /* Extra space for typing indicator */
 }
 
 .typing-dots {
@@ -978,7 +1013,7 @@
   
   .messages-scroll-container {
     padding: 12px;
-    padding-bottom: 70px;
+    padding-bottom: calc(var(--mobile-input-height) + 15px); /* Adjusted for small phones */
   }
   
   .message-input-area {
@@ -1001,6 +1036,17 @@
   .welcome-content p {
     font-size: 15px;
   }
+  
+  /* Show back text on small phones */
+  .back-btn-text {
+    display: inline;
+  }
+}
+
+/* ============ FIX FOR MESSAGE END REF ============ */
+/* This ensures the scroll anchor is above the input */
+.messages-list > div:last-child {
+  position: relative;
 }
 
 /* Dark Mode Support */
@@ -1049,5 +1095,153 @@
   .start-conversation-btn {
     animation: none;
     transition: none;
+  }
+}
+/* ============ BACK BUTTON FIXES ============ */
+
+/* Back button base styles */
+.back-btn {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  transition: var(--transition);
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.back-btn:hover {
+  background: var(--surface-dark);
+  color: var(--text-primary);
+}
+
+.back-btn-text {
+  display: none;
+  font-size: 14px;
+  margin-left: 4px;
+  font-weight: 500;
+}
+
+/* Mobile: Show back button */
+@media (max-width: 768px) {
+  .back-btn {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 50px;
+    height: 44px;
+    margin-right: 8px;
+  }
+  
+  .back-btn-text {
+    display: inline;
+  }
+  
+  /* Adjust chat header for back button */
+ /* Chat Header */
+.chat-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: var(--surface);
+  flex-shrink: 0;
+  position: relative;
+}
+
+/* Back button is handled in the mobile section above */
+  
+  .chat-user {
+    margin-left: 0;
+  }
+}
+
+/* Small phones: Show back text */
+@media (max-width: 375px) {
+  .back-btn-text {
+    display: inline;
+  }
+}
+
+/* Dark mode back button */
+@media (prefers-color-scheme: dark) {
+  .back-btn {
+    color: var(--text-secondary);
+  }
+  
+  .back-btn:hover {
+    background: var(--surface-dark);
+    color: var(--text-primary);
+  }
+}
+/* ============ MOBILE MESSAGE SINKING FIX ============ */
+
+/* Desktop: Keep existing behavior */
+@media (min-width: 769px) {
+  .messages-scroll-container {
+    padding-bottom: 24px; /* Standard desktop padding */
+  }
+  
+  .message-input-area {
+    position: static; /* Not fixed on desktop */
+    box-shadow: none;
+  }
+}
+
+/* Mobile: Precise bottom spacing */
+@media (max-width: 768px) {
+  /* Calculate exact input area height */
+  .message-input-area {
+    height: auto;
+    min-height: 70px;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+  }
+  
+  /* Input wrapper height */
+  .input-wrapper {
+    min-height: 52px;
+  }
+  
+  /* Messages container with EXACT spacing */
+  .messages-scroll-container {
+    padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  }
+  
+  /* Messages list extra bottom margin */
+  .messages-list {
+    margin-bottom: 30px;
+  }
+  
+  /* Last message extra spacing */
+  .messages-list > .message-wrapper:last-child {
+    margin-bottom: 15px;
+  }
+  
+  /* Typing bubble extra spacing */
+  .typing-bubble {
+    margin-bottom: 25px;
+  }
+}
+
+/* Small phones: Adjust spacing */
+@media (max-width: 375px) {
+  .messages-scroll-container {
+    padding-bottom: calc(75px + env(safe-area-inset-bottom, 0px));
+  }
+  
+  .messages-list > .message-wrapper:last-child {
+    margin-bottom: 12px;
   }
 }
