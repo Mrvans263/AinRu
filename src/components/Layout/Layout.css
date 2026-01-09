@@ -38,34 +38,18 @@
 
 * {
   box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
-
-html, body {
-  width: 100%;
-  height: 100%;
-  overflow-x: hidden;
-}
-
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 }
 
 /* ========== ENHANCED NAVBAR ========== */
 .navbar {
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(8px);
+  background: var(--bg-primary);
   border-bottom: 1px solid var(--border-light);
   box-shadow: var(--shadow-sm);
   position: sticky;
   top: 0;
   z-index: 1000;
-  width: 100%;
+  backdrop-filter: blur(8px);
+  background: rgba(255, 255, 255, 0.95);
 }
 
 .navbar-container {
@@ -1668,23 +1652,13 @@ body {
     height: 16px;
     font-size: 10px;
   }
-
-  /* Mobile-specific adjustments for better UX */
-  .mobile-menu-item {
-    min-height: 44px;
-  }
-  
-  .bottom-nav-item {
-    min-height: 44px;
-    min-width: 44px;
-  }
 }
 
 @media (min-width: 769px) {
   .mobile-nav,
   .mobile-menu-overlay,
   .bottom-nav {
-    display: none;
+    display: none !important;
   }
   
   .navbar,
@@ -1716,9 +1690,210 @@ body {
 }
 
 /* Accessibility focus styles */
-button:focus-visible,
-input:focus-visible,
-select:focus-visible {
+button:focus-visible {
+  outline: 3px solid #4f46e5;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1);
+}
+
+/* Touch device optimizations */
+@media (hover: none) and (pointer: coarse) {
+  .nav-item,
+  .sidebar-item,
+  .mobile-menu-item {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  .bottom-nav-item {
+    padding: 0.75rem 0.5rem;
+  }
+}
+/* ========== RESPONSIVE DESIGN ========== */
+@media (max-width: 768px) {
+  .navbar,
+  .sidebar {
+    display: none;
+  }
+  
+  .mobile-nav,
+  .mobile-menu-overlay,
+  .bottom-nav {
+    display: block;
+  }
+
+  /* Adjust bottom nav for safe areas */
+  .bottom-nav {
+    padding-bottom: env(safe-area-inset-bottom, 0.75rem);
+  }
+
+  .notification-count {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 16px;
+    height: 16px;
+    font-size: 10px;
+  }
+
+  /* ========== MOBILE SCROLLING FIX ========== */
+  html, body {
+    overflow: hidden !important;
+    position: fixed !important;
+    width: 100% !important;
+    height: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Main app container - must match your React structure */
+  .app-container {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+    background: var(--bg-primary);
+  }
+
+  /* Main content wrapper */
+  .main-content {
+    flex: 1 !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    width: 100% !important;
+    padding-top: 3.5rem !important; /* Mobile top nav height */
+    padding-bottom: 4.5rem !important; /* Mobile bottom nav height */
+  }
+
+  /* Content area */
+  .content-area {
+    width: 100% !important;
+    min-height: 100% !important;
+    padding: 1rem !important;
+    background: var(--bg-secondary);
+  }
+
+  /* Mobile nav positioning */
+  .mobile-nav {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    height: 3.5rem !important;
+    z-index: 1000 !important;
+  }
+
+  /* Bottom nav positioning */
+  .bottom-nav {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    height: 4.5rem !important;
+    z-index: 1000 !important;
+  }
+
+  /* iOS Safari 100vh fix */
+  @supports (-webkit-touch-callout: none) {
+    .app-container,
+    .main-content {
+      height: -webkit-fill-available !important;
+    }
+  }
+
+  /* Safe area support */
+  @supports (padding: max(0px)) {
+    .app-container {
+      padding-top: env(safe-area-inset-top) !important;
+      padding-bottom: env(safe-area-inset-bottom) !important;
+    }
+    
+    .main-content {
+      padding-top: calc(3.5rem + env(safe-area-inset-top)) !important;
+      padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)) !important;
+    }
+    
+    .mobile-nav {
+      padding-top: env(safe-area-inset-top) !important;
+    }
+    
+    .bottom-nav {
+      padding-bottom: env(safe-area-inset-bottom) !important;
+    }
+  }
+}
+
+@media (min-width: 769px) {
+  .mobile-nav,
+  .mobile-menu-overlay,
+  .bottom-nav {
+    display: none !important;
+  }
+  
+  .navbar,
+  .sidebar {
+    display: flex;
+  }
+
+  /* Desktop scrolling fix */
+  html, body {
+    overflow: auto !important;
+    position: static !important;
+    height: auto !important;
+  }
+
+  .app-container {
+    position: static !important;
+    height: auto !important;
+    min-height: 100vh !important;
+  }
+
+  .main-content {
+    display: flex;
+    min-height: calc(100vh - 4.5rem);
+    overflow: visible !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+  }
+
+  .content-area {
+    flex: 1;
+    margin-left: 18rem; /* Sidebar width */
+    padding: 1.5rem 2rem;
+    min-height: calc(100vh - 4.5rem);
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .navbar {
+    border-bottom: 2px solid var(--text-primary);
+  }
+  
+  .mobile-menu-item-active {
+    outline: 2px solid #4f46e5;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Accessibility focus styles */
+button:focus-visible {
   outline: 3px solid #4f46e5;
   outline-offset: 2px;
   box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1);
@@ -1738,114 +1913,184 @@ select:focus-visible {
   }
 }
 
-/* ========== MOBILE APP CONTAINER FIXES ========== */
-.app-container {
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-  width: 100%;
-  position: relative;
+/* Mobile menu scroll lock */
+body.mobile-menu-open {
+  overflow: hidden !important;
 }
 
-.main-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
+/* Prevent horizontal scrolling */
+* {
+  max-width: 100%;
 }
 
-.content-wrapper {
-  flex: 1;
-  display: flex;
+img, video {
+  max-width: 100%;
+  height: auto;
 }
-
-.page-content {
-  flex: 1;
-  padding: 1.5rem;
-  background: var(--bg-secondary);
-}
-
-/* Mobile bottom spacing */
-.mobile-bottom-spacing {
-  height: 4.5rem;
-  display: none;
-}
-
-/* Messages specific styles */
-.page-content.messages-active {
-  padding: 0;
-  background: var(--bg-primary);
-}
-
+/* ============ MOBILE SCROLLING FIXES ============ */
 @media (max-width: 768px) {
-  .main-content {
-    padding-top: 3.5rem;
-    padding-bottom: 4.5rem;
-  }
-  
-  .page-content {
-    padding: 1rem;
-  }
-  
-  .mobile-bottom-spacing {
-    display: block;
-  }
-  
-  /* Ensure file inputs work properly on mobile */
-  input[type="file"] {
-    font-size: 16px; /* Prevents iOS zoom */
-    min-height: 44px; /* Minimum tap target size */
-  }
-  
-  /* Improve touch targets for all interactive elements */
-  button, 
-  [role="button"],
-  .nav-item,
-  .sidebar-item,
-  .mobile-menu-item,
-  .bottom-nav-item {
-    min-height: 44px;
-    min-width: 44px;
-  }
-}
-
-/* Mobile menu overlay - ensure it doesn't interfere with file inputs */
-.mobile-menu-overlay {
-  z-index: 2000;
-}
-
-/* Prevent any interference with form inputs */
-.post-form,
-.create-post-card {
-  position: relative;
-  z-index: 1;
-}
-
-/* Ensure proper stacking context */
-.navbar,
-.mobile-nav,
-.bottom-nav {
-  z-index: 1000;
-}
-
-/* Fix for iOS Safari 100vh issue */
-@supports (-webkit-touch-callout: none) {
+  /* Fix main app container for mobile */
   .app-container {
-    height: -webkit-fill-available;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    height: -webkit-fill-available !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  /* Main content - scrollable area */
+  .main-content {
+    flex: 1 !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    width: 100% !important;
+    padding-top: 3.5rem !important; /* Mobile top nav height */
+    padding-bottom: 4.5rem !important; /* Mobile bottom nav height */
+  }
+
+  /* Content area inside pages */
+  .page-content {
+    width: 100% !important;
+    min-height: 100% !important;
+    padding: 1rem !important;
+    background: var(--bg-secondary);
+  }
+
+  /* Mobile nav positioning */
+  .mobile-nav {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    height: 3.5rem !important;
+    z-index: 1000 !important;
+  }
+
+  /* Bottom nav positioning */
+  .bottom-nav {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    height: 4.5rem !important;
+    z-index: 1000 !important;
+  }
+
+  /* Safe area support */
+  @supports (padding: max(0px)) {
+    .app-container {
+      padding-top: env(safe-area-inset-top) !important;
+      padding-bottom: env(safe-area-inset-bottom) !important;
+    }
+    
+    .main-content {
+      padding-top: calc(3.5rem + env(safe-area-inset-top)) !important;
+      padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)) !important;
+    }
+    
+    .mobile-nav {
+      padding-top: env(safe-area-inset-top) !important;
+    }
+    
+    .bottom-nav {
+      padding-bottom: env(safe-area-inset-bottom) !important;
+    }
   }
 }
 
-/* Safe area adjustments */
-@supports (padding: max(0px)) {
-  .mobile-nav {
-    padding-top: env(safe-area-inset-top);
+/* Desktop styles */
+@media (min-width: 769px) {
+  .app-container {
+    position: static !important;
+    height: auto !important;
+    min-height: 100vh !important;
   }
-  
-  .bottom-nav {
-    padding-bottom: env(safe-area-inset-bottom);
-  }
-  
+
   .main-content {
-    padding-top: calc(3.5rem + env(safe-area-inset-top));
-    padding-bottom: calc(4.5rem + env(safe-area-inset-bottom));
+    display: flex;
+    min-height: calc(100vh - 4.5rem);
+    overflow: visible !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+  }
+}
+
+/* Mobile menu scroll lock */
+body.mobile-menu-open {
+  overflow: hidden !important;
+}
+/* ============ FIX MESSAGES COMPONENT OVERLAY ============ */
+
+/* When Messages component is active, hide mobile navs */
+body.messages-active .mobile-nav,
+body.messages-active .bottom-nav {
+  display: none !important;
+}
+
+/* When Messages component is active, adjust main content */
+body.messages-active .main-content {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+/* Messages component should be above everything */
+.messages-container {
+  z-index: 2000 !important;
+}
+/* ============ MESSAGES COMPONENT FIXES ============ */
+
+/* When Messages component is active, hide mobile nav spacing */
+.page-content.messages-active {
+  padding-bottom: 0 !important;
+}
+
+/* Messages component should take full height */
+.messages-container {
+  height: 100vh;
+  height: calc(var(--vh, 1vh) * 100);
+}
+
+/* Desktop: Messages component should not be full screen */
+@media (min-width: 769px) {
+  .messages-container {
+    position: static !important;
+    height: calc(100vh - 4.5rem) !important;
+  }
+}
+
+/* Mobile: Messages takes over full screen */
+@media (max-width: 768px) {
+  .messages-container {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    height: -webkit-fill-available !important;
+    z-index: 1000 !important;
+  }
+  
+  /* Hide the main content overflow when messages is active */
+  .main-content {
+    position: relative;
+  }
+  
+  /* Adjust main content when messages is active */
+  .page-content.messages-active {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1001;
+    padding: 0 !important;
   }
 }
