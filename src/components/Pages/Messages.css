@@ -1245,3 +1245,195 @@
     margin-bottom: 12px;
   }
 }
+/* ============ FIX INPUT AREA CLICK ISSUES ============ */
+
+/* Prevent input area from interfering with sliding */
+.message-input-area {
+  position: relative;
+  z-index: 10;
+}
+
+/* On mobile, ensure input area doesn't trigger slide */
+@media (max-width: 768px) {
+  .message-input-area {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    pointer-events: auto !important;
+  }
+  
+  /* Prevent click events from propagating to parent */
+  .message-input-area * {
+    pointer-events: auto;
+  }
+  
+  /* Chat area should allow clicks on input area */
+  .chat-area:not(.mobile-hidden) {
+    pointer-events: auto;
+  }
+  
+  /* Input wrapper and input should stop event propagation */
+  .input-wrapper,
+  .message-input,
+  .send-button {
+    pointer-events: auto !important;
+  }
+}
+
+/* Disable transitions when input is focused to prevent flicker */
+.no-transition {
+  transition: none !important;
+}
+
+/* Ensure back button is always visible on mobile */
+@media (max-width: 768px) {
+  .back-btn {
+    display: flex !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+  }
+  
+  .back-btn-text {
+    display: inline;
+  }
+}
+
+/* Prevent keyboard from triggering resize issues */
+@media (max-width: 768px) {
+  .messages-container {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100vw !important;
+    height: 100vh !important;
+    height: -webkit-fill-available !important;
+    overflow: hidden !important;
+  }
+  
+  /* Lock the chat area in place when input is focused */
+  .chat-area:not(.mobile-hidden) {
+    transform: translateX(0) !important;
+  }
+  
+  /* Lock the sidebar when hidden */
+  .conversations-sidebar.mobile-hidden {
+    transform: translateX(-100%) !important;
+  }
+}
+/* ============ MOBILE ESCAPE BUTTONS ============ */
+
+/* Close button for sidebar header */
+.sidebar-header .header-content .close-messages-btn {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  transition: var(--transition);
+  margin-left: 8px;
+}
+
+/* Close button for chat header */
+.chat-header .close-messages-btn {
+  display: none;
+  align-items: center;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  transition: var(--transition);
+  margin-left: auto;
+  margin-right: 8px;
+}
+
+/* Close button text */
+.close-btn-text {
+  display: none;
+  font-size: 14px;
+  margin-left: 4px;
+  font-weight: 500;
+}
+
+/* Welcome screen close button */
+.close-messages-welcome-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  margin-top: 20px;
+  padding: 12px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+  width: 100%;
+  max-width: 200px;
+}
+
+.close-messages-welcome-btn:hover {
+  background: var(--surface-dark);
+  transform: translateY(-1px);
+}
+
+/* Show on mobile only */
+@media (max-width: 768px) {
+  .sidebar-header .header-content .close-messages-btn {
+    display: flex;
+  }
+  
+  .chat-header .close-messages-btn {
+    display: flex;
+  }
+  
+  .close-messages-welcome-btn {
+    display: flex;
+  }
+  
+  .close-btn-text {
+    display: inline;
+  }
+}
+
+/* Small phone adjustments */
+@media (max-width: 375px) {
+  .close-messages-btn {
+    padding: 6px 10px;
+  }
+  
+  .close-btn-text {
+    font-size: 13px;
+  }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .close-messages-btn {
+    color: var(--text-secondary);
+  }
+  
+  .close-messages-btn:hover {
+    background: var(--surface-dark);
+    color: var(--text-primary);
+  }
+  
+  .close-messages-welcome-btn {
+    background: var(--surface);
+    border-color: var(--border);
+    color: var(--text-primary);
+  }
+  
+  .close-messages-welcome-btn:hover {
+    background: var(--surface-dark);
+  }
+}

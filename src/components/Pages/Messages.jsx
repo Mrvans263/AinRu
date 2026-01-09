@@ -4,7 +4,7 @@ import { messagingAPI, messagingRealtime } from '../../lib/messaging';
 import './Messages.css';
 import NewChatModal from './NewChatModal';
 
-const Messages = ({ user }) => {
+const Messages = ({ user, onClose }) => {
   // State
   const [conversations, setConversations] = useState([]);
   const [activeConversation, setActiveConversation] = useState(null);
@@ -20,6 +20,7 @@ const Messages = ({ user }) => {
   const [isMobile, setIsMobile] = useState(false);
   const [showChat, setShowChat] = useState(false);
   const [messageInput, setMessageInput] = useState('');
+  const [isTransitioning, setIsTransitioning] = useState(false);
   
   // Refs
   const messagesEndRef = useRef(null);
@@ -32,32 +33,52 @@ const Messages = ({ user }) => {
   const prevConversationIdRef = useRef(null);
   const inputRef = useRef(null);
   const initialLoadRef = useRef(true);
+  const touchStartRef = useRef(null);
 
-  // Mobile detection
+  // Handle closing messages component
+   const handleCloseMessages = useCallback(() => {
+  if (onClose) {
+    onClose();
+  }
+}, [onClose]);
+
+  // Mobile detection - FIXED: Prevent resize during keyboard opening
   useEffect(() => {
+    let resizeTimeout;
+    
     const checkMobile = () => {
-      const mobile = window.innerWidth <= 768;
-      setIsMobile(mobile);
-      
-      // On mobile, start with conversations list
-      if (mobile) {
-        setShowChat(false);
-      } else {
-        // On desktop, show both
-        setShowChat(true);
-      }
+      requestAnimationFrame(() => {
+        const mobile = window.innerWidth <= 768;
+        setIsMobile(mobile);
+        
+        if (mobile) {
+          setShowChat(!!activeConversation);
+        } else {
+          setShowChat(true);
+        }
+      });
     };
     
-    // Initial check
     checkMobile();
     
-    // Add resize listener
-    window.addEventListener('resize', checkMobile);
+    const handleResize = () => {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(checkMobile, 150);
+    };
+    
+    const handleOrientationChange = () => {
+      setTimeout(checkMobile, 100);
+    };
+    
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', handleOrientationChange);
     
     return () => {
-      window.removeEventListener('resize', checkMobile);
+      clearTimeout(resizeTimeout);
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleOrientationChange);
     };
-  }, []);
+  }, [activeConversation]);
 
   // Load conversations
   const loadConversations = useCallback(async () => {
@@ -80,6 +101,8 @@ const Messages = ({ user }) => {
       isLoadingRef.current = false;
     }
   }, [user?.id]);
+   
+
 
   // Load messages for active conversation
   const loadMessages = useCallback(async (conversationId, reset = false) => {
@@ -171,16 +194,12 @@ const Messages = ({ user }) => {
   // Scroll to bottom when messages load or new message is added
   useEffect(() => {
     if (messagesContainerRef.current && messages.length > 0) {
-      // Wait a bit for DOM to update
       setTimeout(() => {
         if (messagesContainerRef.current) {
           const container = messagesContainerRef.current;
-          
-          // Check if we're near the bottom (within 100px)
           const isNearBottom = 
             container.scrollHeight - container.scrollTop - container.clientHeight < 100;
           
-          // Always scroll to bottom on initial load or if we're near bottom
           if (initialLoadRef.current || isNearBottom) {
             messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
             initialLoadRef.current = false;
@@ -251,7 +270,6 @@ const Messages = ({ user }) => {
       
       setTimeout(() => loadConversations(), 500);
       
-      // Scroll to bottom after sending
       setTimeout(() => {
         if (messagesContainerRef.current) {
           messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
@@ -270,7 +288,7 @@ const Messages = ({ user }) => {
 
   // Handle conversation select
   const handleSelectConversation = useCallback(async (conversation) => {
-    if (!conversation) return;
+    if (!conversation || isTransitioning) return;
     
     const prevId = prevConversationIdRef.current;
     prevConversationIdRef.current = conversation.id;
@@ -280,10 +298,10 @@ const Messages = ({ user }) => {
       return;
     }
     
+    setIsTransitioning(true);
     setMessages([]);
     setActiveConversation(conversation);
     
-    // On mobile, switch to chat view
     if (isMobile) {
       setShowChat(true);
     }
@@ -291,17 +309,28 @@ const Messages = ({ user }) => {
     pageRef.current = 0;
     loadedMessageIdsRef.current.clear();
     initialLoadRef.current = true;
-    await loadMessages(conversation.id, true);
-  }, [isMobile, loadMessages]);
+    
+    setTimeout(async () => {
+      await loadMessages(conversation.id, true);
+      setIsTransitioning(false);
+    }, 150);
+  }, [isMobile, loadMessages, isTransitioning]);
 
   // Handle back to conversations (mobile)
-  const handleBackToConversations = () => {
+  const handleBackToConversations = useCallback(() => {
+    if (isTransitioning) return;
+    
+    setIsTransitioning(true);
     setShowChat(false);
-    setActiveConversation(null);
-    setMessages([]);
-    prevConversationIdRef.current = null;
-    initialLoadRef.current = true;
-  };
+    
+    setTimeout(() => {
+      setActiveConversation(null);
+      setMessages([]);
+      prevConversationIdRef.current = null;
+      initialLoadRef.current = true;
+      setIsTransitioning(false);
+    }, 150);
+  }, [isTransitioning]);
 
   // Handle typing indicator
   const handleTyping = useCallback((isTyping) => {
@@ -347,7 +376,6 @@ const Messages = ({ user }) => {
                 
                 setTimeout(() => loadConversations(), 100);
                 
-                // Scroll to bottom for new received messages
                 setTimeout(() => {
                   if (messagesContainerRef.current) {
                     const container = messagesContainerRef.current;
@@ -425,6 +453,28 @@ const Messages = ({ user }) => {
       container.removeEventListener('scroll', handleScroll);
     };
   }, [handleScroll]);
+
+  // Prevent touch events from interfering with input focus
+  useEffect(() => {
+    const handleTouchStart = (e) => {
+      touchStartRef.current = e.target;
+    };
+    
+    const handleTouchEnd = (e) => {
+      if (touchStartRef.current === e.target && e.target.tagName === 'INPUT') {
+        e.stopPropagation();
+      }
+      touchStartRef.current = null;
+    };
+    
+    document.addEventListener('touchstart', handleTouchStart, { passive: true });
+    document.addEventListener('touchend', handleTouchEnd, { passive: true });
+    
+    return () => {
+      document.removeEventListener('touchstart', handleTouchStart);
+      document.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, []);
 
   // Helper functions
   const formatTime = (dateString) => {
@@ -531,6 +581,14 @@ const Messages = ({ user }) => {
     setMessageInput('');
   };
 
+  // Handle input click - prevent chat closing
+  const handleInputClick = (e) => {
+    e.stopPropagation();
+    if (inputRef.current) {
+      inputRef.current.focus();
+    }
+  };
+
   // Loading state
   if (loadingConversations && conversations.length === 0) {
     return (
@@ -553,7 +611,23 @@ const Messages = ({ user }) => {
             {unreadCount > 0 && (
               <span className="unread-badge-global">{unreadCount}</span>
             )}
+            
+            {/* MOBILE CLOSE BUTTON - Added */}
+            {isMobile && (
+              <button 
+                className="close-messages-btn"
+                onClick={handleCloseMessages}
+                title="Close messages"
+                aria-label="Close messages"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            )}
           </div>
+          
           <button 
             className="new-chat-btn"
             onClick={() => setShowNewChatModal(true)}
@@ -664,19 +738,34 @@ const Messages = ({ user }) => {
           <>
             {/* Chat Header */}
             <div className="chat-header">
-              {/* Back Button - Fixed: Always show on mobile when in chat */}
               {isMobile && (
-                <button 
-                  className="back-btn"
-                  onClick={handleBackToConversations}
-                  title="Back to conversations"
-                  aria-label="Back to conversations"
-                >
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <polyline points="15 18 9 12 15 6" />
-                  </svg>
-                  <span className="back-btn-text">Back</span>
-                </button>
+                <>
+                  <button 
+                    className="back-btn"
+                    onClick={handleBackToConversations}
+                    title="Back to conversations"
+                    aria-label="Back to conversations"
+                  >
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="15 18 9 12 15 6" />
+                    </svg>
+                    <span className="back-btn-text">Back</span>
+                  </button>
+                  
+                  {/* MOBILE CLOSE BUTTON - Added */}
+                  <button 
+                    className="close-messages-btn"
+                    onClick={handleCloseMessages}
+                    title="Close messages"
+                    aria-label="Close messages"
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                    <span className="close-btn-text">Close</span>
+                  </button>
+                </>
               )}
               
               <div className="chat-user">
@@ -799,7 +888,7 @@ const Messages = ({ user }) => {
             </div>
 
             {/* Message Input */}
-            <form className="message-input-area" onSubmit={handleMessageSubmit}>
+            <form className="message-input-area" onSubmit={handleMessageSubmit} onClick={handleInputClick}>
               <div className="input-wrapper">
                 <input
                   ref={inputRef}
@@ -817,6 +906,15 @@ const Messages = ({ user }) => {
                       handleMessageSubmit(e);
                     }
                   }}
+                  onFocus={(e) => {
+                    e.stopPropagation();
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                  }}
+                  onTouchStart={(e) => {
+                    e.stopPropagation();
+                  }}
                   disabled={sendingMessage}
                   aria-label="Type a message"
                 />
@@ -825,6 +923,9 @@ const Messages = ({ user }) => {
                   className="send-button"
                   disabled={!messageInput.trim() || sendingMessage}
                   aria-label="Send message"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                  }}
                 >
                   {sendingMessage ? (
                     <div className="sending-spinner"></div>
@@ -844,6 +945,23 @@ const Messages = ({ user }) => {
               <div className="welcome-icon">💬</div>
               <h2>Campus Messenger</h2>
               <p>Select a conversation from the sidebar or start a new one to begin chatting</p>
+              
+              {/* WELCOME SCREEN CLOSE BUTTON - Added */}
+              {isMobile && (
+                <button 
+                  className="close-messages-welcome-btn"
+                  onClick={handleCloseMessages}
+                  title="Close messages"
+                  aria-label="Close messages"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '8px' }}>
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                  Exit Messages
+                </button>
+              )}
+              
               <button 
                 className="start-conversation-btn"
                 onClick={() => setShowNewChatModal(true)}

@@ -341,7 +341,7 @@ function App() {
       case 'jobs': return <StudentJobs />;
       case 'friends': return <Friends />;
       case 'students': return <AllStudents />;
-      case 'messages': return <Messages user={user} />;
+      case 'messages': return <Messages user={user} onClose={() => setActiveTab('feed')} />; // FIXED HERE
       case 'events': return <Events />;
       case 'study-groups': return <StudyGroups />;
       case 'housing': return <Housing />;
