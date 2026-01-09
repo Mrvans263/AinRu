@@ -1,4 +1,6 @@
-/* New Chat Modal - Enhanced */
+/* MOBILE FIXES - Add these at the end of your CSS file */
+
+/* Fix for mobile viewport */
 .new-chat-modal-overlay {
   position: fixed;
   inset: 0;
@@ -647,4 +649,180 @@
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+@media (max-width: 768px) {
+  .new-chat-modal-overlay {
+    padding: 0;
+    align-items: stretch;
+    backdrop-filter: blur(8px);
+  }
+  
+  .new-chat-modal-content {
+    max-height: 100vh;
+    height: 100vh;
+    border-radius: 0;
+    max-width: none;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .new-chat-modal-header {
+    padding: 16px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+  
+  .new-chat-search {
+    padding: 12px 16px;
+    position: sticky;
+    top: 73px; /* Header height */
+    z-index: 99;
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+  
+  .new-chat-search-input {
+    padding: 14px 48px 14px 48px;
+    font-size: 16px;
+    background-position: 16px center;
+  }
+  
+  .new-chat-users-list {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    min-height: 0; /* Important for flex scrolling */
+  }
+  
+  .new-chat-user-item {
+    padding: 12px 16px;
+  }
+  
+  .new-chat-user-avatar {
+    width: 48px;
+    height: 48px;
+  }
+  
+  .selected-user-preview {
+    padding: 16px;
+    flex-shrink: 0;
+  }
+  
+  /* FIX: Make actions sticky at bottom */
+  .new-chat-actions {
+    padding: 16px;
+    position: sticky;
+    bottom: 0;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    z-index: 100;
+    margin-top: auto; /* Push to bottom */
+    flex-shrink: 0;
+  }
+  
+  /* FIX: Stack buttons vertically on small screens */
+  @media (max-width: 480px) {
+    .new-chat-actions {
+      flex-direction: column;
+      gap: 8px;
+    }
+    
+    .new-chat-cancel-btn,
+    .new-chat-start-btn {
+      width: 100%;
+      text-align: center;
+      justify-content: center;
+    }
+    
+    .new-chat-start-btn {
+      order: -1; /* Make Start button appear first */
+    }
+  }
+}
+
+/* FIX: Ensure buttons are always visible */
+.new-chat-actions {
+  background: var(--surface);
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+}
+
+/* FIX: Better scrollbar for mobile */
+.new-chat-users-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.new-chat-users-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.new-chat-users-list::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+/* FIX: Safe area support for iOS */
+@supports (padding: max(0px)) {
+  .new-chat-modal-content {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  
+  .new-chat-actions {
+    padding-bottom: max(16px, env(safe-area-inset-bottom, 16px));
+  }
+}
+
+/* FIX: Prevent keyboard from covering buttons */
+.new-chat-modal-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 0; /* Important for mobile flex layout */
+}
+
+/* FIX: Ensure content area is scrollable */
+.new-chat-users-list {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain; /* Prevent pull-to-refresh */
+}
+
+/* FIX: Selected user preview animation */
+.selected-user-preview {
+  animation: slideUp 0.3s ease;
+  flex-shrink: 0; /* Prevent shrinking */
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* FIX: Loading state positioning */
+.new-chat-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 200px;
+}
+
+/* FIX: No users found positioning */
+.no-users-found {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 200px;
+  text-align: center;
+  padding: 24px;
 }

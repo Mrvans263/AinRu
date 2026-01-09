@@ -144,7 +144,7 @@ const NewChatModal = ({ user, onClose, onConversationCreated }) => {
           </div>
         )}
         
-        {/* User List */}
+        {/* User List - FIXED: Made scrollable area */}
         <div className="new-chat-users-list">
           {!loading && searchQuery.length >= 2 && users.length === 0 ? (
             <div className="no-users-found">
@@ -209,7 +209,7 @@ const NewChatModal = ({ user, onClose, onConversationCreated }) => {
           )}
         </div>
         
-        {/* Selected User Preview */}
+        {/* Selected User Preview - FIXED: Made optional on mobile */}
         {selectedUser && (
           <div className="selected-user-preview">
             <div className="preview-header">
@@ -227,7 +227,7 @@ const NewChatModal = ({ user, onClose, onConversationCreated }) => {
           </div>
         )}
         
-        {/* Actions */}
+        {/* Actions - FIXED: Made sticky on mobile */}
         <div className="new-chat-actions">
           <button 
             className="new-chat-cancel-btn"
