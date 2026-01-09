@@ -1927,3 +1927,170 @@ img, video {
   max-width: 100%;
   height: auto;
 }
+/* ============ MOBILE SCROLLING FIXES ============ */
+@media (max-width: 768px) {
+  /* Fix main app container for mobile */
+  .app-container {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    height: -webkit-fill-available !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  /* Main content - scrollable area */
+  .main-content {
+    flex: 1 !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    width: 100% !important;
+    padding-top: 3.5rem !important; /* Mobile top nav height */
+    padding-bottom: 4.5rem !important; /* Mobile bottom nav height */
+  }
+
+  /* Content area inside pages */
+  .page-content {
+    width: 100% !important;
+    min-height: 100% !important;
+    padding: 1rem !important;
+    background: var(--bg-secondary);
+  }
+
+  /* Mobile nav positioning */
+  .mobile-nav {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    height: 3.5rem !important;
+    z-index: 1000 !important;
+  }
+
+  /* Bottom nav positioning */
+  .bottom-nav {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    height: 4.5rem !important;
+    z-index: 1000 !important;
+  }
+
+  /* Safe area support */
+  @supports (padding: max(0px)) {
+    .app-container {
+      padding-top: env(safe-area-inset-top) !important;
+      padding-bottom: env(safe-area-inset-bottom) !important;
+    }
+    
+    .main-content {
+      padding-top: calc(3.5rem + env(safe-area-inset-top)) !important;
+      padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)) !important;
+    }
+    
+    .mobile-nav {
+      padding-top: env(safe-area-inset-top) !important;
+    }
+    
+    .bottom-nav {
+      padding-bottom: env(safe-area-inset-bottom) !important;
+    }
+  }
+}
+
+/* Desktop styles */
+@media (min-width: 769px) {
+  .app-container {
+    position: static !important;
+    height: auto !important;
+    min-height: 100vh !important;
+  }
+
+  .main-content {
+    display: flex;
+    min-height: calc(100vh - 4.5rem);
+    overflow: visible !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+  }
+}
+
+/* Mobile menu scroll lock */
+body.mobile-menu-open {
+  overflow: hidden !important;
+}
+/* ============ FIX MESSAGES COMPONENT OVERLAY ============ */
+
+/* When Messages component is active, hide mobile navs */
+body.messages-active .mobile-nav,
+body.messages-active .bottom-nav {
+  display: none !important;
+}
+
+/* When Messages component is active, adjust main content */
+body.messages-active .main-content {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+/* Messages component should be above everything */
+.messages-container {
+  z-index: 2000 !important;
+}
+/* ============ MESSAGES COMPONENT FIXES ============ */
+
+/* When Messages component is active, hide mobile nav spacing */
+.page-content.messages-active {
+  padding-bottom: 0 !important;
+}
+
+/* Messages component should take full height */
+.messages-container {
+  height: 100vh;
+  height: calc(var(--vh, 1vh) * 100);
+}
+
+/* Desktop: Messages component should not be full screen */
+@media (min-width: 769px) {
+  .messages-container {
+    position: static !important;
+    height: calc(100vh - 4.5rem) !important;
+  }
+}
+
+/* Mobile: Messages takes over full screen */
+@media (max-width: 768px) {
+  .messages-container {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    height: -webkit-fill-available !important;
+    z-index: 1000 !important;
+  }
+  
+  /* Hide the main content overflow when messages is active */
+  .main-content {
+    position: relative;
+  }
+  
+  /* Adjust main content when messages is active */
+  .page-content.messages-active {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1001;
+    padding: 0 !important;
+  }
+}

@@ -1,4 +1,8 @@
-/* CSS Variables with Mobile Safe Areas */
+/* ============================================
+   MESSAGES COMPONENT - ISOLATED MOBILE LAYOUT
+   ============================================ */
+
+/* CSS Variables */
 :root {
   --primary: #6366f1;
   --primary-light: #818cf8;
@@ -26,8 +30,6 @@
   --radius-xl: 20px;
   --transition: all 0.2s ease;
   --sidebar-width: 380px;
-  --mobile-header-height: 60px;
-  --mobile-input-height: 80px;
 }
 
 /* Reset & Base Styles */
@@ -37,22 +39,19 @@
   box-sizing: border-box;
 }
 
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  overflow: hidden;
-}
-
-/* Main Container - Dynamic Viewport Height */
+/* Main Container - Full Viewport Height */
 .messages-container {
-  display: flex;
-  height: 100vh; /* Fallback */
-  height: calc(var(--vh, 1vh) * 100); /* Dynamic viewport height */
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
   background: var(--background);
-  position: relative;
+  display: flex;
   overflow: hidden;
-  width: 100%;
+  z-index: 2000; /* Above all other components */
 }
 
 .messages-container.loading {
@@ -95,6 +94,8 @@ body {
   to { transform: rotate(360deg); }
 }
 
+/* ============ DESKTOP LAYOUT (Default) ============ */
+
 /* Sidebar */
 .conversations-sidebar {
   width: var(--sidebar-width);
@@ -102,12 +103,125 @@ body {
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
+  height: 100%;
   position: relative;
-  z-index: 10;
-  transition: transform 0.3s ease;
+}
+
+/* Chat Area */
+.chat-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
   height: 100%;
 }
 
+/* ============ MOBILE LAYOUT (768px and below) ============ */
+
+@media (max-width: 768px) {
+  /* Mobile: Conversations sidebar - full screen */
+  .conversations-sidebar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 100;
+    transition: transform 0.3s ease;
+    transform: translateX(0);
+  }
+  
+  .conversations-sidebar.mobile-hidden {
+    transform: translateX(-100%);
+  }
+  
+  /* Mobile: Chat area - full screen */
+  .chat-area {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 101;
+    transition: transform 0.3s ease;
+    transform: translateX(100%);
+  }
+  
+  .chat-area:not(.mobile-hidden) {
+    transform: translateX(0);
+  }
+  
+  /* Mobile: Show back button */
+  .back-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+    padding: 0;
+  }
+  
+  /* Mobile: Adjust header heights */
+  .sidebar-header, .chat-header {
+    padding: 16px 20px;
+    padding-top: max(16px, env(safe-area-inset-top));
+    min-height: 60px;
+    display: flex;
+    align-items: center;
+  }
+  
+  /* Mobile: Messages container */
+  .messages-scroll-container {
+    flex: 1;
+    padding: 16px;
+    padding-bottom: 80px; /* Space for input */
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* Mobile: Message input - fixed at bottom */
+  .message-input-area {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 12px 16px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    z-index: 10;
+  }
+  
+  /* Mobile: Adjust input field */
+  .message-input {
+    font-size: 16px !important; /* Prevent iOS zoom */
+  }
+  
+  /* Mobile: Smaller avatars */
+  .avatar-wrapper {
+    width: 44px !important;
+    height: 44px !important;
+  }
+  
+  .chat-avatar .avatar-wrapper {
+    width: 40px !important;
+    height: 40px !important;
+  }
+  
+  /* Mobile: Conversation list full height */
+  .conversations-list {
+    height: calc(100% - 120px); /* Subtract header + search */
+  }
+}
+
+/* ============ COMMON STYLES (Both Mobile & Desktop) ============ */
+
+/* Sidebar Header */
 .sidebar-header {
   padding: 20px 24px;
   display: flex;
@@ -115,9 +229,6 @@ body {
   justify-content: space-between;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
-  position: sticky;
-  top: 0;
-  z-index: 100;
   flex-shrink: 0;
 }
 
@@ -234,6 +345,7 @@ body {
   overflow-y: auto;
   padding: 0;
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
 }
 
 .empty-conversations {
@@ -409,16 +521,7 @@ body {
   white-space: nowrap;
 }
 
-/* Chat Area */
-.chat-area {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  background: var(--surface);
-  position: relative;
-  height: 100%;
-}
-
+/* Chat Header */
 .chat-header {
   padding: 20px 24px;
   border-bottom: 1px solid var(--border);
@@ -427,25 +530,10 @@ body {
   gap: 16px;
   background: var(--surface);
   flex-shrink: 0;
-  position: sticky;
-  top: 0;
-  z-index: 100;
 }
 
 .back-btn {
   display: none;
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  padding: 8px;
-  border-radius: var(--radius-sm);
-  transition: var(--transition);
-  flex-shrink: 0;
-}
-
-.back-btn:hover {
-  background: var(--surface-dark);
 }
 
 .chat-user {
@@ -511,6 +599,8 @@ body {
   background: linear-gradient(180deg, var(--surface) 0%, rgba(248, 250, 252, 0.8) 100%);
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
 }
 
 .loading-messages {
@@ -576,6 +666,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex: 1;
 }
 
 /* Message Wrapper */
@@ -703,15 +794,12 @@ body {
   color: var(--text-tertiary);
 }
 
-/* Message Input Area - FIXED: Mobile safe area */
+/* Message Input Area */
 .message-input-area {
   padding: 20px 24px;
   border-top: 1px solid var(--border);
   background: var(--surface);
   flex-shrink: 0;
-  position: sticky;
-  bottom: 0;
-  z-index: 100;
 }
 
 .input-wrapper {
@@ -872,250 +960,38 @@ body {
   background: var(--text-secondary);
 }
 
-/* ============ MOBILE FIXES ============ */
-@media (max-width: 768px) {
-  /* Fix iOS Safari 100vh issue */
-  .messages-container {
-    height: 100vh;
-    height: -webkit-fill-available;
-    height: calc(var(--vh, 1vh) * 100);
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-  }
-  
-  /* Sidebar - Full screen with safe areas */
-  .conversations-sidebar.mobile-hidden {
-    transform: translateX(-100%);
-    position: fixed;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 100;
-    background: var(--surface);
-  }
-  
-  .conversations-sidebar:not(.mobile-hidden) {
-    position: fixed;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 100;
-    background: var(--surface);
-    padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
-  }
-  
-  /* Chat area - Full screen with safe areas */
-  .chat-area.mobile-hidden {
-    display: none;
-  }
-  
-  .chat-area:not(.mobile-hidden) {
-    position: fixed;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 100%;
-    background: var(--surface);
-    z-index: 100;
-    padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
-  }
-  
-  /* Headers - Account for notch and safe areas */
-  .sidebar-header, .chat-header {
-    padding: 16px 20px;
-    padding-top: calc(16px + env(safe-area-inset-top, 0px));
-    min-height: calc(60px + env(safe-area-inset-top, 0px));
-    position: sticky;
-    top: 0;
-    z-index: 200;
-  }
-  
-  /* Ensure new chat button is accessible */
-  .new-chat-btn {
-    position: relative;
-    z-index: 201;
-    width: 44px;
-    height: 44px;
-  }
-  
-  /* Back button */
-  .back-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 44px;
-    height: 44px;
-    margin-right: 8px;
-    z-index: 201;
-  }
-  
-  /* Search box */
-  .search-box {
-    padding: 16px 20px;
-    position: sticky;
-    top: calc(60px + env(safe-area-inset-top, 0px));
-    z-index: 199;
-  }
-  
-  /* Conversation list - Scrollable with safe bottom */
-  .conversations-list {
-    height: calc(100% - 120px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-  }
-  
-  /* Messages container - Space for header and input */
-  .messages-scroll-container {
-    height: calc(100% - 120px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
-    padding: 20px;
-    padding-bottom: 100px;
-    padding-top: 16px;
-  }
-  
-  /* Message input area - Fixed at bottom with safe area */
-  .message-input-area {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    background: var(--surface);
-    border-top: 1px solid var(--border);
-    z-index: 200;
-    padding: 16px 20px;
-    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
-    min-height: var(--mobile-input-height);
-    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
-  }
-  
-  /* Input wrapper */
-  .input-wrapper {
-    border-radius: var(--radius-lg);
-    min-height: 52px;
-  }
-  
-  .message-input {
-    padding: 14px 16px;
-    font-size: 16px;
-    min-height: 44px;
-  }
-  
-  .send-button {
-    width: 44px;
-    height: 44px;
-  }
-  
-  /* Conversation card */
-  .conversation-card {
-    padding: 16px 20px;
-    min-height: 76px;
-  }
-  
-  /* Avatar adjustments */
-  .avatar-wrapper {
-    width: 48px;
-    height: 48px;
-  }
-  
-  .chat-avatar .avatar-wrapper {
-    width: 44px;
-    height: 44px;
-  }
-  
-  /* Message bubble max width */
-  .message-content {
-    max-width: 85%;
+/* ============ TABLET STYLES (769px - 1024px) ============ */
+
+@media (min-width: 769px) and (max-width: 1024px) {
+  .conversations-sidebar {
+    width: 320px;
   }
 }
 
-/* Small phones (iPhone SE, etc.) */
+/* ============ SMALL PHONE ADJUSTMENTS ============ */
+
 @media (max-width: 375px) {
   .sidebar-header, .chat-header {
     padding: 12px 16px;
-    padding-top: calc(12px + env(safe-area-inset-top, 0px));
-    min-height: calc(56px + env(safe-area-inset-top, 0px));
+    padding-top: max(12px, env(safe-area-inset-top));
   }
   
-  .sidebar-header h2 {
-    font-size: 20px;
+  .messages-scroll-container {
+    padding: 12px;
+    padding-bottom: 70px;
   }
   
-  .new-chat-btn, .back-btn {
-    width: 40px;
-    height: 40px;
-  }
-  
-  .search-box {
-    padding: 12px 16px;
-    top: calc(56px + env(safe-area-inset-top, 0px));
+  .message-input-area {
+    padding: 10px 14px;
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
   }
   
   .conversation-card {
     padding: 12px 16px;
-    gap: 12px;
-    min-height: 72px;
-  }
-  
-  .avatar-wrapper {
-    width: 44px;
-    height: 44px;
-  }
-  
-  .avatar-fallback {
-    font-size: 16px;
-  }
-  
-  .conversation-name {
-    font-size: 14px;
-  }
-  
-  .preview-text {
-    font-size: 13px;
-  }
-  
-  .chat-header {
-    padding: 12px 16px;
-    padding-top: calc(12px + env(safe-area-inset-top, 0px));
-  }
-  
-  .messages-scroll-container {
-    padding: 16px;
-    padding-bottom: 90px;
-    height: calc(100% - 110px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
   }
   
   .message-bubble {
-    padding: 12px 16px;
-  }
-  
-  .message-text {
-    font-size: 14px;
-  }
-  
-  .message-input-area {
-    padding: 12px 16px;
-    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-    min-height: 70px;
-  }
-  
-  .input-wrapper {
-    min-height: 48px;
-  }
-  
-  .message-input {
-    padding: 12px 14px;
-    font-size: 15px;
-    min-height: 40px;
-  }
-  
-  .send-button {
-    width: 40px;
-    height: 40px;
+    padding: 10px 14px;
   }
   
   .welcome-content h2 {
@@ -1124,25 +1000,6 @@ body {
   
   .welcome-content p {
     font-size: 15px;
-  }
-}
-
-/* Tablet adjustments */
-@media (min-width: 769px) and (max-width: 1024px) {
-  :root {
-    --sidebar-width: 320px;
-  }
-  
-  .conversation-card {
-    padding: 14px 20px;
-  }
-  
-  .messages-scroll-container {
-    padding: 20px;
-  }
-  
-  .message-input-area {
-    padding: 20px;
   }
 }
 
@@ -1184,6 +1041,7 @@ body {
   .typing-dot,
   .welcome-content .welcome-icon,
   .conversations-sidebar,
+  .chat-area,
   .message-wrapper,
   .new-chat-btn,
   .send-button,

@@ -34,95 +34,96 @@ import Loading from './components/Common/Loading';
 
 function App() {
   useEffect(() => {
-  console.log('=== APP.JSX DEBUG ===');
-  console.log('🔍 Initial check - URL:', window.location.href);
-  console.log('🔍 Has hash:', !!window.location.hash);
-  console.log('🔍 Hash content:', window.location.hash.substring(0, 100));
-  
-  const checkAuth = async () => {
-    setLoading(true);
+    console.log('=== APP.JSX DEBUG ===');
+    console.log('🔍 Initial check - URL:', window.location.href);
+    console.log('🔍 Has hash:', !!window.location.hash);
+    console.log('🔍 Hash content:', window.location.hash.substring(0, 100));
     
-    try {
-      console.log('🔄 Step 1: Getting session...');
+    const checkAuth = async () => {
+      setLoading(true);
       
-      // 1. Get session
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      console.log('📋 Session result:', {
-        hasSession: !!session,
-        userEmail: session?.user?.email,
-        userId: session?.user?.id,
-        provider: session?.user?.app_metadata?.provider
-      });
-      
-      if (!session) {
-        console.log('❌ No session, showing login');
+      try {
+        console.log('🔄 Step 1: Getting session...');
+        
+        // 1. Get session
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        console.log('📋 Session result:', {
+          hasSession: !!session,
+          userEmail: session?.user?.email,
+          userId: session?.user?.id,
+          provider: session?.user?.app_metadata?.provider
+        });
+        
+        if (!session) {
+          console.log('❌ No session, showing login');
+          setAuthState('login');
+          setLoading(false);
+          return;
+        }
+        
+        console.log('✅ Session found for:', session.user.email);
+        setUser(session.user);
+        
+        // 2. Check if user exists in database
+        console.log('🔄 Step 2: Checking database...');
+        const { data: userProfile, error: dbError } = await supabase
+          .from('users')
+          .select('profile_completed, auth_provider, firstname, surname')
+          .eq('id', session.user.id)
+          .single();
+        
+        console.log('📋 Database check:', {
+          hasProfile: !!userProfile,
+          dbError: dbError?.message,
+          profileCompleted: userProfile?.profile_completed,
+          authProvider: userProfile?.auth_provider,
+          hasName: !!(userProfile?.firstname && userProfile?.surname)
+        });
+        
+        // 3. DECISION LOGIC
+        if (dbError || !userProfile) {
+          console.log('⚠️ User not in database yet');
+          setAuthState('complete-profile');
+        } else if (!userProfile.profile_completed) {
+          console.log('⚠️ Profile incomplete');
+          setAuthState('complete-profile');
+        } else {
+          console.log('✅ Profile complete - going to app');
+          setAuthState('app');
+        }
+        
+      } catch (error) {
+        console.error('❌ Auth check error:', error);
         setAuthState('login');
+      } finally {
         setLoading(false);
-        return;
       }
-      
-      console.log('✅ Session found for:', session.user.email);
-      setUser(session.user);
-      
-      // 2. Check if user exists in database
-      console.log('🔄 Step 2: Checking database...');
-      const { data: userProfile, error: dbError } = await supabase
-        .from('users')
-        .select('profile_completed, auth_provider, firstname, surname')
-        .eq('id', session.user.id)
-        .single();
-      
-      console.log('📋 Database check:', {
-        hasProfile: !!userProfile,
-        dbError: dbError?.message,
-        profileCompleted: userProfile?.profile_completed,
-        authProvider: userProfile?.auth_provider,
-        hasName: !!(userProfile?.firstname && userProfile?.surname)
+    };
+    
+    checkAuth();
+    
+    // Auth listener with debugging
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('🔔 Auth state change:', event, {
+        hasSession: !!session,
+        userEmail: session?.user?.email
       });
       
-      // 3. DECISION LOGIC
-      if (dbError || !userProfile) {
-        console.log('⚠️ User not in database yet');
-        setAuthState('complete-profile');
-      } else if (!userProfile.profile_completed) {
-        console.log('⚠️ Profile incomplete');
-        setAuthState('complete-profile');
-      } else {
-        console.log('✅ Profile complete - going to app');
-        setAuthState('app');
+      if (event === 'SIGNED_OUT') {
+        setUser(null);
+        setAuthState('login');
+      } 
+      else if (session) {
+        setUser(session.user);
+        // Re-check after auth change
+        setTimeout(() => checkAuth(), 300);
       }
-      
-    } catch (error) {
-      console.error('❌ Auth check error:', error);
-      setAuthState('login');
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-  checkAuth();
-  
-  // Auth listener with debugging
-  const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-    console.log('🔔 Auth state change:', event, {
-      hasSession: !!session,
-      userEmail: session?.user?.email
     });
     
-    if (event === 'SIGNED_OUT') {
-      setUser(null);
-      setAuthState('login');
-    } 
-    else if (session) {
-      setUser(session.user);
-      // Re-check after auth change
-      setTimeout(() => checkAuth(), 300);
-    }
-  });
+    return () => subscription.unsubscribe();
+  }, []);
   
-  return () => subscription.unsubscribe();
-}, []);
   // Handle Google OAuth callback - MUST BE FIRST
   if (window.location.pathname === '/auth/callback') {
     return <AuthCallback />;
@@ -152,150 +153,149 @@ function App() {
     }
   }, [activeTab, authState]);
 
-  // Main auth check - FIXED LOGIC
   // Main auth check - FIXED with proper OAuth handling
-useEffect(() => {
-  let mounted = true;
+  useEffect(() => {
+    let mounted = true;
 
-  const initializeAuth = async () => {
-    if (!mounted) return;
-    
-    setLoading(true);
-    
-    try {
-      console.log('🔍 Checking authentication...');
+    const initializeAuth = async () => {
+      if (!mounted) return;
       
-      // 1. Get current session - WAIT for it
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      setLoading(true);
       
-      if (sessionError) {
-        console.error('❌ Session error:', sessionError);
+      try {
+        console.log('🔍 Checking authentication...');
+        
+        // 1. Get current session - WAIT for it
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          console.error('❌ Session error:', sessionError);
+          if (mounted) {
+            setAuthState('login');
+            setLoading(false);
+          }
+          return;
+        }
+        
+        console.log('📊 Session check result:', {
+          hasSession: !!session,
+          userEmail: session?.user?.email
+        });
+        
+        if (!session) {
+          console.log('❌ No session found, showing login');
+          if (mounted) {
+            setAuthState('login');
+            setLoading(false);
+          }
+          return;
+        }
+        
+        console.log('✅ Session found for:', session.user.email);
+        
         if (mounted) {
-          setAuthState('login');
-          setLoading(false);
+          setUser(session.user);
         }
-        return;
-      }
-      
-      console.log('📊 Session check result:', {
-        hasSession: !!session,
-        userEmail: session?.user?.email
-      });
-      
-      if (!session) {
-        console.log('❌ No session found, showing login');
+        
+        // 2. Small delay to ensure database is ready (for new OAuth users)
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // 3. Check if user exists in your database
+        const { data: userProfile, error: dbError } = await supabase
+          .from('users')
+          .select('profile_completed, auth_provider, firstname, surname')
+          .eq('id', session.user.id)
+          .single();
+        
+        if (dbError) {
+          console.log('⚠️ User not in database yet:', dbError.message);
+          
+          // Check if this is a brand new OAuth user
+          if (session.user.app_metadata?.provider === 'google') {
+            console.log('➡️ New Google user, redirecting to complete-profile');
+            if (mounted) setAuthState('complete-profile');
+          } else {
+            console.log('➡️ User needs profile creation');
+            if (mounted) setAuthState('complete-profile');
+          }
+          
+          if (mounted) setLoading(false);
+          return;
+        }
+        
+        console.log('📊 User profile status:', {
+          profile_completed: userProfile.profile_completed,
+          auth_provider: userProfile.auth_provider,
+          hasName: !!(userProfile.firstname && userProfile.surname)
+        });
+        
         if (mounted) {
-          setAuthState('login');
-          setLoading(false);
-        }
-        return;
-      }
-      
-      console.log('✅ Session found for:', session.user.email);
-      
-      if (mounted) {
-        setUser(session.user);
-      }
-      
-      // 2. Small delay to ensure database is ready (for new OAuth users)
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // 3. Check if user exists in your database
-      const { data: userProfile, error: dbError } = await supabase
-        .from('users')
-        .select('profile_completed, auth_provider, firstname, surname')
-        .eq('id', session.user.id)
-        .single();
-      
-      if (dbError) {
-        console.log('⚠️ User not in database yet:', dbError.message);
-        
-        // Check if this is a brand new OAuth user
-        if (session.user.app_metadata?.provider === 'google') {
-          console.log('➡️ New Google user, redirecting to complete-profile');
-          if (mounted) setAuthState('complete-profile');
-        } else {
-          console.log('➡️ User needs profile creation');
-          if (mounted) setAuthState('complete-profile');
-        }
-        
-        if (mounted) setLoading(false);
-        return;
-      }
-      
-      console.log('📊 User profile status:', {
-        profile_completed: userProfile.profile_completed,
-        auth_provider: userProfile.auth_provider,
-        hasName: !!(userProfile.firstname && userProfile.surname)
-      });
-      
-      if (mounted) {
-        // 4. DECISION LOGIC
-        if (!userProfile.profile_completed) {
-          console.log('➡️ Incomplete profile, redirecting to complete-profile');
-          setAuthState('complete-profile');
-        } else {
-          console.log('✅ Profile complete, redirecting to app');
-          setAuthState('app');
-        }
-        setLoading(false);
-      }
-      
-    } catch (error) {
-      console.error('❌ Auth initialization error:', error);
-      if (mounted) {
-        setAuthState('login');
-        setLoading(false);
-      }
-    }
-  };
-
-  initializeAuth();
-
-  // Listen for auth state changes - SIMPLIFIED
-  const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-    console.log('🔔 Auth state change:', event);
-    
-    if (!mounted) return;
-    
-    if (event === 'SIGNED_OUT') {
-      console.log('👋 User signed out');
-      setUser(null);
-      setAuthState('login');
-    } 
-    else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
-      console.log('👤 Auth event:', event, 'for user:', session?.user?.email);
-      
-      if (session?.user) {
-        setUser(session.user);
-        
-        // Small delay for database sync
-        setTimeout(async () => {
-          if (!mounted) return;
-          
-          const { data: userProfile } = await supabase
-            .from('users')
-            .select('profile_completed')
-            .eq('id', session.user.id)
-            .single();
-          
-          if (!userProfile?.profile_completed) {
-            console.log('➡️ Needs profile completion');
+          // 4. DECISION LOGIC
+          if (!userProfile.profile_completed) {
+            console.log('➡️ Incomplete profile, redirecting to complete-profile');
             setAuthState('complete-profile');
           } else {
-            console.log('✅ Profile complete, going to app');
+            console.log('✅ Profile complete, redirecting to app');
             setAuthState('app');
           }
-        }, 300);
+          setLoading(false);
+        }
+        
+      } catch (error) {
+        console.error('❌ Auth initialization error:', error);
+        if (mounted) {
+          setAuthState('login');
+          setLoading(false);
+        }
       }
-    }
-  });
+    };
 
-  return () => {
-    mounted = false;
-    subscription?.unsubscribe();
-  };
-}, []);
+    initializeAuth();
+
+    // Listen for auth state changes - SIMPLIFIED
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('🔔 Auth state change:', event);
+      
+      if (!mounted) return;
+      
+      if (event === 'SIGNED_OUT') {
+        console.log('👋 User signed out');
+        setUser(null);
+        setAuthState('login');
+      } 
+      else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
+        console.log('👤 Auth event:', event, 'for user:', session?.user?.email);
+        
+        if (session?.user) {
+          setUser(session.user);
+          
+          // Small delay for database sync
+          setTimeout(async () => {
+            if (!mounted) return;
+            
+            const { data: userProfile } = await supabase
+              .from('users')
+              .select('profile_completed')
+              .eq('id', session.user.id)
+              .single();
+            
+            if (!userProfile?.profile_completed) {
+              console.log('➡️ Needs profile completion');
+              setAuthState('complete-profile');
+            } else {
+              console.log('✅ Profile complete, going to app');
+              setAuthState('app');
+            }
+          }, 300);
+        }
+      }
+    });
+
+    return () => {
+      mounted = false;
+      subscription?.unsubscribe();
+    };
+  }, []);
 
   // Handle profile completion
   const handleProfileComplete = async () => {
@@ -393,7 +393,7 @@ useEffect(() => {
       }
       return (
         <div className="app-container">
-          {/* Desktop Navigation */}
+          {/* Desktop Navigation - Always show */}
           <Navbar 
             user={user}
             onLogout={handleLogout}
@@ -401,25 +401,27 @@ useEffect(() => {
             setActiveTab={setActiveTab}
           />
 
-          {/* Mobile Navigation */}
-          <MobileNav 
-            user={user}
-            onLogout={handleLogout}
-            activeTab={activeTab}
-            setActiveTab={setActiveTab}
-          />
+          {/* Mobile Navigation - Hide when in Messages */}
+          {activeTab !== 'messages' && (
+            <MobileNav 
+              user={user}
+              onLogout={handleLogout}
+              activeTab={activeTab}
+              setActiveTab={setActiveTab}
+            />
+          )}
 
           {/* Main Content */}
           <main className="main-content">
             <div className="content-wrapper">
-              {/* Desktop Sidebar */}
+              {/* Desktop Sidebar - Always show */}
               <Sidebar 
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
               />
 
               {/* Page Content */}
-              <div className="page-content">
+              <div className={`page-content ${activeTab === 'messages' ? 'messages-active' : ''}`}>
                 <div className="animate-fade-in">
                   {renderPageContent()}
                 </div>
@@ -427,8 +429,10 @@ useEffect(() => {
             </div>
           </main>
 
-          {/* Mobile Bottom Nav Spacing */}
-          <div className="mobile-bottom-spacing"></div>
+          {/* Mobile Bottom Nav Spacing - Hide when in Messages */}
+          {activeTab !== 'messages' && (
+            <div className="mobile-bottom-spacing"></div>
+          )}
         </div>
       );
     

@@ -562,7 +562,7 @@ const CreateDealModal = ({ user, onClose, onCreate }) => {
     
     // Contact
     contact_method: 'whatsapp',
-    contact_info: user?.email || '',
+    contact_info:  '',
     
     // Description
     description: '',
@@ -857,13 +857,13 @@ const CreateDealModal = ({ user, onClose, onCreate }) => {
             <label>Contact Information*</label>
             <input
               type="text"
-              placeholder="Phone number or email"
-              value={form.contact_info}
+              placeholder= {form.contact_method === 'email'? 'email' : form.contact_method + " contact"}
+              value={ form.contact_info }
               onChange={(e) => setForm({...form, contact_info: e.target.value})}
               required
             />
             <small className="form-hint">
-              Buyers will contact you using this information
+              Buyers will contact you using this information. Include country code eg +7
             </small>
           </div>
           

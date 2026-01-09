@@ -1,11 +1,12 @@
 import React from 'react'
 
 const StudyGroups = () => (
-  <Placeholder 
-    title="Study Groups"
-    icon="📚"
-    description="Find or create study groups"
-  />
-);
+
+  
+  <>
+    <p>Under Development. Any suggestions contact +79999901162</p>
+  </>
+   );
+
 
 export default StudyGroups

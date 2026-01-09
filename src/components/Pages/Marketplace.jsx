@@ -802,8 +802,7 @@ const CreateListingModal = ({ user, categories, onClose, onSubmit }) => {
                   value={formData.contact_info}
                   onChange={handleChange}
                   placeholder={
-                    formData.contact_method === 'email' ? 'your.email@example.com' :
-                    '+27 12 345 6789'
+                   formData.contact_method + " contact"
                   }
                   required={formData.contact_method !== 'in_app'}
                 />

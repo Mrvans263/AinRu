@@ -20,7 +20,6 @@ const Messages = ({ user }) => {
   const [isMobile, setIsMobile] = useState(false);
   const [showChat, setShowChat] = useState(false);
   const [messageInput, setMessageInput] = useState('');
-  const [viewportHeight, setViewportHeight] = useState('100vh');
   
   // Refs
   const messagesEndRef = useRef(null);
@@ -33,33 +32,29 @@ const Messages = ({ user }) => {
   const prevConversationIdRef = useRef(null);
   const inputRef = useRef(null);
 
-  // Fix mobile viewport height
+  // Mobile detection - SIMPLIFIED
   useEffect(() => {
-    const setVh = () => {
-      const vh = window.innerHeight * 0.01;
-      document.documentElement.style.setProperty('--vh', `${vh}px`);
-      setViewportHeight('calc(var(--vh, 1vh) * 100)');
-    };
-    
-    setVh();
-    
     const checkMobile = () => {
       const mobile = window.innerWidth <= 768;
       setIsMobile(mobile);
-      if (!mobile) setShowChat(true);
-      setVh();
+      
+      // On mobile, start with conversations list
+      if (mobile) {
+        setShowChat(false);
+      } else {
+        // On desktop, show both
+        setShowChat(true);
+      }
     };
     
+    // Initial check
     checkMobile();
     
+    // Add resize listener
     window.addEventListener('resize', checkMobile);
-    window.addEventListener('resize', setVh);
-    window.addEventListener('orientationchange', setVh);
     
     return () => {
       window.removeEventListener('resize', checkMobile);
-      window.removeEventListener('resize', setVh);
-      window.removeEventListener('orientationchange', setVh);
     };
   }, []);
 
@@ -246,6 +241,7 @@ const Messages = ({ user }) => {
     setMessages([]);
     setActiveConversation(conversation);
     
+    // On mobile, switch to chat view
     if (isMobile) {
       setShowChat(true);
     }
@@ -503,7 +499,7 @@ const Messages = ({ user }) => {
   }
 
   return (
-    <div className="messages-container" style={{ height: viewportHeight }}>
+    <div className="messages-container">
       {/* Conversations Sidebar */}
       <div className={`conversations-sidebar ${isMobile && showChat ? 'mobile-hidden' : ''}`}>
         <div className="sidebar-header">
