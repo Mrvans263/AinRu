@@ -214,7 +214,7 @@ function App() {
   }, []); // EMPTY DEPS - RUN ONLY ONCE
 
   // ============================================
-  // ONE-TIME APP INITIALIZATION
+  // ONE-TIME APP INITIALIZATION - FIXED VERSION
   // ============================================
   const initializeApp = async () => {
     console.log('⚡ One-time app initialization');
@@ -242,13 +242,22 @@ function App() {
       if (isMountedRef.current) {
         setUser(session.user);
         
-        // Check profile status
-        const { data: profile } = await supabase
-          .from('users')
-          .select('profile_completed')
-          .eq('id', session.user.id)
-          .single()
-          .catch(() => ({ data: null }));
+        // FIXED: Check profile status - remove .catch()
+        let profile = null;
+        try {
+          const { data, error: profileError } = await supabase
+            .from('users')
+            .select('profile_completed')
+            .eq('id', session.user.id)
+            .single();
+          
+          if (!profileError) {
+            profile = data;
+          }
+        } catch (profileError) {
+          console.log('Profile check error (non-critical):', profileError);
+          profile = null;
+        }
         
         if (!profile || !profile.profile_completed) {
           setAuthState('complete-profile');
@@ -302,6 +311,16 @@ function App() {
                 setUser(session.user);
               }
               break;
+
+            case 'INITIAL_SESSION':
+              // Handle OAuth initial session
+              console.log('🎬 INITIAL_SESSION from OAuth');
+              if (session?.user) {
+                setUser(session.user);
+                // Check profile for OAuth users
+                setTimeout(() => checkUserProfile(session.user.id), 500);
+              }
+              break;
           }
         }
       );
@@ -309,15 +328,24 @@ function App() {
   };
 
   // ============================================
-  // PROFILE CHECK (Only when needed)
+  // PROFILE CHECK (Only when needed) - FIXED
   // ============================================
   const checkUserProfile = async (userId) => {
     try {
-      const { data: profile } = await supabase
-        .from('users')
-        .select('profile_completed')
-        .eq('id', userId)
-        .single();
+      let profile = null;
+      try {
+        const { data, error: profileError } = await supabase
+          .from('users')
+          .select('profile_completed')
+          .eq('id', userId)
+          .single();
+        
+        if (!profileError) {
+          profile = data;
+        }
+      } catch (error) {
+        console.log('Profile check error:', error);
+      }
       
       if (!profile || !profile.profile_completed) {
         setAuthState('complete-profile');
@@ -338,13 +366,28 @@ function App() {
   }
 
   // ============================================
+  // ADD OAuth URL detection
+  // ============================================
+  useEffect(() => {
+    // Check if we have OAuth tokens in URL
+    const hash = window.location.hash;
+    if (hash.includes('access_token') || hash.includes('code=')) {
+      console.log('🔑 OAuth tokens detected in URL');
+      // Don't do anything - AuthCallback is handling it
+    }
+  }, []);
+
+  // ============================================
   // AUTH HANDLERS
   // ============================================
   const handleProfileComplete = async () => {
     if (user) {
       await supabase
         .from('users')
-        .update({ last_login: new Date().toISOString() })
+        .update({ 
+          profile_completed: true,
+          last_login: new Date().toISOString() 
+        })
         .eq('id', user.id);
     }
     setAuthState('app');
@@ -403,6 +446,10 @@ function App() {
   // ============================================
   switch (authState) {
     case 'checking':
+      // If checking and we might be in OAuth flow, show special loading
+      if (window.location.hash.includes('access_token')) {
+        return <Loading fullscreen message="Completing Google sign in..." />;
+      }
       return <Loading fullscreen />;
     
     case 'login':
@@ -461,7 +508,7 @@ function App() {
               <Sidebar 
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
-                user={user} // Added user prop
+                user={user}
               />
 
               {/* Page Content */}
