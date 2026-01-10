@@ -2,12 +2,60 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ainru</title>
+    
+    <!-- Title with your app name -->
+    <title>Africans in Russia | Community Platform</title>
+    
+    <!-- Generated favicon links (as provided by your generator) -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+    <link rel="manifest" href="/site.webmanifest">
+    
+    <!-- Optional: Add these additional icons for better PWA support -->
+    <link rel="icon" type="image/png" sizes="192x192" href="/android-chrome-192x192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="/android-chrome-512x512.png">
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+    
+    <!-- PWA essential meta tags -->
+    <meta name="theme-color" content="#000000">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-title" content="AfricansRU">
+    <meta name="mobile-web-app-capable" content="yes">
+    
+    <!-- Microsoft tiles (optional but good to have) -->
+    <meta name="msapplication-TileColor" content="#000000">
+    <meta name="msapplication-config" content="/browserconfig.xml">
+    
+    <!-- App description for SEO and install prompts -->
+    <meta name="description" content="Community platform connecting Africans living in Russia. Find events, resources, and support.">
+    
+    <!-- Open Graph for social sharing -->
+    <meta property="og:title" content="Africans in Russia">
+    <meta property="og:description" content="Community platform connecting Africans living in Russia">
+    <meta property="og:image" content="/android-chrome-512x512.png">
+    <meta property="og:url" content="https://africansinrussia.com">
+    <meta property="og:type" content="website">
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    
+    <!-- Optional: PWA install prompt detection -->
+    <script>
+      // Detect if PWA can be installed
+      window.addEventListener('beforeinstallprompt', (e) => {
+        console.log('PWA can be installed!');
+        // You can store this event and trigger it with a button
+        window.deferredPrompt = e;
+      });
+      
+      // Check if running as PWA
+      if (window.matchMedia('(display-mode: standalone)').matches) {
+        console.log('Running as installed PWA');
+      }
+    </script>
   </body>
 </html>
