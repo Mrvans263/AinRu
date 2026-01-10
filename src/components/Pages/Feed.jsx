@@ -1627,7 +1627,7 @@ const Feed = () => {
           {!hasMore && posts.length > 0 && (
             <div className="end-of-feed">
               <p>You're all caught up! 🎉</p>
-              <small>No more posts to load</small>
+              <small>No more posts to load bro</small>
             </div>
           )}
         </div>
