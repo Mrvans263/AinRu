@@ -5,15 +5,37 @@ import './Auth.css';
 const AuthCallback = () => {
   useEffect(() => {
     console.log('=== AUTH CALLBACK DEBUG ===');
-    console.log('🔍 URL:', window.location.href);
-    console.log('🔍 Hash length:', window.location.hash.length);
+    console.log('🔍 Full URL:', window.location.href);
+    console.log('🔍 Pathname:', window.location.pathname);
+    console.log('🔍 Hash:', window.location.hash);
     console.log('🔍 Search:', window.location.search);
     
     const processOAuth = async () => {
       try {
         console.log('🔄 Step 1: Getting session...');
         
-        // Get session (Supabase should process OAuth tokens automatically)
+        // IMPORTANT: First, let Supabase handle the OAuth tokens from the URL
+        // This is needed because tokens might be in the hash fragment
+        const hash = window.location.hash;
+        
+        if (hash && hash.includes('access_token')) {
+          console.log('🔑 Found tokens in hash fragment');
+          // Parse tokens from hash
+          const params = new URLSearchParams(hash.substring(1));
+          const access_token = params.get('access_token');
+          const refresh_token = params.get('refresh_token');
+          
+          if (access_token) {
+            console.log('🔄 Setting session from hash tokens...');
+            await supabase.auth.setSession({
+              access_token,
+              refresh_token,
+            });
+            console.log('✅ Session set from hash tokens');
+          }
+        }
+        
+        // Now get the session
         const { data: { session }, error } = await supabase.auth.getSession();
         
         console.log('🔄 Step 2: Session result:', {
@@ -25,20 +47,32 @@ const AuthCallback = () => {
         
         if (error) {
           console.error('❌ Session error:', error);
-          // Clean URL and let main app handle it
+          // Redirect to login after delay
           setTimeout(() => {
-            window.location.hash = '';
-            window.location.search = '';
-          }, 100);
+            window.location.href = '/';
+          }, 1500);
           return;
         }
 
         if (!session) {
-          console.error('❌ No session after OAuth');
+          console.error('❌ No session after OAuth - trying to sign in with OAuth');
+          
+          // Try to trigger OAuth sign in again
+          try {
+            await supabase.auth.signInWithOAuth({
+              provider: 'google',
+              options: {
+                skipBrowserRedirect: true
+              }
+            });
+          } catch (oauthError) {
+            console.error('OAuth retry failed:', oauthError);
+          }
+          
+          // Wait and redirect
           setTimeout(() => {
-            window.location.hash = '';
-            window.location.search = '';
-          }, 100);
+            window.location.href = '/';
+          }, 2000);
           return;
         }
 
@@ -52,11 +86,21 @@ const AuthCallback = () => {
         
         // Check if user exists in database
         console.log('🔄 Step 4: Checking database...');
-        const { data: userProfile, error: dbError } = await supabase
-          .from('users')
-          .select('id, profile_completed, auth_provider')
-          .eq('id', session.user.id)
-          .single();
+        let userProfile = null;
+        let dbError = null;
+        
+        try {
+          const { data, error: profileError } = await supabase
+            .from('users')
+            .select('id, profile_completed, auth_provider')
+            .eq('id', session.user.id)
+            .single();
+          
+          userProfile = data;
+          dbError = profileError;
+        } catch (err) {
+          dbError = err;
+        }
         
         console.log('📋 Database check:', {
           hasProfile: !!userProfile,
@@ -65,34 +109,36 @@ const AuthCallback = () => {
           authProvider: userProfile?.auth_provider
         });
         
-        // Wait a bit for database sync
-        await new Promise(resolve => setTimeout(resolve, 500));
+        // Clean the URL before redirecting
+        console.log('✅ Step 5: Cleaning URL and redirecting...');
         
-        console.log('✅ Step 5: Cleaning URL and letting app handle redirect...');
+        // Remove hash and query parameters
+        if (window.history.replaceState) {
+          window.history.replaceState({}, document.title, '/');
+        }
         
-        // CRITICAL: Remove OAuth parameters from URL WITHOUT redirecting
-        // Use setTimeout to avoid React render cycle issues
+        // Give a moment for state to update, then redirect
         setTimeout(() => {
-          if (window.history.replaceState) {
-            window.history.replaceState({}, document.title, window.location.pathname);
-          }
-          // Force navigation to root after a moment
-          setTimeout(() => {
-            window.location.href = '/';
-          }, 50);
-        }, 100);
+          window.location.href = '/';
+        }, 1000);
         
       } catch (error) {
         console.error('❌ AuthCallback error:', error);
+        // Clean URL and redirect on error
         setTimeout(() => {
-          window.location.hash = '';
-          window.location.search = '';
+          if (window.history.replaceState) {
+            window.history.replaceState({}, document.title, '/');
+          }
           window.location.href = '/';
-        }, 100);
+        }, 1500);
       }
     };
 
-    processOAuth();
+    // Add a small delay to ensure Supabase is ready
+    setTimeout(() => {
+      processOAuth();
+    }, 100);
+    
   }, []);
 
   return (
