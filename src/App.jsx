@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { supabase } from './lib/supabase';
 
 // Layout Components
@@ -32,14 +32,65 @@ import Settings from './components/Pages/Settings';
 // Common Components
 import Loading from './components/Common/Loading';
 
+// ============================================
+// APP STATE PERSISTENCE SYSTEM
+// ============================================
+
+// Global state persistence
+let globalAppState = {
+  user: null,
+  authState: 'checking',
+  activeTab: localStorage.getItem('activeTab') || 'marketplace',
+  timestamp: Date.now(),
+  isInitialized: false
+};
+
+// Persistent storage with error handling
+const persistState = (key, value) => {
+  try {
+    if (typeof value === 'object') {
+      sessionStorage.setItem(key, JSON.stringify(value));
+    } else {
+      sessionStorage.setItem(key, value);
+    }
+  } catch (e) {
+    console.log('Storage error (non-critical):', e);
+  }
+};
+
+const restoreState = (key, fallback) => {
+  try {
+    const item = sessionStorage.getItem(key);
+    if (!item) return fallback;
+    
+    if (item.startsWith('{') || item.startsWith('[')) {
+      return JSON.parse(item);
+    }
+    return item;
+  } catch (e) {
+    console.log('Storage restore error:', e);
+    return fallback;
+  }
+};
+
 // Mobile-specific utilities
 const MOBILE_AGENTS = /iPhone|iPad|iPod|Android|webOS|BlackBerry|Windows Phone/i;
 
 function App() {
-  const [user, setUser] = useState(null);
+  // ============================================
+  // STATE WITH PERSISTENCE
+  // ============================================
+  const [user, _setUser] = useState(() => {
+    return globalAppState.user || restoreState('user', null);
+  });
+  
   const [loading, setLoading] = useState(true);
-  const [authState, setAuthState] = useState('checking');
-  const [activeTab, setActiveTab] = useState(() => {
+  
+  const [authState, _setAuthState] = useState(() => {
+    return globalAppState.authState || restoreState('authState', 'checking');
+  });
+  
+  const [activeTab, _setActiveTab] = useState(() => {
     const savedTab = localStorage.getItem('activeTab');
     const validTabs = [
       'dashboard', 'marketplace', 'feed', 'travel', 'money',
@@ -49,233 +100,245 @@ function App() {
     return savedTab && validTabs.includes(savedTab) ? savedTab : 'marketplace';
   });
 
-  // Refs for mobile optimization
-  const isMobileRef = useRef(false);
-  const authInitializedRef = useRef(false);
+  // Refs for preventing re-initialization
+  const isMountedRef = useRef(true);
+  const isInitializedRef = useRef(false);
+  const supabaseSubscriptionRef = useRef(null);
   const visibilityHandlersRef = useRef([]);
-  const fileSelectionGuardRef = useRef(null);
 
   // ============================================
-  // MOBILE OPTIMIZATION: Page Lifecycle Management
+  // PERSISTENT STATE SETTERS
   // ============================================
-  useEffect(() => {
-    // Detect mobile
-    isMobileRef.current = MOBILE_AGENTS.test(navigator.userAgent);
-    
-    if (isMobileRef.current) {
-      console.log('📱 Mobile device detected, applying optimizations');
-      
-      // 1. Prevent iOS Safari from unloading the page during file selection
-      const preventUnload = (e) => {
-        // Check if we're in the middle of file selection
-        const isSelectingFile = sessionStorage.getItem('isSelectingFile') === 'true';
-        if (isSelectingFile) {
-          e.preventDefault();
-          e.returnValue = '';
-          return '';
-        }
-      };
-      
-      window.addEventListener('beforeunload', preventUnload);
-      visibilityHandlersRef.current.push(() => {
-        window.removeEventListener('beforeunload', preventUnload);
-      });
+  const setUser = (newUser) => {
+    globalAppState.user = newUser;
+    persistState('user', newUser);
+    _setUser(newUser);
+  };
 
-      // 2. Handle iOS page cache issues
-      window.onpageshow = (event) => {
-        if (event.persisted) {
-          console.log('📱 Page restored from bfcache (iOS)');
-          // Restore file selection state if needed
-          restoreFileSelectionState();
-        }
-      };
+  const setAuthState = (newAuthState) => {
+    globalAppState.authState = newAuthState;
+    persistState('authState', newAuthState);
+    _setAuthState(newAuthState);
+  };
 
-      // 3. Disable pull-to-refresh on mobile (causes accidental reloads)
-      document.body.style.overscrollBehavior = 'contain';
-
-      // 4. Prevent zoom on file input focus (iOS specific)
-      const preventZoom = (e) => {
-        if (e.target.type === 'file') {
-          e.target.style.fontSize = '16px'; // iOS won't zoom if font >= 16px
-        }
-      };
-      
-      document.addEventListener('focus', preventZoom, true);
-      visibilityHandlersRef.current.push(() => {
-        document.removeEventListener('focus', preventZoom, true);
-      });
-
-      // 5. File selection guard - monitors when file picker is opened
-      fileSelectionGuardRef.current = setInterval(() => {
-        const selectingFile = sessionStorage.getItem('isSelectingFile');
-        const selectionStart = parseInt(sessionStorage.getItem('fileSelectionStart') || '0');
-        
-        if (selectingFile === 'true' && Date.now() - selectionStart > 30000) {
-          // Clean up if selection took too long (probably canceled)
-          sessionStorage.removeItem('isSelectingFile');
-          sessionStorage.removeItem('fileSelectionStart');
-        }
-      }, 1000);
-    }
-
-    return () => {
-      // Cleanup all mobile-specific handlers
-      visibilityHandlersRef.current.forEach(cleanup => cleanup());
-      if (fileSelectionGuardRef.current) {
-        clearInterval(fileSelectionGuardRef.current);
-      }
-      document.body.style.overscrollBehavior = '';
-    };
-  }, []);
-
-  const restoreFileSelectionState = () => {
-    // This would be implemented by child components
-    // Each file input component can check for pending selections
-    console.log('📱 Checking for pending file selections...');
+  const setActiveTab = (newTab) => {
+    globalAppState.activeTab = newTab;
+    localStorage.setItem('activeTab', newTab);
+    _setActiveTab(newTab);
   };
 
   // ============================================
-  // AUTHENTICATION MANAGEMENT (Optimized for Mobile)
+  // PREVENT TAB SWITCH REFRESH - CORE FIX
   // ============================================
   useEffect(() => {
-    let mounted = true;
-    let authCheckTimeout = null;
-    let isCheckingAuth = false;
-
-    const initializeAuth = async () => {
-      if (!mounted || isCheckingAuth) return;
+    console.log('🚀 App mounted - preventing tab refresh');
+    
+    // Flag to prevent re-initialization
+    isMountedRef.current = true;
+    
+    // 1. DISABLE PAGE UNLOAD/RELOAD BEHAVIORS
+    const preventUnload = (e) => {
+      // Only prevent if we're in the app (not during auth flows)
+      if (authState === 'app') {
+        // Cancel the event
+        e.preventDefault();
+        // Chrome requires returnValue
+        e.returnValue = '';
+        return '';
+      }
+    };
+    
+    window.addEventListener('beforeunload', preventUnload);
+    
+    // 2. HANDLE VISIBILITY CHANGES WITHOUT REFRESHING
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        console.log('👻 Tab hidden - preserving state');
+        // Save everything to sessionStorage for safety
+        persistState('appSnapshot', {
+          user: user,
+          authState: authState,
+          activeTab: activeTab,
+          timestamp: Date.now()
+        });
+      }
       
-      isCheckingAuth = true;
-      setLoading(true);
-      
-      try {
-        console.log('🔐 Initializing authentication...');
-        
-        // Get session
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-        
-        if (sessionError) {
-          console.error('Session error:', sessionError);
-          if (mounted) setAuthState('login');
-          return;
-        }
-        
-        if (!session) {
-          console.log('No session found');
-          if (mounted) setAuthState('login');
-          return;
-        }
-        
-        console.log('✅ Session found:', session.user.email);
-        if (mounted) setUser(session.user);
-        
-        // Check user profile with retry logic (important for mobile)
-        let userProfile = null;
-        let retries = 3;
-        
-        while (retries > 0) {
-          try {
-            const { data, error } = await supabase
-              .from('users')
-              .select('profile_completed, auth_provider, firstname, surname')
-              .eq('id', session.user.id)
-              .single();
-            
-            if (error) throw error;
-            
-            userProfile = data;
-            break;
-          } catch (error) {
-            retries--;
-            if (retries === 0) throw error;
-            await new Promise(resolve => setTimeout(resolve, 500));
-          }
-        }
-        
-        if (!userProfile) {
-          console.log('User profile not found, redirecting to complete-profile');
-          if (mounted) setAuthState('complete-profile');
-        } else if (!userProfile.profile_completed) {
-          console.log('Profile incomplete');
-          if (mounted) setAuthState('complete-profile');
-        } else {
-          console.log('✅ Authentication complete, entering app');
-          if (mounted) setAuthState('app');
-        }
-        
-      } catch (error) {
-        console.error('Auth initialization error:', error);
-        if (mounted) setAuthState('login');
-      } finally {
-        if (mounted) {
-          setLoading(false);
-          isCheckingAuth = false;
-          authInitializedRef.current = true;
+      if (document.visibilityState === 'visible') {
+        console.log('👁️ Tab visible - NO REFRESH');
+        // DO NOTHING - preserve current state
+        // The app should continue exactly where it left off
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    // 3. HANDLE PAGESHOW (bfcache restore)
+    const handlePageShow = (event) => {
+      if (event.persisted) {
+        console.log('📱 Restored from bfcache - keeping state intact');
+        // Restore from sessionStorage if needed
+        const snapshot = restoreState('appSnapshot', null);
+        if (snapshot && Date.now() - snapshot.timestamp < 300000) { // 5 minutes
+          console.log('🔄 Restoring recent snapshot');
+          if (snapshot.user && !user) _setUser(snapshot.user);
+          if (snapshot.authState && authState !== snapshot.authState) _setAuthState(snapshot.authState);
+          if (snapshot.activeTab && activeTab !== snapshot.activeTab) _setActiveTab(snapshot.activeTab);
         }
       }
     };
+    
+    window.addEventListener('pageshow', handlePageShow);
+    
+    // 4. PREVENT MOBILE PULL-TO-REFRESH
+    document.body.style.overscrollBehavior = 'contain';
+    
+    // Store handlers for cleanup
+    visibilityHandlersRef.current = [
+      () => window.removeEventListener('beforeunload', preventUnload),
+      () => document.removeEventListener('visibilitychange', handleVisibilityChange),
+      () => window.removeEventListener('pageshow', handlePageShow),
+      () => { document.body.style.overscrollBehavior = ''; }
+    ];
 
-    // Single auth state change listener (optimized)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (!mounted) return;
-        
-        console.log('🔔 Auth event:', event);
-        
-        // Debounce rapid auth events (common on mobile)
-        if (authCheckTimeout) clearTimeout(authCheckTimeout);
-        
-        authCheckTimeout = setTimeout(async () => {
-          if (event === 'SIGNED_OUT') {
-            console.log('👋 User signed out');
-            setUser(null);
-            setAuthState('login');
-          } 
-          else if (session?.user) {
-            setUser(session.user);
-            
-            if (event === 'SIGNED_IN') {
-              // Only do full check for SIGNED_IN events
-              initializeAuth();
-            }
-            // For TOKEN_REFRESHED, just update user if needed
-            else if (event === 'TOKEN_REFRESHED' && authState === 'app') {
-              // Stay in app, don't reinitialize
-              console.log('🔄 Token refreshed, staying in app');
-            }
-          }
-        }, 100);
-      }
-    );
-
-    // Start auth initialization
-    initializeAuth();
+    // 5. INITIALIZE APP ONLY ONCE
+    if (!isInitializedRef.current) {
+      initializeApp();
+      isInitializedRef.current = true;
+    }
 
     return () => {
-      mounted = false;
-      if (authCheckTimeout) clearTimeout(authCheckTimeout);
-      subscription?.unsubscribe();
+      console.log('🧹 Cleaning up app');
+      isMountedRef.current = false;
+      visibilityHandlersRef.current.forEach(cleanup => cleanup());
     };
-  }, []);
+  }, []); // EMPTY DEPS - RUN ONLY ONCE
 
   // ============================================
-  // OAuth Callback Handler (Must be first!)
+  // ONE-TIME APP INITIALIZATION
+  // ============================================
+  const initializeApp = async () => {
+    console.log('⚡ One-time app initialization');
+    setLoading(true);
+    
+    try {
+      // Check for existing session WITHOUT triggering re-auth on tab switch
+      const { data: { session }, error } = await supabase.auth.getSession();
+      
+      if (error) {
+        console.error('Session check error:', error);
+        if (isMountedRef.current) setAuthState('login');
+        return;
+      }
+      
+      if (!session) {
+        console.log('No active session');
+        if (isMountedRef.current) setAuthState('login');
+        return;
+      }
+      
+      console.log('✅ Session exists:', session.user.email);
+      
+      // Set user immediately
+      if (isMountedRef.current) {
+        setUser(session.user);
+        
+        // Check profile status
+        const { data: profile } = await supabase
+          .from('users')
+          .select('profile_completed')
+          .eq('id', session.user.id)
+          .single()
+          .catch(() => ({ data: null }));
+        
+        if (!profile || !profile.profile_completed) {
+          setAuthState('complete-profile');
+        } else {
+          setAuthState('app');
+        }
+      }
+      
+    } catch (error) {
+      console.error('Initialization error:', error);
+      if (isMountedRef.current) setAuthState('login');
+    } finally {
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
+    }
+    
+    // Set up ONE-TIME auth listener
+    if (!supabaseSubscriptionRef.current) {
+      supabaseSubscriptionRef.current = supabase.auth.onAuthStateChange(
+        async (event, session) => {
+          if (!isMountedRef.current) return;
+          
+          console.log('🔔 Auth event (one-time):', event);
+          
+          switch (event) {
+            case 'SIGNED_IN':
+              if (session?.user) {
+                setUser(session.user);
+                // Give it a moment before checking profile
+                setTimeout(() => checkUserProfile(session.user.id), 100);
+              }
+              break;
+              
+            case 'SIGNED_OUT':
+              setUser(null);
+              setAuthState('login');
+              // Clear persisted state
+              sessionStorage.removeItem('user');
+              sessionStorage.removeItem('authState');
+              sessionStorage.removeItem('appSnapshot');
+              break;
+              
+            case 'TOKEN_REFRESHED':
+              // Silent token refresh - DO NOTHING
+              console.log('🔄 Token refreshed silently');
+              break;
+              
+            case 'USER_UPDATED':
+              if (session?.user) {
+                setUser(session.user);
+              }
+              break;
+          }
+        }
+      );
+    }
+  };
+
+  // ============================================
+  // PROFILE CHECK (Only when needed)
+  // ============================================
+  const checkUserProfile = async (userId) => {
+    try {
+      const { data: profile } = await supabase
+        .from('users')
+        .select('profile_completed')
+        .eq('id', userId)
+        .single();
+      
+      if (!profile || !profile.profile_completed) {
+        setAuthState('complete-profile');
+      } else {
+        setAuthState('app');
+      }
+    } catch (error) {
+      console.error('Profile check error:', error);
+      setAuthState('complete-profile');
+    }
+  };
+
+  // ============================================
+  // OAUTH CALLBACK HANDLER
   // ============================================
   if (window.location.pathname === '/auth/callback') {
     return <AuthCallback />;
   }
 
   // ============================================
-  // Save active tab when in app
-  // ============================================
-  useEffect(() => {
-    if (authState === 'app') {
-      localStorage.setItem('activeTab', activeTab);
-    }
-  }, [activeTab, authState]);
-
-  // ============================================
-  // Auth Handlers
+  // AUTH HANDLERS
   // ============================================
   const handleProfileComplete = async () => {
     if (user) {
@@ -305,7 +368,7 @@ function App() {
   };
 
   // ============================================
-  // Page Content Renderer
+  // PAGE CONTENT RENDERER
   // ============================================
   const renderPageContent = () => {
     switch (activeTab) {
@@ -329,14 +392,14 @@ function App() {
   };
 
   // ============================================
-  // Loading State
+  // LOADING STATE
   // ============================================
   if (loading) {
     return <Loading fullscreen />;
   }
 
   // ============================================
-  // Main Render Based on Auth State
+  // MAIN RENDER BASED ON AUTH STATE
   // ============================================
   switch (authState) {
     case 'checking':
@@ -398,6 +461,7 @@ function App() {
               <Sidebar 
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
+                user={user} // Added user prop
               />
 
               {/* Page Content */}
