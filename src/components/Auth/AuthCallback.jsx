@@ -25,7 +25,9 @@ const AuthCallback = () => {
         
         if (error) {
           console.error('❌ Session error:', error);
-          window.location.href = '/';
+          // Instead of redirecting, let the main app handle it
+          window.location.hash = '';
+          window.location.search = '';
           return;
         }
 
@@ -61,7 +63,9 @@ const AuthCallback = () => {
                 const { data: { session: newSession } } = await supabase.auth.getSession();
                 if (newSession) {
                   console.log('✅ Now have session:', newSession.user.email);
-                  window.location.href = '/';
+                  // Clean URL and let app handle the rest
+                  window.location.hash = '';
+                  window.location.search = '';
                   return;
                 }
               } catch (tokenError) {
@@ -70,7 +74,9 @@ const AuthCallback = () => {
             }
           }
           
-          window.location.href = '/';
+          // Clean URL and exit - main app will show login
+          window.location.hash = '';
+          window.location.search = '';
           return;
         }
 
@@ -100,12 +106,29 @@ const AuthCallback = () => {
         // Wait a bit for database sync
         await new Promise(resolve => setTimeout(resolve, 500));
         
-        console.log('✅ Step 5: Redirecting to app...');
-        window.location.href = '/';
+        console.log('✅ Step 5: Cleaning URL and letting app handle redirect...');
+        
+        // CRITICAL: Remove OAuth parameters from URL WITHOUT redirecting
+        // This allows the main app to detect the session and handle navigation
+        if (window.history.replaceState) {
+          // Remove hash fragments (access_token, etc.)
+          window.history.replaceState({}, document.title, '/');
+        }
+        
+        // Force a page state update to trigger app re-render
+        window.dispatchEvent(new Event('popstate'));
+        
+        // Also clean up the URL in the address bar
+        window.location.hash = '';
+        
+        // IMPORTANT: DON'T DO window.location.href = '/'
+        // Let the main App.jsx handle the navigation based on auth state
         
       } catch (error) {
         console.error('❌ AuthCallback error:', error);
-        window.location.href = '/';
+        // Clean URL on error
+        window.location.hash = '';
+        window.location.search = '';
       }
     };
 
@@ -118,7 +141,7 @@ const AuthCallback = () => {
         <div className="auth-header">
           <div className="auth-logo">
             <div className="logo-icon">CC</div>
-            <h1>CampusConnect</h1>
+            <h1>AinRu</h1>
           </div>
           <h2 className="auth-title">Processing Google Sign In</h2>
           <p className="auth-subtitle">Please wait...</p>
