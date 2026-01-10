@@ -105,6 +105,7 @@ function App() {
   const isInitializedRef = useRef(false);
   const supabaseSubscriptionRef = useRef(null);
   const visibilityHandlersRef = useRef([]);
+  const isProcessingOAuthRef = useRef(false);
 
   // ============================================
   // PERSISTENT STATE SETTERS
@@ -125,6 +126,15 @@ function App() {
     globalAppState.activeTab = newTab;
     localStorage.setItem('activeTab', newTab);
     _setActiveTab(newTab);
+  };
+
+  // ============================================
+  // CHECK IF WE'RE IN OAUTH FLOW
+  // ============================================
+  const isOAuthCallback = () => {
+    return window.location.pathname === '/auth/callback' ||
+           window.location.hash.includes('access_token') ||
+           window.location.search.includes('code=');
   };
 
   // ============================================
@@ -200,8 +210,8 @@ function App() {
       () => { document.body.style.overscrollBehavior = ''; }
     ];
 
-    // 5. INITIALIZE APP ONLY ONCE
-    if (!isInitializedRef.current) {
+    // 5. INITIALIZE APP ONLY ONCE - but skip if we're in OAuth callback
+    if (!isInitializedRef.current && !isOAuthCallback()) {
       initializeApp();
       isInitializedRef.current = true;
     }
@@ -217,6 +227,8 @@ function App() {
   // ONE-TIME APP INITIALIZATION - FIXED VERSION
   // ============================================
   const initializeApp = async () => {
+    if (isProcessingOAuthRef.current) return;
+    
     console.log('⚡ One-time app initialization');
     setLoading(true);
     
@@ -242,7 +254,7 @@ function App() {
       if (isMountedRef.current) {
         setUser(session.user);
         
-        // FIXED: Check profile status - remove .catch()
+        // Check profile status
         let profile = null;
         try {
           const { data, error: profileError } = await supabase
@@ -285,10 +297,44 @@ function App() {
           
           switch (event) {
             case 'SIGNED_IN':
+            case 'INITIAL_SESSION':
               if (session?.user) {
+                console.log('👤 Setting user from', event, ':', session.user.email);
                 setUser(session.user);
-                // Give it a moment before checking profile
-                setTimeout(() => checkUserProfile(session.user.id), 100);
+                isProcessingOAuthRef.current = true;
+                
+                // Check profile after a delay for OAuth users
+                setTimeout(async () => {
+                  try {
+                    let profile = null;
+                    try {
+                      const { data, error: profileError } = await supabase
+                        .from('users')
+                        .select('profile_completed')
+                        .eq('id', session.user.id)
+                        .single();
+                      
+                      if (!profileError) {
+                        profile = data;
+                      }
+                    } catch (profileError) {
+                      console.log('Profile check error:', profileError);
+                    }
+                    
+                    console.log('📋 Profile result:', profile);
+                    
+                    if (!profile || !profile.profile_completed) {
+                      setAuthState('complete-profile');
+                    } else {
+                      setAuthState('app');
+                    }
+                  } catch (error) {
+                    console.error('Profile check error:', error);
+                    setAuthState('complete-profile');
+                  } finally {
+                    isProcessingOAuthRef.current = false;
+                  }
+                }, 1000);
               }
               break;
               
@@ -311,16 +357,6 @@ function App() {
                 setUser(session.user);
               }
               break;
-
-            case 'INITIAL_SESSION':
-              // Handle OAuth initial session
-              console.log('🎬 INITIAL_SESSION from OAuth');
-              if (session?.user) {
-                setUser(session.user);
-                // Check profile for OAuth users
-                setTimeout(() => checkUserProfile(session.user.id), 500);
-              }
-              break;
           }
         }
       );
@@ -328,54 +364,27 @@ function App() {
   };
 
   // ============================================
-  // PROFILE CHECK (Only when needed) - FIXED
-  // ============================================
-  const checkUserProfile = async (userId) => {
-    try {
-      let profile = null;
-      try {
-        const { data, error: profileError } = await supabase
-          .from('users')
-          .select('profile_completed')
-          .eq('id', userId)
-          .single();
-        
-        if (!profileError) {
-          profile = data;
-        }
-      } catch (error) {
-        console.log('Profile check error:', error);
-      }
-      
-      if (!profile || !profile.profile_completed) {
-        setAuthState('complete-profile');
-      } else {
-        setAuthState('app');
-      }
-    } catch (error) {
-      console.error('Profile check error:', error);
-      setAuthState('complete-profile');
-    }
-  };
-
-  // ============================================
-  // OAUTH CALLBACK HANDLER
-  // ============================================
-  if (window.location.pathname === '/auth/callback') {
-    return <AuthCallback />;
-  }
-
-  // ============================================
-  // ADD OAuth URL detection
+  // HANDLE OAUTH CALLBACK REDIRECT
   // ============================================
   useEffect(() => {
-    // Check if we have OAuth tokens in URL
-    const hash = window.location.hash;
-    if (hash.includes('access_token') || hash.includes('code=')) {
-      console.log('🔑 OAuth tokens detected in URL');
-      // Don't do anything - AuthCallback is handling it
+    // If we just came from OAuth callback and URL is clean, initialize
+    if (window.location.pathname === '/' && 
+        !window.location.hash && 
+        !window.location.search &&
+        !isInitializedRef.current) {
+      console.log('🔄 Coming from OAuth callback - initializing app');
+      initializeApp();
+      isInitializedRef.current = true;
     }
   }, []);
+
+  // ============================================
+  // OAUTH CALLBACK HANDLER - MUST BE BEFORE ANY OTHER LOGIC
+  // ============================================
+  if (window.location.pathname === '/auth/callback') {
+    console.log('🔑 Rendering AuthCallback component');
+    return <AuthCallback />;
+  }
 
   // ============================================
   // AUTH HANDLERS
@@ -446,10 +455,6 @@ function App() {
   // ============================================
   switch (authState) {
     case 'checking':
-      // If checking and we might be in OAuth flow, show special loading
-      if (window.location.hash.includes('access_token')) {
-        return <Loading fullscreen message="Completing Google sign in..." />;
-      }
       return <Loading fullscreen />;
     
     case 'login':

@@ -25,58 +25,20 @@ const AuthCallback = () => {
         
         if (error) {
           console.error('❌ Session error:', error);
-          // Instead of redirecting, let the main app handle it
-          window.location.hash = '';
-          window.location.search = '';
+          // Clean URL and let main app handle it
+          setTimeout(() => {
+            window.location.hash = '';
+            window.location.search = '';
+          }, 100);
           return;
         }
 
         if (!session) {
           console.error('❌ No session after OAuth');
-          
-          // Check if we have tokens in URL
-          const hash = window.location.hash;
-          if (hash.includes('access_token')) {
-            console.log('⚠️ Has tokens but no session - trying manual processing');
-            
-            // Try to parse tokens manually
-            const params = new URLSearchParams(hash.substring(1));
-            const accessToken = params.get('access_token');
-            const refreshToken = params.get('refresh_token');
-            
-            console.log('📋 Token check:', {
-              hasAccessToken: !!accessToken,
-              hasRefreshToken: !!refreshToken,
-              tokenLength: accessToken?.length
-            });
-            
-            if (accessToken) {
-              // Try to set session manually
-              try {
-                await supabase.auth.setSession({
-                  access_token: accessToken,
-                  refresh_token: refreshToken
-                });
-                console.log('✅ Manually set session from tokens');
-                
-                // Get session again
-                const { data: { session: newSession } } = await supabase.auth.getSession();
-                if (newSession) {
-                  console.log('✅ Now have session:', newSession.user.email);
-                  // Clean URL and let app handle the rest
-                  window.location.hash = '';
-                  window.location.search = '';
-                  return;
-                }
-              } catch (tokenError) {
-                console.error('❌ Manual token error:', tokenError);
-              }
-            }
-          }
-          
-          // Clean URL and exit - main app will show login
-          window.location.hash = '';
-          window.location.search = '';
+          setTimeout(() => {
+            window.location.hash = '';
+            window.location.search = '';
+          }, 100);
           return;
         }
 
@@ -109,26 +71,24 @@ const AuthCallback = () => {
         console.log('✅ Step 5: Cleaning URL and letting app handle redirect...');
         
         // CRITICAL: Remove OAuth parameters from URL WITHOUT redirecting
-        // This allows the main app to detect the session and handle navigation
-        if (window.history.replaceState) {
-          // Remove hash fragments (access_token, etc.)
-          window.history.replaceState({}, document.title, '/');
-        }
-        
-        // Force a page state update to trigger app re-render
-        window.dispatchEvent(new Event('popstate'));
-        
-        // Also clean up the URL in the address bar
-        window.location.hash = '';
-        
-        // IMPORTANT: DON'T DO window.location.href = '/'
-        // Let the main App.jsx handle the navigation based on auth state
+        // Use setTimeout to avoid React render cycle issues
+        setTimeout(() => {
+          if (window.history.replaceState) {
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }
+          // Force navigation to root after a moment
+          setTimeout(() => {
+            window.location.href = '/';
+          }, 50);
+        }, 100);
         
       } catch (error) {
         console.error('❌ AuthCallback error:', error);
-        // Clean URL on error
-        window.location.hash = '';
-        window.location.search = '';
+        setTimeout(() => {
+          window.location.hash = '';
+          window.location.search = '';
+          window.location.href = '/';
+        }, 100);
       }
     };
 
